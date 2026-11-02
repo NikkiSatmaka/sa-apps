@@ -13,6 +13,7 @@ mengikuti keputusan desain (settings dibaca saat call-time).
 import contextlib
 import json
 import logging
+import re
 
 from hypothesis import given
 from hypothesis import settings as hyp_settings
@@ -254,6 +255,17 @@ def _capture_warnings():
         logger.removeHandler(handler)
 
 
+# Bentuk aman pesan log PII: hanya `tipe=count` dipisah ", ", tanpa nilai mentah.
+# Dipakai Property 5 untuk memverifikasi format log, bukan sekadar ketiadaan
+# substring (substring buta menimbulkan false positive: local-part acak mis.
+# "ter" menabrak kata "terdeteksi" pada prosa pesan).
+_PII_LOG_RE = re.compile(
+    r"PII terdeteksi: "
+    r"(?:email|phone_id|nik|npwp|credit_card)=\d+"
+    r"(?:, (?:email|phone_id|nik|npwp|credit_card)=\d+)*$"
+)
+
+
 # Feature: guardrails-llm, Property 5: Log PII tidak memuat nilai mentah
 @hyp_settings(max_examples=100)
 @given(st.integers(min_value=1, max_value=3), _LOCAL, _DOMAIN)
@@ -267,8 +279,14 @@ def test_property_5_log_pii_tanpa_nilai_mentah(k, email_local, domain):
         assert email_local not in str(f)
         assert email not in str(f)
     for message in handler.messages:
-        assert email_local not in message
+        # Email utuh tidak boleh pernah bocor ke log.
         assert email not in message
+        # Pesan harus persis berbentuk ringkasan aman tipe=count. Ini properti
+        # yang sebenarnya dijaga: log hanya memuat tipe + jumlah, tidak pernah
+        # nilai mentah. fullmatch kebal terhadap local-part acak yang kebetulan
+        # menabrak prosa Indonesia pesan (mis. "ter" di dalam "terdeteksi") atau
+        # menabrak nama tipe (mis. "email"), karena tidak ada slot untuk nilai.
+        assert _PII_LOG_RE.fullmatch(message)
 
 
 # =============================================================================

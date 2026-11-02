@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity_log import ActivityLog
 from app.models.project import Project
+from app.models.subtask import Subtask
 from app.services.llm_provider import LLMResponse, llm_factory
 from app.utils.guardrails import PolishResult, sanitize_text_input, validate_llm_json
 
@@ -117,22 +118,33 @@ class ActivityLogger:
             id_project: ID proyek (wajib untuk Project, None untuk Non-Project).
             project_phase: Fase proyek (wajib untuk Project, None untuk Non-Project).
             gcal_event_id: ID event Google Calendar (opsional).
-            id_subtask: ID subtask terkait (opsional, tautan informasional;
-                TIDAK meng-advance status subtask).
+            id_subtask: ID subtask terkait (opsional). Bila di-set, jalur ini
+                memvalidasi bahwa subtask milik id_project yang sama (tolak bila
+                beda proyek) dan memajukan subtask ber-status 'open' ke
+                'in_progress' (ADR 0008). Idempoten: 'in_progress'/'done' tidak
+                diubah; aktivitas tidak pernah ke 'done' maupun memundurkan status.
 
         Returns:
             Instance ActivityLog yang sudah tersimpan.
 
         Raises:
-            ValueError: Jika Project dan project_id tidak ditemukan.
+            ValueError: Jika Project dan project_id tidak ditemukan, atau bila
+                id_subtask menunjuk subtask dari proyek lain.
         """
         # Validasi project hanya untuk aktivitas Project
         if work_type == "Project":
             await self._validate_project(id_project)
         else:
-            # Non-Project: pastikan tidak terkait proyek/fase
+            # Non-Project: pastikan tidak terkait proyek/fase/subtask
             id_project = None
             project_phase = None
+            id_subtask = None
+
+        # Subtask: validasi scope proyek + majukan open -> in_progress (ADR 0008).
+        # Dilakukan sebelum membuat log agar penolakan cross-project membatalkan
+        # seluruh operasi (tidak ada log yang tersimpan).
+        if id_subtask is not None:
+            await self._advance_subtask_on_activity(id_subtask, id_project)
 
         # Generate ID unik
         id_log = _generate_log_id()
@@ -394,9 +406,46 @@ class ActivityLogger:
             id_project=id_project,
             subtask_category=subtask_category,
             duration_hours=duration_hours,
-            raw_notes=raw_notes or f"[Mapped dari Google Calendar event]",
+            raw_notes=raw_notes or "[Mapped dari Google Calendar event]",
             gcal_event_id=gcal_event_id,
         )
+
+    async def _advance_subtask_on_activity(
+        self, id_subtask: str, id_project: Optional[str]
+    ) -> None:
+        """
+        Validasi scope subtask dan majukan statusnya saat ada aktivitas (ADR 0008).
+
+        Dipanggil dari create_log saat id_subtask di-set. Memastikan subtask
+        memang milik id_project yang sama (tolak bila beda proyek), lalu
+        memajukan subtask ber-status 'open' ke 'in_progress'. Idempoten:
+        'in_progress'/'done' dibiarkan; aktivitas tidak pernah memajukan ke
+        'done' maupun memundurkan status.
+
+        Args:
+            id_subtask: ID subtask yang ditautkan ke activity log.
+            id_project: ID proyek pemilik activity log (untuk cek scope).
+
+        Raises:
+            ValueError: Jika subtask tidak ditemukan atau milik proyek lain.
+        """
+        result = await self.db.execute(
+            select(Subtask).where(Subtask.id_subtask == id_subtask)
+        )
+        subtask = result.scalar_one_or_none()
+
+        if subtask is None:
+            raise ValueError(f"Subtask dengan ID '{id_subtask}' tidak ditemukan.")
+
+        if subtask.id_project != id_project:
+            raise ValueError(
+                f"Subtask '{id_subtask}' bukan milik proyek '{id_project}'."
+            )
+
+        # Hanya transisi maju open -> in_progress; status lain dibiarkan.
+        if subtask.status == "open":
+            subtask.status = "in_progress"
+            self.db.add(subtask)
 
     async def _validate_project(self, id_project: str) -> Project:
         """

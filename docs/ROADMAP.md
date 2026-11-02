@@ -30,7 +30,7 @@ Dokumen pelacakan untuk fitur yang dibutuhkan agar mencapai MVP yang layak. Stat
 | 3 | Form pertanyaan awal | 🔴 Belum ada | Tidak ada konsep kuesioner intake |
 | 4 | BANT scoring | ✅ Selesai | AI + manual keduanya berfungsi |
 | 5 | Kualifikasi & assignment oleh Lead SA | ✅ Selesai | Folder provisioner di-wire end-to-end (#45): assign men-schedule provisioning, persist `gdrive_folder_id` + `gdrive_solutions_folder_id` + status pending/provisioned/failed, badge dashboard + endpoint re-provision. Tidak ada step qualify terpisah — gate BANT ≥ 60% otomatis sudah memenuhi spec (Fase 2.3) |
-| 6 | Staff mengikuti subtask / respons subtask via activity log | 🟡 Partial | "Subtask" hanya string enum; tidak ada entity subtask yang bisa di-assign |
+| 6 | Staff mengikuti subtask / respons subtask via activity log | ✅ Selesai | Entity `Subtask` assignable end-to-end: seeding auto-assign ke SA proyek (T1), activity log memajukan `open → in_progress` dengan validasi scope (T2, ADR 0008), dan section Subtask di `projects/[id]` dengan kontrol per-role + badge status + ringkasan "N/M selesai" (T3). `done` selalu eksplisit via tombol "Tandai selesai" |
 | 7 | Input dokumen (Requirement, BoQ, Mandays, PropTek, HLD) | 🟡 Partial | Tipe "Requirement" belum ada (hanya RFP/PropTek/BOQ/Mandays/MoM/HLD) |
 | 8 | Due date + integrasi calendar | 🟡 Partial | `target_submit` ada; calendar read-only, tidak ada push due date |
 | 9 | Edit due date / ikon pensil edit | 🟡 Partial | Alur edit berfungsi; masih tombol teks, bukan ikon pensil |
@@ -138,11 +138,11 @@ Ditemukan saat asesmen dan sebaiknya diperbaiki lebih awal — ini merusak fungs
 
 **Tujuan:** mengubah "subtask" dari kategori activity-log bebas pilih menjadi work item yang nyata dan bisa di-track. **Ini perubahan model** — effort lebih besar.
 
-- [ ] 4.1 Tambah entity `Subtask`: `id`, `id_project`, `title`/`category`, `assigned_sa`, `status` (open → in_progress → done), timestamp. Migration + model + schema.
-- [ ] 4.2 Endpoint: buat subtask (Lead SA / template), list per proyek, update status, assign/reassign ke SA.
-- [ ] 4.3 Tautkan `ActivityLog` ke subtask (FK `id_subtask` opsional) agar mencatat aktivitas bisa memajukan/menutup subtask ("respons subtask").
-- [ ] 4.4 **✅ Diputuskan (sesi grill, 2026-10-21):** **YA** — meng-assign proyek otomatis men-seed checklist subtask default (mis. Requirement → BoQ → PropTek → HLD) dari template. Lead SA tetap bisa menambah/menghapus subtask secara manual.
-- [ ] 4.5 Frontend: tampilan to-do list subtask yang di-assign ke SA; UX mencatat aktivitas terhadap subtask; manajemen subtask untuk Lead SA.
+- [x] 4.1 Tambah entity `Subtask`: `id`, `id_project`, `title`/`category`, `assigned_sa`, `status` (open → in_progress → done), timestamp. Migration + model + schema.
+- [x] 4.2 Endpoint: buat subtask (Lead SA / template), list per proyek, update status, assign/reassign ke SA.
+- [x] 4.3 Tautkan `ActivityLog` ke subtask (FK `id_subtask` opsional) agar mencatat aktivitas bisa memajukan/menutup subtask ("respons subtask"). **Mendarat (T2):** activity log pertama terhadap subtask `open` memajukannya ke `in_progress` dengan validasi scope `id_project`; `done` selalu eksplisit (ADR 0008).
+- [x] 4.4 **✅ Diputuskan (sesi grill, 2026-10-21):** **YA** — meng-assign proyek otomatis men-seed checklist subtask default (mis. Requirement → BoQ → PropTek → HLD) dari template. Lead SA tetap bisa menambah/menghapus subtask secara manual. **Mendarat (T1):** keempat subtask default langsung ditugaskan ke SA proyek (`assigned_sa`), seeding idempoten pada re-assign.
+- [x] 4.5 Frontend: tampilan to-do list subtask yang di-assign ke SA; UX mencatat aktivitas terhadap subtask; manajemen subtask untuk Lead SA. **Mendarat (T3):** section Subtask di `projects/[id]` (`frontend/src/components/SubtaskSection.tsx`) dengan kontrol per-role — SA melihat to-do list miliknya + tombol "Tandai selesai"; Lead_SA/Admin bisa tambah/hapus/assign-ulang; badge status per item + ringkasan "N/M selesai" di header.
 
 **Kriteria selesai:** SA melihat to-do list subtask, mencatat aktivitas terhadap salah satunya, dan subtask berubah status.
 

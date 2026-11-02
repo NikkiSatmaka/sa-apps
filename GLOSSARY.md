@@ -46,7 +46,7 @@ _Avoid_: Deal number, project code
 ## Pekerjaan & aktivitas
 
 **Subtask**:
-Work item yang bisa ditugaskan dalam sebuah proyek, punya status open → in_progress → done (mis. "Create HLD", "Peer Review"). Berbeda dari `ActivityCategory`.
+Work item yang bisa ditugaskan dalam sebuah proyek, punya status open → in_progress → done (mis. "Create HLD", "Peer Review"). Saat SA di-assign ke proyek, checklist default (`Requirement, BoQ, PropTek, HLD`) di-seed dan langsung ditugaskan ke SA proyek itu; Lead SA boleh memindah sebagian ke SA lain. Mencatat activity log pertama terhadap subtask `open` memindahkannya ke `in_progress`; `done` selalu ditandai eksplisit, tidak pernah disimpulkan dari adanya log. Berbeda dari `ActivityCategory`.
 _Avoid_: Task, to-do, activity
 
 **ActivityCategory**:

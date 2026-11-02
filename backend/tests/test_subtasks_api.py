@@ -352,6 +352,9 @@ class TestAutoSeedOnAssignment:
         assert titles == sorted(["Requirement", "BoQ", "PropTek", "HLD"])
         assert len(items) == 4
 
+        # keempat subtask hasil seeding ditugaskan ke SA proyek (bukan None)
+        assert all(s["assigned_sa"] == str(sa_one.id) for s in items)
+
         # re-assign -> tetap 4 (idempoten)
         resp = client.post(
             f"/api/v1/projects/{PROJECT_ID}/reassign",

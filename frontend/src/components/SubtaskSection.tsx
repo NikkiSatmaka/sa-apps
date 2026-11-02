@@ -91,9 +91,11 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
     ? allSubtasks
     : allSubtasks.filter((s) => s.assigned_sa === user?.id);
 
-  // Ringkasan "N/M selesai" dari daftar yang relevan untuk role ini.
-  const totalCount = visibleSubtasks.length;
-  const doneCount = visibleSubtasks.filter((s) => s.status === "done").length;
+  // Ringkasan "N/M selesai" adalah glance progres PROYEK (spec #58 user story 7):
+  // selalu dihitung dari seluruh subtask proyek untuk kedua role, bukan hanya
+  // subtask milik SA. Daftar yang ditampilkan ke SA tetap terfilter (to-do list).
+  const totalCount = allSubtasks.length;
+  const doneCount = allSubtasks.filter((s) => s.status === "done").length;
 
   const handleAdd = async () => {
     const title = newTitle.trim();

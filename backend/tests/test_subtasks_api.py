@@ -574,3 +574,48 @@ class TestActivityLogSubtaskLink:
 
         # Status subtask proyek lain tidak tersentuh.
         assert session.subtasks[subtask.id_subtask].status == "open"
+
+    @patch(
+        "app.services.activity_logger.ActivityLogger.polish_notes",
+        new_callable=AsyncMock,
+    )
+    def test_non_project_log_drops_id_subtask_link(self, mock_polish):
+        """
+        Log Non-Project tidak boleh pernah menautkan subtask: walau id_subtask
+        dikirim pada payload, create_log memaksa id_subtask=None untuk cabang
+        Non-Project. Mengunci perilaku (scope-creep) agar tidak diam-diam berubah.
+        """
+        mock_polish.return_value = None  # hindari LLM
+
+        session = _FakeSession()
+        sa = _make_user(role="SA")
+        session.add_user(sa)
+
+        # Subtask ada di DB, tetapi log Non-Project tetap tidak boleh menautkannya.
+        subtask = _make_subtask("SUB-20250101-NONPRJ", status_value="open", assigned_sa=sa.id)
+        session.subtasks[subtask.id_subtask] = subtask
+
+        _override_db(session)
+        _override_current_user(sa)
+        client = TestClient(app)
+
+        # Payload Non-Project valid (tanpa id_project/project_phase) TAPI mengirim id_subtask.
+        resp = client.post(
+            "/api/v1/activity-logs",
+            json={
+                "work_type": "Non-Project",
+                "subtask_category": "Training",
+                "id_subtask": subtask.id_subtask,
+                "duration_hours": 1.0,
+                "raw_notes": "Ikut training internal.",
+            },
+        )
+        assert resp.status_code == status.HTTP_201_CREATED
+
+        # Link di-drop: log tersimpan dengan id_subtask = None.
+        assert resp.json()["data"]["id_subtask"] is None
+        stored = next(iter(session.activity_logs.values()))
+        assert stored.id_subtask is None
+
+        # Subtask tidak disentuh (tidak dimajukan ke in_progress).
+        assert session.subtasks[subtask.id_subtask].status == "open"

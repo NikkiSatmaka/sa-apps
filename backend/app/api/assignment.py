@@ -48,9 +48,14 @@ def _generate_subtask_id() -> str:
     return f"SUB-{date_part}-{random_part}"
 
 
-async def _seed_default_subtasks(db: AsyncSession, project_id: str) -> None:
+async def _seed_default_subtasks(db: AsyncSession, project_id: str, assigned_sa: uuid.UUID) -> None:
     """
     Seed checklist subtask default untuk proyek bila belum ada subtask apa pun.
+
+    Subtask hasil seeding langsung ditugaskan ke SA proyek (`assigned_sa`), sehingga
+    begitu SA membuka proyek, to-do list miliknya sudah terisi tanpa Lead SA perlu
+    mendistribusikan tiap item. Lead SA tetap bisa memindah sebagian ke SA lain lewat
+    endpoint assign subtask.
 
     Idempoten: jika proyek sudah punya minimal satu subtask (mis. re-assign),
     seeding dilewati sehingga tidak terjadi duplikasi.
@@ -69,7 +74,7 @@ async def _seed_default_subtasks(db: AsyncSession, project_id: str) -> None:
                 id_project=project_id,
                 title=title,
                 status="open",
-                assigned_sa=None,
+                assigned_sa=assigned_sa,
             )
         )
 
@@ -706,7 +711,8 @@ async def assign_sa_to_project(
     db.add(notification)
 
     # === Auto-seed checklist subtask default (idempoten) ===
-    await _seed_default_subtasks(db, project_id)
+    # Subtask default langsung ditugaskan ke SA proyek yang baru di-assign.
+    await _seed_default_subtasks(db, project_id, project.assigned_sa)
 
     # Commit perubahan
     await db.commit()
@@ -868,7 +874,9 @@ async def reassign_sa_to_project(
     db.add(notification)
 
     # === Auto-seed checklist subtask default (idempoten) ===
-    await _seed_default_subtasks(db, project_id)
+    # Subtask default langsung ditugaskan ke SA proyek. Pada re-assign yang sudah
+    # punya subtask, seeding di-skip (idempoten) sehingga tidak menduplikasi.
+    await _seed_default_subtasks(db, project_id, project.assigned_sa)
 
     await db.commit()
     await db.refresh(project)

@@ -5,8 +5,9 @@ Memvalidasi perilaku teramati lewat API:
 - Lifecycle: create (Lead_SA) -> list -> update status -> assign/reassign -> delete.
 - Auto-seed: assign proyek ke SA menanam 4 subtask template; re-assign idempoten (tetap 4).
 - Authz: tanpa token -> 401; SA bukan owner mengubah subtask -> 403.
-- Link activity log: create log dengan id_subtask -> response memuat id_subtask,
-  status subtask TIDAK berubah (tautan informasional).
+- Link activity log (ADR 0008): create log dengan id_subtask memajukan subtask
+  open -> in_progress; idempoten pada in_progress/done; tidak pernah ke done
+  maupun mundur; id_subtask lintas-proyek ditolak (422).
 
 Test terisolasi: tidak butuh Postgres live. Memakai fake in-memory AsyncSession
 yang menyimpan subtasks/projects/activity logs sehingga create->list->update->delete
@@ -352,6 +353,9 @@ class TestAutoSeedOnAssignment:
         assert titles == sorted(["Requirement", "BoQ", "PropTek", "HLD"])
         assert len(items) == 4
 
+        # keempat subtask hasil seeding ditugaskan ke SA proyek (bukan None)
+        assert all(s["assigned_sa"] == str(sa_one.id) for s in items)
+
         # re-assign -> tetap 4 (idempoten)
         resp = client.post(
             f"/api/v1/projects/{PROJECT_ID}/reassign",
@@ -421,8 +425,43 @@ class TestSubtaskAuthz:
 
 
 # =============================================================================
-# (d) Link activity log id_subtask tanpa meng-advance status subtask
+# (d) Link activity log id_subtask memajukan subtask open -> in_progress
+#     (ADR 0008): aktivitas pertama memulai subtask, idempoten setelahnya,
+#     tidak pernah ke done maupun mundur, dan menolak subtask lintas-proyek.
 # =============================================================================
+
+
+def _make_subtask(
+    id_subtask: str,
+    id_project: str = PROJECT_ID,
+    status_value: str = "open",
+    assigned_sa=None,
+) -> Subtask:
+    subtask = Subtask(
+        id_subtask=id_subtask,
+        id_project=id_project,
+        title="Requirement",
+        status=status_value,
+    )
+    subtask.assigned_sa = assigned_sa
+    subtask.created_at = datetime.now(timezone.utc)
+    subtask.updated_at = datetime.now(timezone.utc)
+    return subtask
+
+
+def _post_activity_log(client, id_subtask: str, id_project: str = PROJECT_ID):
+    return client.post(
+        "/api/v1/activity-logs",
+        json={
+            "work_type": "Project",
+            "id_project": id_project,
+            "project_phase": "Pre-Implementation",
+            "subtask_category": "Assessment",
+            "id_subtask": id_subtask,
+            "duration_hours": 1.0,
+            "raw_notes": "Diskusi requirement awal.",
+        },
+    )
 
 
 class TestActivityLogSubtaskLink:
@@ -430,7 +469,7 @@ class TestActivityLogSubtaskLink:
         "app.services.activity_logger.ActivityLogger.polish_notes",
         new_callable=AsyncMock,
     )
-    def test_create_log_with_id_subtask_links_without_advancing(self, mock_polish):
+    def test_first_activity_advances_open_subtask_to_in_progress(self, mock_polish):
         mock_polish.return_value = None  # hindari LLM; entry needs_repolish
 
         session = _FakeSession()
@@ -438,36 +477,145 @@ class TestActivityLogSubtaskLink:
         session.add_project(_make_project(assigned_sa=sa.id, status_value="Assigned"))
         session.add_user(sa)
 
-        subtask = Subtask(
-            id_subtask="SUB-20250101-LINK01",
-            id_project=PROJECT_ID,
-            title="Requirement",
-            status="open",
-        )
-        subtask.assigned_sa = sa.id
-        subtask.created_at = datetime.now(timezone.utc)
-        subtask.updated_at = datetime.now(timezone.utc)
+        subtask = _make_subtask("SUB-20250101-LINK01", status_value="open", assigned_sa=sa.id)
         session.subtasks[subtask.id_subtask] = subtask
 
         _override_db(session)
         _override_current_user(sa)
         client = TestClient(app)
 
+        resp = _post_activity_log(client, subtask.id_subtask)
+        assert resp.status_code == status.HTTP_201_CREATED
+        assert resp.json()["data"]["id_subtask"] == subtask.id_subtask
+
+        # Aktivitas pertama memulai subtask: open -> in_progress (ADR 0008).
+        assert session.subtasks[subtask.id_subtask].status == "in_progress"
+
+    @patch(
+        "app.services.activity_logger.ActivityLogger.polish_notes",
+        new_callable=AsyncMock,
+    )
+    def test_activity_on_in_progress_subtask_leaves_status_unchanged(self, mock_polish):
+        mock_polish.return_value = None
+
+        session = _FakeSession()
+        sa = _make_user(role="SA")
+        session.add_project(_make_project(assigned_sa=sa.id, status_value="Assigned"))
+        session.add_user(sa)
+
+        subtask = _make_subtask(
+            "SUB-20250101-LINK02", status_value="in_progress", assigned_sa=sa.id
+        )
+        session.subtasks[subtask.id_subtask] = subtask
+
+        _override_db(session)
+        _override_current_user(sa)
+        client = TestClient(app)
+
+        resp = _post_activity_log(client, subtask.id_subtask)
+        assert resp.status_code == status.HTTP_201_CREATED
+
+        # Idempoten: sudah in_progress -> tidak berubah.
+        assert session.subtasks[subtask.id_subtask].status == "in_progress"
+
+    @patch(
+        "app.services.activity_logger.ActivityLogger.polish_notes",
+        new_callable=AsyncMock,
+    )
+    def test_activity_never_advances_subtask_to_done_and_never_moves_back(self, mock_polish):
+        mock_polish.return_value = None
+
+        session = _FakeSession()
+        sa = _make_user(role="SA")
+        session.add_project(_make_project(assigned_sa=sa.id, status_value="Assigned"))
+        session.add_user(sa)
+
+        subtask = _make_subtask("SUB-20250101-LINK03", status_value="done", assigned_sa=sa.id)
+        session.subtasks[subtask.id_subtask] = subtask
+
+        _override_db(session)
+        _override_current_user(sa)
+        client = TestClient(app)
+
+        resp = _post_activity_log(client, subtask.id_subtask)
+        assert resp.status_code == status.HTTP_201_CREATED
+
+        # Aktivitas tidak pernah menutup (done tetap) maupun memundurkan status.
+        assert session.subtasks[subtask.id_subtask].status == "done"
+
+    @patch(
+        "app.services.activity_logger.ActivityLogger.polish_notes",
+        new_callable=AsyncMock,
+    )
+    def test_id_subtask_from_other_project_is_rejected(self, mock_polish):
+        mock_polish.return_value = None
+
+        session = _FakeSession()
+        sa = _make_user(role="SA")
+        session.add_project(_make_project(assigned_sa=sa.id, status_value="Assigned"))
+        session.add_user(sa)
+
+        # Subtask milik proyek LAIN daripada id_project pada log.
+        subtask = _make_subtask(
+            "SUB-20250101-OTHER1",
+            id_project="PRJ-20250101-OTHER9",
+            status_value="open",
+            assigned_sa=sa.id,
+        )
+        session.subtasks[subtask.id_subtask] = subtask
+
+        _override_db(session)
+        _override_current_user(sa)
+        client = TestClient(app)
+
+        resp = _post_activity_log(client, subtask.id_subtask, id_project=PROJECT_ID)
+        # id_subtask lintas-proyek ditolak -> ValueError dipetakan ke 422.
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+        # Status subtask proyek lain tidak tersentuh.
+        assert session.subtasks[subtask.id_subtask].status == "open"
+
+    @patch(
+        "app.services.activity_logger.ActivityLogger.polish_notes",
+        new_callable=AsyncMock,
+    )
+    def test_non_project_log_drops_id_subtask_link(self, mock_polish):
+        """
+        Log Non-Project tidak boleh pernah menautkan subtask: walau id_subtask
+        dikirim pada payload, create_log memaksa id_subtask=None untuk cabang
+        Non-Project. Mengunci perilaku (scope-creep) agar tidak diam-diam berubah.
+        """
+        mock_polish.return_value = None  # hindari LLM
+
+        session = _FakeSession()
+        sa = _make_user(role="SA")
+        session.add_user(sa)
+
+        # Subtask ada di DB, tetapi log Non-Project tetap tidak boleh menautkannya.
+        subtask = _make_subtask("SUB-20250101-NONPRJ", status_value="open", assigned_sa=sa.id)
+        session.subtasks[subtask.id_subtask] = subtask
+
+        _override_db(session)
+        _override_current_user(sa)
+        client = TestClient(app)
+
+        # Payload Non-Project valid (tanpa id_project/project_phase) TAPI mengirim id_subtask.
         resp = client.post(
             "/api/v1/activity-logs",
             json={
-                "work_type": "Project",
-                "id_project": PROJECT_ID,
-                "project_phase": "Pre-Implementation",
-                "subtask_category": "Assessment",
+                "work_type": "Non-Project",
+                "subtask_category": "Training",
                 "id_subtask": subtask.id_subtask,
                 "duration_hours": 1.0,
-                "raw_notes": "Diskusi requirement awal.",
+                "raw_notes": "Ikut training internal.",
             },
         )
         assert resp.status_code == status.HTTP_201_CREATED
-        data = resp.json()["data"]
-        assert data["id_subtask"] == subtask.id_subtask
 
-        # status subtask TIDAK berubah (tautan informasional)
+        # Link di-drop: log tersimpan dengan id_subtask = None.
+        assert resp.json()["data"]["id_subtask"] is None
+        stored = next(iter(session.activity_logs.values()))
+        assert stored.id_subtask is None
+
+        # Subtask tidak disentuh (tidak dimajukan ke in_progress).
         assert session.subtasks[subtask.id_subtask].status == "open"

@@ -10,6 +10,7 @@ import { HandoverConfigForm } from "@/components/HandoverConfigForm";
 import { AssignmentModal } from "@/components/AssignmentModal";
 import { ReassignModal } from "@/components/ReassignModal";
 import { CollaboratorSection } from "@/components/CollaboratorSection";
+import { SubtaskSection } from "@/components/SubtaskSection";
 import type { HandoverStatus } from "@/lib/api/handover";
 
 /**
@@ -342,6 +343,9 @@ export default function ProjectDetailPage() {
 
           {/* Section: Activity Log Proyek */}
           <ProjectActivitySection projectId={projectId} />
+
+          {/* Section: Subtask — work item assignable per proyek */}
+          <SubtaskSection projectId={projectId} />
 
           {/* Section: Kolaborator */}
           <CollaboratorSection

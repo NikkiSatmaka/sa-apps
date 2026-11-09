@@ -10,6 +10,9 @@ docker-compose.portainer.yml
 compose.override.yaml
 compose.override.yml
 
+# Git worktree untuk agen (lihat AGENTS.md → Worktree)
+.worktrees/
+
 # Dependencies
 node_modules/
 __pycache__/

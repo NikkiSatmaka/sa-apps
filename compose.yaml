@@ -96,9 +96,31 @@ networks:
   sa-network:
     driver: bridge
 
-# Named volume dikelola Docker. Nama final = <nama stack>_<volume>, jadi nama
-# stack di Portainer harus tetap sama agar data lama terbaca kembali.
+# Named volume dengan data fisik di /opt/docker_srv/sa-portal/ (partisi /var
+# kecil di produksi). Nama final = <nama stack>_<volume>, jadi nama stack di
+# Portainer harus tetap sama.
+# Driver `local` + `type: none, o: bind` membuat named volume yang hanya
+# menunjuk ke direktori host. Direktori HARUS sudah ada sebelum `up`
+# (Docker tidak membuatnya; error "no such file or directory" bila belum):
+#   sudo mkdir -p /opt/docker_srv/sa-portal/{postgres-data,backend-data,backend-logs}
+# Catatan: konfigurasi volume yang sudah ada tidak berubah otomatis. Volume
+# lama di /var/lib/docker harus dimigrasi lalu dihapus (lihat CONTRIBUTING/ops).
 volumes:
   postgres-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/docker_srv/sa-portal/postgres-data
   backend-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/docker_srv/sa-portal/backend-data
   backend-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/docker_srv/sa-portal/backend-logs

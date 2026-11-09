@@ -4,7 +4,7 @@ Menyimpan jejak audit perubahan data pada entitas sistem.
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 
 from sqlalchemy import String, ForeignKey, DateTime
@@ -61,7 +61,7 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(UTC),
         comment="Waktu aksi dilakukan",
     )
 

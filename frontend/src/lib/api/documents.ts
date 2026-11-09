@@ -26,7 +26,7 @@ export type DocStatus = "Draft" | "Reviewed" | "Final";
 
 /** Interface dokumen dari backend */
 export interface Document {
-  id: string;
+  id_doc: string;
   id_project: string;
   doc_type: DocType;
   status: DocStatus;
@@ -36,8 +36,7 @@ export interface Document {
   created_at: string;
   updated_at: string;
   created_by: string;
-  status_changed_by?: string;
-  status_changed_at?: string;
+  updated_by: string | null;
 }
 
 /** Input untuk membuat dokumen baru */
@@ -89,8 +88,9 @@ export async function getProjectDocuments(
     );
   }
 
+  // Backend mengembalikan { documents: [...], total } di dalam `data`
   const json = await response.json();
-  return json.data ?? json;
+  return json.data?.documents ?? [];
 }
 
 /**

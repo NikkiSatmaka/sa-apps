@@ -10,6 +10,7 @@ import { DQNumberInput } from "@/components/DQNumberInput";
 import { RAGPanel } from "@/components/RAGPanel";
 import {
   createDocument,
+  getProjectDocuments,
   updateDocumentStatus,
   updateDQNumber,
   type Document,
@@ -87,7 +88,9 @@ export default function DocumentsPage() {
     error: docError,
     isLoading: docLoading,
     mutate: mutateDocuments,
-  } = useSWR<Document[]>(`/projects/${projectId}/documents`, fetcher);
+  } = useSWR<Document[]>(`/projects/${projectId}/documents`, () =>
+    getProjectDocuments(projectId)
+  );
 
   // Fetch detail proyek (untuk DQ Number)
   const {
@@ -278,7 +281,7 @@ export default function DocumentsPage() {
 
                   return (
                     <tr
-                      key={doc.id}
+                      key={doc.id_doc}
                       className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors"
                     >
                       {/* Tipe dokumen */}
@@ -318,15 +321,15 @@ export default function DocumentsPage() {
                       <td className="px-4 py-3">
                         {nextStatus && canChange ? (
                           <button
-                            onClick={() => handleStatusChange(doc.id, nextStatus)}
-                            disabled={isUpdatingStatus === doc.id}
+                            onClick={() => handleStatusChange(doc.id_doc, nextStatus)}
+                            disabled={isUpdatingStatus === doc.id_doc}
                             className="px-3 py-1.5 rounded text-xs font-medium text-primary-700 
                                        bg-primary-50 hover:bg-primary-100 
                                        transition-colors duration-100 min-h-[44px] min-w-[44px]
                                        disabled:opacity-50 disabled:cursor-not-allowed"
                             aria-label={`Ubah status ${doc.doc_type} ke ${nextStatus}`}
                           >
-                            {isUpdatingStatus === doc.id ? (
+                            {isUpdatingStatus === doc.id_doc ? (
                               <span className="flex items-center gap-1">
                                 <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
                                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />

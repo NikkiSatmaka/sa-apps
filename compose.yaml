@@ -7,29 +7,55 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+    # Bind ke loopback saja: DB tidak boleh terekspos ke jaringan host.
+    # Backend mengakses lewat network internal (db:5432).
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - /opt/docker_srv/sa-portal/postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sa_portal -d sa_portal_db"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - sa-network
 
-  backend:
-    image: sa-portal-backend:latest
-    container_name: sa-portal-backend
-    restart: always
+  # One-off: jalankan migration Alembic (idempotent: no-op bila sudah di head)
+  # lalu exit. Backend baru start setelah ini sukses; bila migration gagal,
+  # transaksi di-rollback dan backend tidak naik (fail closed).
+  # TIDAK menjalankan seed demo (hanya untuk lokal, lihat compose.local.yaml).
+  # Backup DB tetap dilakukan manual sebelum deploy. Migration harus kompatibel
+  # mundur (expand/contract) karena rollback image tidak me-rollback schema.
+  backend-init:
+    image: ghcr.io/apeuta/sa-portal-backend:${IMAGE_TAG:-latest}
+    restart: "no"
     depends_on:
       db:
         condition: service_healthy
     environment:
       DATABASE_URL: ${DATABASE_URL}
-      SECRET_KEY: ${SECRET_KEY}
-      DEMO_MODE: ${DEMO_MODE}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+    command: ["alembic", "upgrade", "head"]
+    networks:
+      - sa-network
+
+  backend:
+    image: ghcr.io/apeuta/sa-portal-backend:${IMAGE_TAG:-latest}
+    container_name: sa-portal-backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+      backend-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      # Default aman untuk produksi: production + demo mode mati. Untuk lokal,
+      # isi ENVIRONMENT=development di .env.
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DEMO_MODE: ${DEMO_MODE:-false}
       FRONTEND_URL: ${FRONTEND_URL}
       CORS_ORIGINS: ${CORS_ORIGINS}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI}
@@ -38,6 +64,11 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      LLM_MAX_INPUT_CHARS: ${LLM_MAX_INPUT_CHARS:-20000}
+      LLM_MAX_DOCUMENT_BYTES: ${LLM_MAX_DOCUMENT_BYTES:-10485760}
+      GUARDRAIL_PII_DETECTION_ENABLED: ${GUARDRAIL_PII_DETECTION_ENABLED:-true}
+      GMAIL_CREDENTIALS: ${GMAIL_CREDENTIALS:-}
+      GMAIL_SENDER: ${GMAIL_SENDER:-}
     ports:
       - "8555:8000"
     volumes:
@@ -47,7 +78,7 @@ services:
       - sa-network
 
   frontend:
-    image: ghcr.io/apeuta/sa-portal-frontend:latest
+    image: ghcr.io/apeuta/sa-portal-frontend:${IMAGE_TAG:-latest}
     container_name: sa-portal-frontend
     restart: always
     depends_on:

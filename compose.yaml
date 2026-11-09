@@ -15,8 +15,13 @@ services:
     # Backend mengakses lewat network internal (db:5432).
     ports:
       - "127.0.0.1:5433:5432"
+    # PG18: image memindahkan VOLUME ke /var/lib/postgresql dan menyimpan data
+    # di subdir versi (/var/lib/postgresql/18/docker). Mount HARUS ke
+    # /var/lib/postgresql, bukan /var/lib/postgresql/data (image 18 menolak
+    # start bila menemukan layout lama di .../data). Lihat
+    # docker-library/postgres PR #1259.
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
@@ -111,6 +116,11 @@ networks:
 #   sudo mkdir -p /opt/docker_srv/sa-portal/{postgres-data,backend-data,backend-logs}
 # Konfigurasi volume yang sudah ada tidak berubah otomatis: volume lama di
 # /var/lib/docker harus dimigrasi lalu dihapus (lihat CONTRIBUTING/ops).
+# PG18: container mount kini ke /var/lib/postgresql, jadi data fisik berada di
+# subdir versi host: /opt/docker_srv/sa-portal/postgres-data/18/docker. Device
+# bind di bawah TIDAK berubah (subdir dibuat di dalamnya). Host produksi yang
+# masih punya data layout lama LANGSUNG di postgres-data/ harus dimigrasi lewat
+# pg_upgrade/dump-restore dulu (lihat deployment.md) sebelum deploy image 18.
 volumes:
   postgres-data:
     driver: local

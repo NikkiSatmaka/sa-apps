@@ -21,9 +21,10 @@ x-backend-build: &backend-build
 services:
   db:
     # `!override` mengganti SELURUH daftar volumes dari compose.yaml (bukan
-    # di-merge) supaya bind mount VM tidak ikut terbawa.
+    # di-merge) supaya bind mount VM tidak ikut terbawa. PG18: mount ke
+    # /var/lib/postgresql (bukan .../data), lihat catatan di compose.yaml.
     volumes: !override
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql
 
   # compose.yaml hanya menjalankan migration. Lokal ditambah seed demo; keduanya
   # idempotent sehingga aman dijalankan ulang tiap `up`.

@@ -1,89 +1,57 @@
 # ============================================
-# Local dev override untuk Docker Compose
+# Override Docker Compose untuk development lokal
 # ============================================
-# File ini adalah override OPT-IN untuk development lokal. Berbeda dengan
-# nama `compose.override.yaml` yang di-auto-merge Docker Compose, file ini
-# TIDAK ikut secara otomatis — harus dipanggil eksplisit dengan flag `-f`.
-# Ini mencegah override lokal bocor ke host produksi/VM yang menjalankan
-# `docker compose up` polos dari checkout repo yang sama.
-#
-# Tujuannya: menjalankan full stack di mesin LOCAL (Linux, Windows/WSL,
-# macOS) dengan build dari SOURCE lokal, bukan prebuilt remote image, dan
-# tanpa host bind mount ke path VM produksi (/opt/docker_srv/...).
-#
-# compose.yaml (file produksi/VM) SENGAJA tidak diubah agar tetap utuh.
-# Jalankan dari root repo:
+# OPT-IN: namanya sengaja bukan `compose.override.yaml` (yang di-auto-merge),
+# jadi `docker compose up` polos di host produksi/VM tetap hanya memakai
+# compose.yaml. Panggil eksplisit dari root repo:
 #   docker compose -f compose.yaml -f compose.local.yaml up -d --build
+#
+# File ini hanya memuat PERBEDAAN dari compose.yaml: build dari source lokal
+# (bukan prebuilt image), named volume lokal (bukan bind mount
+# /opt/docker_srv/...), dan seed demo data. Sisanya (healthcheck, depends_on,
+# environment, network, port) diwarisi dari compose.yaml.
+
+# Build backend dipakai bersama oleh backend dan backend-init.
+x-backend-build: &backend-build
+  image: localhost/sa-portal/backend:local
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
 
 services:
   db:
-    # Ganti host bind mount VM (/opt/docker_srv/...) dengan named volume lokal.
-    # `!override` mengganti SELURUH daftar volumes dari compose.yaml dengan
-    # daftar di bawah (bukan di-merge), lalu kita pasang named volume
-    # `postgres-data` agar data persist tanpa butuh host path macOS.
+    # `!override` mengganti SELURUH daftar volumes dari compose.yaml (bukan
+    # di-merge) supaya bind mount VM tidak ikut terbawa.
     volumes: !override
       - postgres-data:/var/lib/postgresql/data
 
-  # One-off init: jalankan migration Alembic + seed demo data, lalu exit.
-  # Reuse image backend lokal (depends_on build backend via `image`), gate ke
-  # db healthy. Keduanya idempotent, jadi aman dijalankan ulang tiap `up` —
-  # setelah pertama kali hanya no-op. Setara dengan menjalankan manual:
-  #   docker compose exec backend alembic upgrade head
-  #   docker compose exec backend python -m scripts.seed_demo_data
+  # compose.yaml hanya menjalankan migration. Lokal ditambah seed demo; keduanya
+  # idempotent sehingga aman dijalankan ulang tiap `up`.
   backend-init:
-    image: localhost/sa-portal/backend:local
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    restart: "no"
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: ${DATABASE_URL}
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+    <<: *backend-build
     command: >-
       sh -c "alembic upgrade head && python -m scripts.seed_demo_data"
-    networks:
-      - sa-network
 
   backend:
-    # Build dari source lokal alih-alih prebuilt image `sa-portal-backend:latest`.
-    image: localhost/sa-portal/backend:local
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    # Tunggu init (migrate + seed) selesai sukses sebelum app start, agar
-    # backend tidak pernah jalan di atas DB yang belum di-migrate.
-    depends_on:
-      db:
-        condition: service_healthy
-      backend-init:
-        condition: service_completed_successfully
-    # compose.yaml default ke ENVIRONMENT=production (aman untuk VM). Untuk
-    # lokal, default ke development agar DEMO_MODE=true tidak memblok startup.
+    <<: *backend-build
+    # compose.yaml default ke ENVIRONMENT=production (aman untuk VM). Lokal
+    # default ke development agar DEMO_MODE=true tidak memblok startup.
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-development}
-    # Buang host bind mount VM (backend-data / backend-logs) yang path-nya
-    # tidak ada di macOS. Ganti dengan named volume agar startup tidak gagal.
     volumes: !override
       - backend-data:/app/data
       - backend-logs:/app/logs
 
   frontend:
-    # Build dari source lokal alih-alih image GHCR.
     image: localhost/sa-portal/frontend:local
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # Arsitektur frontend: browser memanggil PATH RELATIF `/api/v1`, yang
-        # di-handle oleh Next.js API route proxy (src/app/api/v1/[...path]/route.ts).
-        # Proxy itu meneruskan ke backend lewat Docker network via BACKEND_URL
-        # (http://backend:8000). Jadi browser TIDAK perlu menjangkau backend
-        # langsung, dan NEXT_PUBLIC_API_URL harus tetap relatif `/api/v1`.
-        # Menyetelnya ke http://localhost:8555 justru akan mem-bypass proxy
-        # (merusak CORS + penanganan khusus auth/callback).
+        # Browser memanggil path relatif `/api/v1`, yang di-handle proxy Next.js
+        # (src/app/api/v1/[...path]/route.ts) dan diteruskan ke backend lewat
+        # Docker network (BACKEND_URL). Jangan arahkan ke http://localhost:8555:
+        # itu mem-bypass proxy (merusak CORS + penanganan auth/callback).
         NEXT_PUBLIC_API_URL: /api/v1
 
 # `!override` agar driver_opts bind ke /opt/docker_srv (compose.yaml) tidak

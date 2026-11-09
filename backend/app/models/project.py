@@ -19,10 +19,19 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    event,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.mutable import MutableDict
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import (
+    Mapped,
+    ORMExecuteState,
+    Session,
+    mapped_column,
+    relationship,
+    with_loader_criteria,
+)
 
 from app.core.database import Base
 
@@ -130,6 +139,21 @@ class Project(Base):
         comment="Waktu SA ditugaskan ke proyek",
     )
 
+    # Soft delete — proyek terhapus tetap di DB agar dokumen, activity log
+    # (data utilisasi SA), dan SLA tidak hilang. Disaring otomatis dari semua
+    # query ORM oleh listener `_filter_soft_deleted` di bawah.
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Waktu proyek dihapus (soft delete); NULL = aktif",
+    )
+    deleted_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=True,
+        comment="FK ke user yang menghapus proyek",
+    )
+
     # Timestamp (timezone-aware)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -166,8 +190,42 @@ class Project(Base):
             "folder_provisioning_status IN ('pending','provisioned','failed')",
             name="chk_projects_folder_provisioning_status",
         ),
+        Index(
+            "idx_projects_active",
+            "updated_at",
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
         {"comment": "Tabel proyek presales Portal SA"},
     )
 
     def __repr__(self) -> str:
         return f"<Project(id={self.id_project}, name={self.project_name}, status={self.status})>"
+
+
+# Opsi eksekusi untuk menonaktifkan filter soft delete, mis.:
+#   select(Project).execution_options(**{INCLUDE_DELETED: True})
+INCLUDE_DELETED = "include_deleted"
+
+
+@event.listens_for(Session, "do_orm_execute")
+def _filter_soft_deleted(execute_state: ORMExecuteState) -> None:
+    """
+    Sembunyikan proyek yang sudah di-soft delete dari semua SELECT ORM.
+
+    Berlaku global (semua Session, termasuk AsyncSession) sehingga ~45 query
+    `select(Project)` yang tersebar tidak perlu menambah filter manual.
+    Pola resmi SQLAlchemy: with_loader_criteria di event do_orm_execute.
+    """
+    if (
+        execute_state.is_select
+        and not execute_state.is_column_load
+        and not execute_state.is_relationship_load
+        and not execute_state.execution_options.get(INCLUDE_DELETED, False)
+    ):
+        execute_state.statement = execute_state.statement.options(
+            with_loader_criteria(
+                Project,
+                Project.deleted_at.is_(None),
+                include_aliases=True,
+            )
+        )

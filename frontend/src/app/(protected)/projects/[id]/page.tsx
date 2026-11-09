@@ -416,7 +416,7 @@ export default function ProjectDetailPage() {
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
             <h3 className="text-lg font-semibold text-neutral-900 mb-2">Hapus Proyek</h3>
             <p className="text-sm text-neutral-600 mb-4">
-              Apakah Anda yakin ingin menghapus proyek <strong>{project.project_name}</strong> ({project.id_project})? Tindakan ini tidak dapat dibatalkan.
+              Apakah Anda yakin ingin menghapus proyek <strong>{project.project_name}</strong> ({project.id_project})? Proyek akan hilang dari semua daftar dan dashboard. Dokumen dan activity log tetap tersimpan, dan jam kerja SA tetap terhitung di utilisasi.
             </p>
             <div className="flex justify-end gap-2">
               <button

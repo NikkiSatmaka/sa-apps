@@ -22,13 +22,14 @@ from fastapi import (
     status,
 )
 from fastapi.responses import JSONResponse
-from sqlalchemy import asc, desc, func, or_, select
+from sqlalchemy import asc, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import ensure_project_access, get_current_user
 from app.models.project import Project
 from app.models.project_collaborator import ProjectCollaborator
+from app.models.sla_tracking import SLATracking
 from app.models.user import User
 from app.schemas.project import FileUploadResult, ProjectResponse
 from app.schemas.response import error_response, success_response
@@ -461,14 +462,21 @@ async def get_project_detail(
 @router.delete(
     "/{project_id}",
     summary="Hapus proyek",
-    description="Hapus proyek berdasarkan ID. Hanya Lead_SA dan Admin yang dapat menghapus.",
+    description=(
+        "Hapus proyek (soft delete) berdasarkan ID. Hanya Lead_SA dan Admin yang dapat "
+        "menghapus. Data terkait (dokumen, activity log, SLA) tetap tersimpan."
+    ),
 )
 async def delete_project(
     project_id: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Hapus proyek. Hanya tersedia untuk role Lead_SA dan Admin."""
+    """
+    Soft delete proyek: set deleted_at/deleted_by, proyek lalu tersaring dari
+    semua query ORM. Hard delete tidak dipakai karena dokumen, activity log
+    (data utilisasi SA), dan SLA mengacu ke proyek via FK tanpa cascade.
+    """
     # Cek role
     if current_user.role not in ("Lead_SA", "Admin"):
         raise HTTPException(
@@ -485,7 +493,17 @@ async def delete_project(
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
 
-    await db.delete(project)
+    now = datetime.now(timezone.utc)
+    project.deleted_at = now
+    project.deleted_by = current_user.id
+
+    # Hentikan SLA timer yang masih aktif agar scheduler tidak lagi memproses
+    # (reminder/eskalasi) proyek yang sudah dihapus.
+    await db.execute(
+        update(SLATracking)
+        .where(SLATracking.project_id == project_id, SLATracking.stopped_at.is_(None))
+        .values(stopped_at=now)
+    )
     await db.commit()
 
     logger.info(

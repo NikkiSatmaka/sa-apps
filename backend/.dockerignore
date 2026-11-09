@@ -1,0 +1,14 @@
+# Jangan ikutkan file lokal/secret ke build context (`COPY . .` di Dockerfile).
+# Config runtime datang dari environment container, bukan dari file .env.
+.env
+.env.*
+!.env.example
+
+# Artefak lokal; .venv host akan menimpa .venv hasil `uv sync` di builder.
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.git

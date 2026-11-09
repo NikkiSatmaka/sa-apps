@@ -60,10 +60,10 @@ services:
         condition: service_healthy
       backend-init:
         condition: service_completed_successfully
-    # compose.yaml hanya meneruskan SECRET_KEY (nama lama), sedangkan Settings
-    # mewajibkan JWT_SECRET_KEY — tanpa ini backend refuse-to-start.
+    # compose.yaml default ke ENVIRONMENT=production (aman untuk VM). Untuk
+    # lokal, default ke development agar DEMO_MODE=true tidak memblok startup.
     environment:
-      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
     # Buang host bind mount VM (backend-data / backend-logs) yang path-nya
     # tidak ada di macOS. Ganti dengan named volume agar startup tidak gagal.
     volumes: !override

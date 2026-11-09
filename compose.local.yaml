@@ -86,7 +86,9 @@ services:
         # (merusak CORS + penanganan khusus auth/callback).
         NEXT_PUBLIC_API_URL: /api/v1
 
-volumes:
+# `!override` agar driver_opts bind ke /opt/docker_srv (compose.yaml) tidak
+# ikut ter-merge ke volume lokal.
+volumes: !override
   postgres-data:
   backend-data:
   backend-logs:

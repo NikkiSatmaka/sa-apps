@@ -4,7 +4,7 @@ x-backend-image: &backend-image
 
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: sa-portal-db
     restart: always
     environment:

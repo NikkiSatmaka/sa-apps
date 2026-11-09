@@ -70,10 +70,14 @@ app.add_middleware(RateLimiterMiddleware)
 register_exception_handlers(app)
 
 # Register API routers
+# Urutan penting: Starlette mencocokkan route sesuai urutan registrasi.
+# assignment_router harus sebelum projects_router karena punya route literal
+# `GET /projects/pending-assignment` yang sebaliknya tertangkap oleh
+# `GET /projects/{project_id}`. Dijaga oleh tests/test_route_shadowing.py.
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(scoring_router, prefix="/api/v1")
-app.include_router(projects_router, prefix="/api/v1")
 app.include_router(assignment_router, prefix="/api/v1")
+app.include_router(projects_router, prefix="/api/v1")
 app.include_router(workflow_router, prefix="/api/v1")
 app.include_router(documents_router, prefix="/api/v1")
 app.include_router(dq_number_router, prefix="/api/v1")

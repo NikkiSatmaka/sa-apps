@@ -2,7 +2,7 @@
 #
 # Jalankan `mise install` di root repo untuk memasang versi tool yang di-pin di bawah.
 # Versi di-pin agar selaras dengan Dockerfile (build produksi tetap memakai image
-# Docker sebagai sumber kebenaran: python:3.12-slim, node:24-alpine, uv 0.13).
+# Docker sebagai sumber kebenaran: python:3.12-slim, node:26-alpine, uv 0.13).
 #
 # Python sengaja TIDAK di-pin di sini: interpreter dikelola uv, versinya mengikuti
 # backend/.python-version (uv mengunduhnya otomatis saat `uv sync` / `uv run`).
@@ -11,7 +11,7 @@
 # tambahkan tool baru ke blok [tools] agar seluruh contributor memakai versi sama.
 
 [tools]
-node = "24"
+node = "26"
 # pnpm: package manager untuk frontend/ (sumber kebenaran dependency via
 # package.json + pnpm-lock.yaml). Di-pin ke major 12 selaras dengan Dockerfile
 # (install eksplisit `npm i -g pnpm@12`). Tidak memakai corepack — mise pemilik

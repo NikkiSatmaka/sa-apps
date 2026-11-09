@@ -1,10 +1,10 @@
 # ============================================
 # Multi-stage Dockerfile untuk Next.js Frontend
-# Target: Node 24 Alpine, image < 500MB
+# Target: Node 26 Alpine, image < 500MB
 # ============================================
 
 # --- Stage 1: Dependencies ---
-FROM node:24-alpine AS deps
+FROM node:26-alpine AS deps
 
 WORKDIR /app
 
@@ -16,7 +16,7 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # --- Stage 2: Builder ---
-FROM node:24-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
@@ -38,7 +38,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm run build
 
 # --- Stage 3: Runtime ---
-FROM node:24-alpine AS runtime
+FROM node:26-alpine AS runtime
 
 WORKDIR /app
 

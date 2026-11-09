@@ -27,7 +27,7 @@ Versi di-pin ke major agar selaras dengan Dockerfile. **Docker tetap menjadi sum
 
 pnpm adalah package manager untuk `frontend/` (lockfile `pnpm-lock.yaml`). Dikelola via mise untuk development lokal; di Docker dipasang eksplisit via `npm i -g pnpm@12` (tanpa corepack, versi di-pin sama dengan mise).
 
-PostgreSQL (versi 15) dijalankan via Docker Compose, bukan mise.
+PostgreSQL (versi 16) dijalankan via Docker Compose, bukan mise.
 
 ### Environment variables
 

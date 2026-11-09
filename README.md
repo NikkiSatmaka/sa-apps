@@ -33,7 +33,7 @@ Portal SA adalah Progressive Web App (PWA) untuk manajemen proyek pre-sales dan 
 |-------|-----------|
 | Frontend | Next.js 14+ (App Router), TypeScript, Tailwind CSS, Zustand, SWR |
 | Backend | FastAPI (Python 3.11+), SQLAlchemy async, Pydantic |
-| Database | PostgreSQL 15+ |
+| Database | PostgreSQL 16 |
 | AI | Google Gemini API (via LLM Provider abstraction — multi-provider ready) |
 | Auth | Google OAuth 2.0 + JWT |
 | Integration | Google Drive API, Google Calendar API, Gmail API |

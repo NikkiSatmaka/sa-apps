@@ -3,7 +3,7 @@ name = "portal-sa-backend"
 version = "1.0.0"
 description = "Backend API untuk Portal SA — manajemen proyek pre-sales dan aktivitas harian SA"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi==0.115.6",
     "uvicorn[standard]==0.34.0",
@@ -50,7 +50,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]

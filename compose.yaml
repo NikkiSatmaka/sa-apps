@@ -1,3 +1,7 @@
+# Image backend dipakai bersama oleh backend dan backend-init.
+x-backend-image: &backend-image
+  image: ${IMAGE_REGISTRY:-docker.io}/${IMAGE_OWNER:-nikkisatmaka}/sa-portal-backend:${BACKEND_IMAGE_TAG:-latest}
+
 services:
   db:
     image: postgres:16-alpine
@@ -28,7 +32,7 @@ services:
   # Backup DB tetap dilakukan manual sebelum deploy. Migration harus kompatibel
   # mundur (expand/contract) karena rollback image tidak me-rollback schema.
   backend-init:
-    image: ${IMAGE_REGISTRY:-docker.io}/${IMAGE_OWNER:-nikkisatmaka}/sa-portal-backend:${BACKEND_IMAGE_TAG:-latest}
+    <<: *backend-image
     restart: "no"
     depends_on:
       db:
@@ -41,7 +45,7 @@ services:
       - sa-network
 
   backend:
-    image: ${IMAGE_REGISTRY:-docker.io}/${IMAGE_OWNER:-nikkisatmaka}/sa-portal-backend:${BACKEND_IMAGE_TAG:-latest}
+    <<: *backend-image
     container_name: sa-portal-backend
     restart: always
     depends_on:
@@ -100,13 +104,13 @@ networks:
 
 # Named volume dengan data fisik di /opt/docker_srv/sa-portal/ (partisi /var
 # kecil di produksi). Nama final = <nama stack>_<volume>, jadi nama stack di
-# Portainer harus tetap sama.
-# Driver `local` + `type: none, o: bind` membuat named volume yang hanya
+# Portainer harus tetap `sa-portal`.
+# `driver: local` + `type: none, o: bind` membuat named volume yang hanya
 # menunjuk ke direktori host. Direktori HARUS sudah ada sebelum `up`
-# (Docker tidak membuatnya; error "no such file or directory" bila belum):
+# (Docker tidak membuatnya):
 #   sudo mkdir -p /opt/docker_srv/sa-portal/{postgres-data,backend-data,backend-logs}
-# Catatan: konfigurasi volume yang sudah ada tidak berubah otomatis. Volume
-# lama di /var/lib/docker harus dimigrasi lalu dihapus (lihat CONTRIBUTING/ops).
+# Konfigurasi volume yang sudah ada tidak berubah otomatis: volume lama di
+# /var/lib/docker harus dimigrasi lalu dihapus (lihat CONTRIBUTING/ops).
 volumes:
   postgres-data:
     driver: local

@@ -2,6 +2,8 @@
 
 import { useSidebarStore } from "@/store/sidebar";
 import { NotificationBell } from "@/components/NotificationBell";
+import { Breadcrumb } from "@/components/Breadcrumb";
+import { UserMenu } from "@/components/UserMenu";
 
 /**
  * Header Component — tinggi maksimal 64px (Requirement 19.7)
@@ -41,12 +43,7 @@ export function Header() {
           </svg>
         </button>
 
-        {/* Breadcrumb placeholder */}
-        <nav className="hidden md:flex items-center text-sm text-neutral-500">
-          <span>Portal SA</span>
-          <span className="mx-2">/</span>
-          <span className="text-neutral-900 font-medium">Dashboard</span>
-        </nav>
+        <Breadcrumb />
       </div>
 
       {/* Kanan: notifikasi + user menu */}
@@ -55,15 +52,7 @@ export function Header() {
         <NotificationBell />
 
         {/* User avatar / menu */}
-        <button
-          className="flex items-center justify-center w-[44px] h-[44px] rounded-lg
-                     hover:bg-neutral-100 transition-colors duration-100"
-          aria-label="Menu pengguna"
-        >
-          <div className="w-8 h-8 rounded-full bg-primary-500 flex items-center justify-center">
-            <span className="text-sm font-medium text-white">U</span>
-          </div>
-        </button>
+        <UserMenu />
       </div>
     </header>
   );

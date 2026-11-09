@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useSidebarStore } from "@/store/sidebar";
 import { useAuthStore } from "@/store/auth";
 import { logout } from "@/lib/auth";
+import { UserMenu } from "@/components/UserMenu";
 
 /**
  * Sidebar Navigation — collapsible (Requirement 19.7)
@@ -150,9 +151,12 @@ export function Sidebar() {
       {/* Logo dan toggle */}
       <div className="flex items-center justify-between h-[64px] px-4 border-b border-neutral-100">
         {isOpen && (
-          <span className="text-lg font-semibold text-primary-600 truncate">
+          <Link
+            href="/"
+            className="text-lg font-semibold text-primary-600 truncate hover:text-primary-700"
+          >
             Portal SA
-          </span>
+          </Link>
         )}
         <button
           onClick={toggle}
@@ -266,25 +270,7 @@ export function Sidebar() {
 
       {/* Footer — info user + logout */}
       <div className="border-t border-neutral-100 p-3 space-y-2">
-        <div
-          className={`flex items-center gap-3 ${isOpen ? "" : "justify-center"}`}
-        >
-          <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center shrink-0">
-            <span className="text-sm font-medium text-primary-600">
-              {user?.full_name?.charAt(0)?.toUpperCase() || "U"}
-            </span>
-          </div>
-          {isOpen && (
-            <div className="truncate">
-              <p className="text-sm font-medium text-neutral-700 truncate">
-                {user?.full_name || "User"}
-              </p>
-              <p className="text-xs text-neutral-400 truncate">
-                {user?.role || "—"}
-              </p>
-            </div>
-          )}
-        </div>
+        <UserMenu placement="up" align="left" showDetails={isOpen} />
 
         {/* Tombol Logout */}
         <button

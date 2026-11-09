@@ -19,11 +19,11 @@ Tool yang dikelola saat ini:
 
 | Tool | Versi (pin) |
 |------|-------------|
-| Python | 3.11 |
+| Python | 3.12 |
 | Node.js | 24 |
 | pnpm | 12 |
 
-Versi di-pin ke major agar selaras dengan Dockerfile. **Docker tetap menjadi sumber kebenaran untuk build produksi** (`python:3.11-slim`, `node:24-alpine`); mise menyediakan toolchain lokal yang setara untuk development. Ketika Anda menaikkan versi tool, perbarui `mise.toml` dan Dockerfile terkait bersamaan agar tidak drift.
+Versi di-pin ke major agar selaras dengan Dockerfile. **Docker tetap menjadi sumber kebenaran untuk build produksi** (`python:3.12-slim`, `node:24-alpine`); mise menyediakan toolchain lokal yang setara untuk development. Ketika Anda menaikkan versi tool, perbarui `mise.toml` dan Dockerfile terkait bersamaan agar tidak drift.
 
 pnpm adalah package manager untuk `frontend/` (lockfile `pnpm-lock.yaml`). Dikelola via mise untuk development lokal; di Docker dipasang eksplisit via `npm i -g pnpm@12` (tanpa corepack, versi di-pin sama dengan mise).
 

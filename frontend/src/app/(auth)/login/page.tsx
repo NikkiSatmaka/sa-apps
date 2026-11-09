@@ -22,6 +22,7 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get("error");
   const [oauthConfigured, setOauthConfigured] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
 
   // Fetch auth config dari backend saat mount
   useEffect(() => {
@@ -30,6 +31,8 @@ function LoginContent() {
       .then((res) => res.json())
       .then((data) => {
         if (data.oauth_configured) setOauthConfigured(true);
+        // demo_mode dari backend sudah memperhitungkan hard block produksi.
+        if (data.demo_mode) setDemoMode(true);
       })
       .catch(() => {});
   }, []);
@@ -113,15 +116,17 @@ function LoginContent() {
           )}
         </div>
 
-        {/* Link ke halaman demo */}
-        <p className="text-center text-sm">
-          <Link
-            href="/demo"
-            className="text-neutral-500 hover:text-neutral-700"
-          >
-            Masuk ke mode demo
-          </Link>
-        </p>
+        {/* Link ke halaman demo — hanya jika backend mengaktifkan demo mode */}
+        {demoMode && (
+          <p className="text-center text-sm">
+            <Link
+              href="/demo"
+              className="text-neutral-500 hover:text-neutral-700"
+            >
+              Masuk ke mode demo
+            </Link>
+          </p>
+        )}
       </div>
     </div>
   );

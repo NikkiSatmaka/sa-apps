@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuthStore } from "@/store/auth";
 
@@ -52,7 +52,22 @@ function DemoContent() {
   const error = searchParams.get("error");
   const [loadingRole, setLoadingRole] = useState<string | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
+  // null = belum diketahui; false = demo mode nonaktif (redirect ke /login)
+  const [demoEnabled, setDemoEnabled] = useState<boolean | null>(null);
 
+  // Guard UI: halaman demo hanya boleh tampil jika backend mengaktifkan demo
+  // mode. Backend tetap memblokir /auth/demo-login (403) sebagai penjaga utama.
+  useEffect(() => {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
+    fetch(`${apiUrl}/auth/config`)
+      .then((res) => res.json())
+      .then((data) => setDemoEnabled(Boolean(data.demo_mode)))
+      .catch(() => setDemoEnabled(false));
+  }, []);
+
+  useEffect(() => {
+    if (demoEnabled === false) router.replace("/login");
+  }, [demoEnabled, router]);
   const errorMessage =
     error && (ERROR_MESSAGES[error] || "Terjadi kesalahan. Silakan coba lagi.");
 
@@ -120,6 +135,14 @@ function DemoContent() {
       setLoadingRole(null);
     }
   };
+
+  if (demoEnabled !== true) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-neutral-50">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-500 border-t-transparent" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">

@@ -305,10 +305,11 @@ export default function DocumentsPage() {
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-primary-600 hover:text-primary-700 hover:underline 
-                                     truncate block max-w-[200px]"
+                                     inline-flex items-center gap-1 max-w-[200px]"
                           aria-label={`Buka dokumen ${doc.doc_type} di Google Drive`}
                         >
-                          Buka di Drive ↗
+                          <span className="truncate">Buka di Drive</span>
+                          <span aria-hidden="true">↗</span>
                         </a>
                       </td>
 

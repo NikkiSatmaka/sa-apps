@@ -21,10 +21,25 @@ services:
     networks:
       - sa-network
 
-  # Migration TIDAK dijalankan otomatis di produksi. Jalankan manual setelah
-  # backup DB dan sebelum/sesudah mengganti image backend:
-  #   docker compose run --rm backend alembic upgrade head
-  # (Untuk lokal, compose.local.yaml menjalankan migrate + seed otomatis.)
+  # One-off: jalankan migration Alembic (idempotent: no-op bila sudah di head)
+  # lalu exit. Backend baru start setelah ini sukses; bila migration gagal,
+  # transaksi di-rollback dan backend tidak naik (fail closed).
+  # TIDAK menjalankan seed demo (hanya untuk lokal, lihat compose.local.yaml).
+  # Backup DB tetap dilakukan manual sebelum deploy. Migration harus kompatibel
+  # mundur (expand/contract) karena rollback image tidak me-rollback schema.
+  backend-init:
+    image: ghcr.io/apeuta/sa-portal-backend:${IMAGE_TAG:-latest}
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+    command: ["alembic", "upgrade", "head"]
+    networks:
+      - sa-network
+
   backend:
     image: ghcr.io/apeuta/sa-portal-backend:${IMAGE_TAG:-latest}
     container_name: sa-portal-backend
@@ -32,6 +47,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      backend-init:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: ${DATABASE_URL}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}

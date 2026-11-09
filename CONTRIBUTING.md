@@ -19,11 +19,11 @@ Tool yang dikelola saat ini:
 
 | Tool | Versi (pin) |
 |------|-------------|
-| Node.js | 24 |
+| Node.js | 26 |
 | pnpm | 12 |
 | uv | 0.13 |
 
-Versi di-pin ke major agar selaras dengan Dockerfile. **Docker tetap menjadi sumber kebenaran untuk build produksi** (`python:3.12-slim`, `node:24-alpine`); mise menyediakan toolchain lokal yang setara untuk development. Ketika Anda menaikkan versi tool, perbarui `mise.toml` dan Dockerfile terkait bersamaan agar tidak drift.
+Versi di-pin ke major agar selaras dengan Dockerfile. **Docker tetap menjadi sumber kebenaran untuk build produksi** (`python:3.12-slim`, `node:26-alpine`); mise menyediakan toolchain lokal yang setara untuk development. Ketika Anda menaikkan versi tool, perbarui `mise.toml` dan Dockerfile terkait bersamaan agar tidak drift.
 
 Python **tidak** dikelola mise. Interpreter dikelola uv dan versinya mengikuti `backend/.python-version` (3.12); `uv sync` di `backend/` mengunduhnya otomatis. Saat menaikkan versi Python, ubah `backend/.python-version` dan Dockerfile bersamaan.
 

@@ -48,7 +48,7 @@ Spesifikasi di **[`SA Application/Spesifikasi_Teknis_Portal_SA.md`](SA%20Applica
 ## Toolchain
 
 - Toolchain dikelola dengan [mise](https://mise.jdx.dev); versi di-pin di `mise.toml` pada root. Jalankan `mise install` untuk menyamakan versi lokal.
-- Saat ini: Python 3.11, Node 24, pnpm 12 (di-pin major) sebagai package manager frontend. PostgreSQL 15 via Docker Compose.
+- Saat ini: Python 3.12, Node 24, pnpm 12 (di-pin major) sebagai package manager frontend. PostgreSQL 15 via Docker Compose.
 - Docker tetap sumber kebenaran untuk build produksi; jaga `mise.toml` dan Dockerfile selaras saat menaikkan versi. Detail di `CONTRIBUTING.md`.
 
 ---

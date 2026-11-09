@@ -247,14 +247,24 @@ export default function ProjectDetailPage() {
               Dokumen
             </a>
             <a
-              href="/activity-logs"
+              href={`/activity-logs?project=${encodeURIComponent(projectId)}`}
               className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-neutral-700
                          border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors min-h-[44px]"
             >
               <svg className="w-4 h-4 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              Activity Log
+              Tambah Log
+            </a>
+            <a
+              href={`/projects/${projectId}/activity-logs`}
+              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-neutral-700
+                         border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors min-h-[44px]"
+            >
+              <svg className="w-4 h-4 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+              </svg>
+              Riwayat Log
             </a>
           </div>
 
@@ -472,13 +482,12 @@ function InfoRow({ label, value, mono = false }: { label: string; value: string;
 
 /** Section: Activity Log ringkasan per proyek + tombol Summarize */
 function ProjectActivitySection({ projectId }: { projectId: string }) {
-  const [showAll, setShowAll] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
 
   const { data, isLoading } = useSWR<{
     items: {
-      id: string;
+      id_log: string;
       subtask_category: string;
       duration_hours: number;
       raw_notes: string;
@@ -489,10 +498,7 @@ function ProjectActivitySection({ projectId }: { projectId: string }) {
       created_at: string;
     }[];
     total: number;
-  }>(`/projects/${projectId}/story?page=1&page_size=${showAll ? 50 : 5}`, fetcher);
-
-  // Hitung total jam
-  const totalHours = data?.items.reduce((sum, log) => sum + log.duration_hours, 0) || 0;
+  }>(`/projects/${projectId}/story?page=1&page_size=5`, fetcher);
 
   // Generate summary dari activity logs menggunakan LLM (backend)
   const handleSummarize = async () => {
@@ -536,7 +542,7 @@ function ProjectActivitySection({ projectId }: { projectId: string }) {
           <h2 className="text-sm font-semibold text-neutral-700">Project Story</h2>
           {data && data.total > 0 && (
             <p className="text-xs text-neutral-400 mt-0.5">
-              {data.total} aktivitas — Total: {totalHours} jam
+              {data.total} aktivitas — menampilkan 5 terbaru
             </p>
           )}
         </div>
@@ -553,13 +559,13 @@ function ProjectActivitySection({ projectId }: { projectId: string }) {
             </button>
           )}
           {data && data.total > 5 && (
-            <button
-              onClick={() => setShowAll(!showAll)}
+            <a
+              href={`/projects/${projectId}/activity-logs`}
               className="px-3 py-1.5 text-xs font-medium text-neutral-600 border border-neutral-200
-                         rounded-lg hover:bg-neutral-50 transition-colors min-h-[36px]"
+                         rounded-lg hover:bg-neutral-50 transition-colors min-h-[36px] flex items-center"
             >
-              {showAll ? "Ringkas" : "Lihat Semua"}
-            </button>
+              Lihat Semua ({data.total})
+            </a>
           )}
         </div>
       </div>
@@ -579,7 +585,7 @@ function ProjectActivitySection({ projectId }: { projectId: string }) {
       ) : (
         <div className="space-y-2">
           {data.items.map((log) => (
-            <div key={log.id} className="flex items-start gap-3 p-3 bg-neutral-50 rounded-lg">
+            <div key={log.id_log} className="flex items-start gap-3 p-3 bg-neutral-50 rounded-lg">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
                   <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">

@@ -74,6 +74,8 @@ interface ActivityLogFormProps {
   projects: Project[];
   /** Callback setelah berhasil submit */
   onSuccess?: () => void;
+  /** ID proyek yang dipilih otomatis (mis. dari ?project=) */
+  defaultProjectId?: string;
 }
 
 interface FormErrors {
@@ -86,10 +88,13 @@ interface FormErrors {
 
 const MAX_NOTES_LENGTH = 5000;
 
-export function ActivityLogForm({ projects, onSuccess }: ActivityLogFormProps) {
+export function ActivityLogForm({ projects, onSuccess, defaultProjectId }: ActivityLogFormProps) {
+  const defaultProject = projects.find((p) => p.id === defaultProjectId);
   const [workType, setWorkType] = useState<WorkType>("Project");
-  const [idProject, setIdProject] = useState("");
-  const [projectPhase, setProjectPhase] = useState<ProjectPhase>("Pre-Implementation");
+  const [idProject, setIdProject] = useState(defaultProject?.id ?? "");
+  const [projectPhase, setProjectPhase] = useState<ProjectPhase>(
+    defaultPhaseForStatus(defaultProject?.status)
+  );
   const [category, setCategory] = useState("");
   const [duration, setDuration] = useState<string>("1");
   const [rawNotes, setRawNotes] = useState("");
@@ -199,8 +204,8 @@ export function ActivityLogForm({ projects, onSuccess }: ActivityLogFormProps) {
         showToast("success", "Activity log berhasil disimpan");
         // Reset form
         setWorkType("Project");
-        setIdProject("");
-        setProjectPhase("Pre-Implementation");
+        setIdProject(defaultProject?.id ?? "");
+        setProjectPhase(defaultPhaseForStatus(defaultProject?.status));
         setCategory("");
         setDuration("1");
         setRawNotes("");
@@ -213,7 +218,7 @@ export function ActivityLogForm({ projects, onSuccess }: ActivityLogFormProps) {
         setIsSubmitting(false);
       }
     },
-    [workType, idProject, projectPhase, category, duration, rawNotes, validate, onSuccess, showToast]
+    [workType, idProject, projectPhase, category, duration, rawNotes, validate, onSuccess, showToast, defaultProject]
   );
 
   const inputClass = (hasError: boolean) =>

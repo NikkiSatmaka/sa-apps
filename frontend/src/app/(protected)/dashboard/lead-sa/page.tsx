@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
@@ -808,6 +809,7 @@ interface ProjectUtilData {
 
 /** Komponen section utilisasi per proyek */
 function ProjectUtilizationSection() {
+  const router = useRouter();
   const { data, isLoading } = useSWR<ProjectUtilData[]>(
     "/utilization/projects",
     fetcher
@@ -851,9 +853,19 @@ function ProjectUtilizationSection() {
           </thead>
           <tbody>
             {data.map((proj) => (
-              <tr key={proj.id_project} className="border-b border-neutral-50 hover:bg-neutral-50/50">
+              <tr
+                key={proj.id_project}
+                onClick={() => router.push(`/projects/${proj.id_project}`)}
+                className="border-b border-neutral-50 hover:bg-neutral-50 cursor-pointer"
+              >
                 <td className="px-4 py-3">
-                  <p className="font-medium text-neutral-800 text-sm">{proj.project_name}</p>
+                  <Link
+                    href={`/projects/${proj.id_project}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="font-medium text-primary-600 hover:underline text-sm"
+                  >
+                    {proj.project_name}
+                  </Link>
                   <p className="text-xs text-neutral-400">{proj.id_project}</p>
                 </td>
                 <td className="px-4 py-3 text-neutral-600">{proj.customer_name}</td>

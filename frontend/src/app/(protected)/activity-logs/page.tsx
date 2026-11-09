@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import { ActivityLogForm } from "@/components/ActivityLogForm";
@@ -11,8 +12,9 @@ import { ActivityLogForm } from "@/components/ActivityLogForm";
  * Struktur:
  * - Form input activity log baru
  * - Link ke halaman Calendar Sync
+ * - ?project=<id> memilih proyek otomatis
  *
- * Project Story dipindah ke masing-masing halaman detail proyek (tombol Summarize)
+ * Riwayat log ada di /projects/[id]/activity-logs
  *
  * Requirements: 8.1
  */
@@ -30,6 +32,17 @@ interface Project {
 }
 
 export default function ActivityLogsPage() {
+  // useSearchParams butuh Suspense boundary agar build statis tidak gagal
+  return (
+    <Suspense fallback={null}>
+      <ActivityLogsContent />
+    </Suspense>
+  );
+}
+
+function ActivityLogsContent() {
+  const searchParams = useSearchParams();
+  const defaultProjectId = searchParams.get("project") ?? undefined;
   const { data: rawProjects, isLoading: projectsLoading } = useSWR<ProjectItem[]>(
     "/projects",
     fetcher
@@ -54,6 +67,17 @@ export default function ActivityLogsPage() {
             Catat aktivitas harian Anda pada proyek
           </p>
         </div>
+        <div className="flex gap-2">
+        {defaultProjectId && (
+          <a
+            href={`/projects/${defaultProjectId}/activity-logs`}
+            className="px-4 py-2.5 text-sm font-medium rounded-lg min-h-[44px] flex items-center
+              bg-white border border-neutral-300 text-neutral-700
+              hover:bg-neutral-50 transition-colors"
+          >
+            Riwayat Log Proyek
+          </a>
+        )}
         <a
           href="/activity-logs/calendar"
           className="px-4 py-2.5 text-sm font-medium rounded-lg min-h-[44px] 
@@ -63,6 +87,7 @@ export default function ActivityLogsPage() {
         >
           Calendar Sync
         </a>
+        </div>
       </div>
 
       {/* Form Input Activity Log */}
@@ -79,6 +104,7 @@ export default function ActivityLogsPage() {
         ) : (
           <ActivityLogForm
             projects={projects}
+            defaultProjectId={defaultProjectId}
             onSuccess={() => setRefreshKey((k) => k + 1)}
           />
         )}

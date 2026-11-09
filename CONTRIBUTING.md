@@ -35,8 +35,8 @@ PostgreSQL (versi 16) dijalankan via Docker Compose, bukan mise.
 
 mise **tidak** mengelola environment variables di repo ini — hanya runtime. Env di-handle sesuai konteks:
 
-- **Docker Compose** membaca `.env` di root (dari `.env.example`) untuk mengisi variable service di `compose.yaml`. Ini jalur development utama (`docker compose up`).
-- **Frontend lokal** memakai `frontend/.env.local` (dari `frontend/.env.local.example`) untuk `NEXT_PUBLIC_*`.
+- **Docker Compose** membaca `.env` di root (dari `.env.example`) untuk mengisi variable service di `compose.yaml`. Ini jalur development utama (`docker compose up`), dan jalur yang mengisi `NEXT_PUBLIC_*` serta `BACKEND_URL`/`FRONTEND_URL` untuk frontend.
+- **Frontend lokal (`next dev`)** jalan tanpa env file: `NEXT_PUBLIC_API_URL` punya fallback `"/api/v1"` di setiap call site. Kalau perlu override lokal, buat sendiri `frontend/.env.local` (di-ignore git) — tidak ada template yang di-commit karena nilai default sudah tercakup fallback dan root `.env`.
 
 Pemisahan ini disengaja: secret backend (DB password, API key, OAuth secret) tidak boleh bocor ke environment build frontend, dan beberapa nilai (`DATABASE_URL`, `BACKEND_URL`) memakai hostname internal jaringan Docker yang tidak valid di shell lokal. Jangan inject `.env` root ke seluruh repo via mise. `.env` dan `.env.local` di-ignore git — jangan commit; perbarui file `*.example` saat menambah variable.
 

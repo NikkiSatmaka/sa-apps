@@ -65,5 +65,10 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Healthcheck lewat route /api/health (tidak bergantung pada backend).
+# wget bawaan BusyBox alpine; 127.0.0.1 (bukan localhost) menghindari resolve ke ::1.
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=20s \
+    CMD wget -q --spider http://127.0.0.1:3000/api/health || exit 1
+
 # Jalankan Next.js standalone server
 CMD ["node", "server.js"]

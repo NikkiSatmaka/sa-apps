@@ -12,7 +12,7 @@ services:
     ports:
       - "127.0.0.1:5433:5432"
     volumes:
-      - /opt/docker_srv/sa-portal/postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
@@ -72,8 +72,8 @@ services:
     ports:
       - "8555:8000"
     volumes:
-      - /opt/docker_srv/sa-portal/backend-data:/app/data
-      - /opt/docker_srv/sa-portal/backend-logs:/app/logs
+      - backend-data:/app/data
+      - backend-logs:/app/logs
     networks:
       - sa-network
 
@@ -95,3 +95,10 @@ services:
 networks:
   sa-network:
     driver: bridge
+
+# Named volume dikelola Docker. Nama final = <nama stack>_<volume>, jadi nama
+# stack di Portainer harus tetap sama agar data lama terbaca kembali.
+volumes:
+  postgres-data:
+  backend-data:
+  backend-logs:

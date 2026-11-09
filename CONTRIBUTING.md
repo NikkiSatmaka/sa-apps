@@ -160,7 +160,7 @@ Perubahan schema melewati migration Alembic di `backend/alembic/versions/`. Keti
 
 ## Rilis & Penomoran Versi
 
-Image Docker (backend + frontend) dirilis ke GHCR via `scripts/release.sh <version>` lalu di-deploy di Portainer.
+Image Docker dirilis ke registry via `mise run publish [backend|frontend]` (wrapper `scripts/publish.sh`) lalu di-deploy di Portainer. Registry dan owner dibaca dari `IMAGE_REGISTRY`/`IMAGE_OWNER` di `.env`; versi backend dan frontend ditanyakan terpisah (kosongkan untuk melewati) dan dilacak lewat `BACKEND_IMAGE_TAG`/`FRONTEND_IMAGE_TAG`.
 
 **Aturan penomoran versi (wajib):**
 
@@ -170,7 +170,7 @@ Image Docker (backend + frontend) dirilis ke GHCR via `scripts/release.sh <versi
 - Saat MINOR mencapai 99 naik major dan reset (`v4.99` → `v5.00`).
 - Tidak valid: `v4.9` (minor satu digit), `v4.100` (tiga digit).
 
-`scripts/release.sh` memvalidasi format ini dan menolak tag yang tidak sesuai. Build selalu untuk backend dan frontend dengan tag yang sama kecuali ada alasan spesifik memakai `--backend-only`/`--frontend-only`.
+`scripts/publish.sh` memvalidasi format ini dan menolak tag yang tidak sesuai. Backend dan frontend memiliki versi sendiri-sendiri dan tidak harus sama.
 
 ---
 

@@ -62,10 +62,11 @@ docker buildx build --platform linux/amd64 --no-cache \
 
 > **Catatan**: `--platform linux/amd64` diperlukan karena build dilakukan di Mac (ARM) untuk VM (x86_64).
 
-### Script Otomatis (Frontend)
+### Script Otomatis
 
 ```bash
-./scripts/build-and-push-frontend.sh
+mise run publish            # backend + frontend (versi ditanya terpisah)
+mise run publish frontend   # hanya frontend
 ```
 
 ### Deploy / Update Stack di Portainer

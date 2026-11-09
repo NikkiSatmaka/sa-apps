@@ -247,16 +247,6 @@ export default function ProjectDetailPage() {
               Dokumen
             </a>
             <a
-              href={`/activity-logs?project=${encodeURIComponent(projectId)}`}
-              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-neutral-700
-                         border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors min-h-[44px]"
-            >
-              <svg className="w-4 h-4 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Tambah Log
-            </a>
-            <a
               href={`/projects/${projectId}/activity-logs`}
               className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-neutral-700
                          border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors min-h-[44px]"

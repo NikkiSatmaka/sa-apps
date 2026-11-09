@@ -43,6 +43,21 @@ Spesifikasi di **[`SA Application/Spesifikasi_Teknis_Portal_SA.md`](SA%20Applica
 - Jangan pernah commit secret. Jika sebuah file kemungkinan memuat secret (`.env`, credential, token), tandai sebelum staging dan jangan echo nilainya.
 - Jangan ubah git config. Jangan pakai perintah git destruktif (force push, reset --hard, clean -f) tanpa izin eksplisit user.
 
+### Worktree (wajib untuk agen)
+
+Checkout utama di root repo milik manusia, dan beberapa agen bisa berjalan paralel di repo yang sama. Kalau semua berbagi satu working tree, satu `git checkout` dari pihak lain diam-diam memindahkan commit Anda ke branch yang salah. Karena itu, setiap agen mengerjakan setiap branch di **git worktree** sendiri. Di checkout utama, agen hanya membaca. Edit, `checkout`, dan commit dilakukan di worktree.
+
+- Buat worktree dari `main` terbaru di `.worktrees/<slug>` (folder ini di-ignore git), lalu jalankan semua perintah dengan cwd di worktree itu:
+  ```bash
+  git fetch origin
+  git worktree add --no-track -b <type>/<slug> .worktrees/<slug> origin/main
+  ```
+  `--no-track` wajib. Tanpa itu, upstream branch baru menjadi `origin/main`, sehingga `git push` mengarah ke `main` dan ditolak pre-push hook. Push pertama: `git push -u origin <type>/<slug>`.
+  Untuk melanjutkan branch yang sudah ada (mis. revisi review PR): `git worktree add .worktrees/<slug> <type>/<slug>`.
+- File untracked tidak ikut ke worktree. Jalankan `uv sync` di `backend/` dan `pnpm install` di `frontend/`. Bila perlu, salin `.env`, `backend/.env`, dan `frontend/.env.local` dari checkout utama, tapi jangan di-commit.
+- Stack Docker Compose lokal dan DB-nya dipakai bersama oleh semua branch. Verifikasi backend dari worktree lewat pytest, atau panggil app in-process (`httpx.ASGITransport`) ke DB yang sedang jalan. Minta persetujuan user sebelum rebuild atau restart stack: DB mungkin sudah di-migrate oleh branch lain, sehingga `alembic upgrade head` di branch Anda gagal.
+- Setelah PR dibuat dan pekerjaan selesai, hapus worktree-nya dengan `git worktree remove .worktrees/<slug>`. Branch-nya tetap ada untuk PR.
+
 ---
 
 ## Toolchain

@@ -50,8 +50,9 @@ Checkout utama di root repo milik manusia, dan beberapa agen bisa berjalan paral
 - Buat worktree dari `main` terbaru di `.worktrees/<slug>` (folder ini di-ignore git), lalu jalankan semua perintah dengan cwd di worktree itu:
   ```bash
   git fetch origin
-  git worktree add .worktrees/<slug> -b <type>/<slug> origin/main
+  git worktree add --no-track -b <type>/<slug> .worktrees/<slug> origin/main
   ```
+  `--no-track` wajib. Tanpa itu, upstream branch baru menjadi `origin/main`, sehingga `git push` mengarah ke `main` dan ditolak pre-push hook. Push pertama: `git push -u origin <type>/<slug>`.
   Untuk melanjutkan branch yang sudah ada (mis. revisi review PR): `git worktree add .worktrees/<slug> <type>/<slug>`.
 - File untracked tidak ikut ke worktree. Jalankan `uv sync` di `backend/` dan `pnpm install` di `frontend/`. Bila perlu, salin `.env`, `backend/.env`, dan `frontend/.env.local` dari checkout utama, tapi jangan di-commit.
 - Stack Docker Compose lokal dan DB-nya dipakai bersama oleh semua branch. Verifikasi backend dari worktree lewat pytest, atau panggil app in-process (`httpx.ASGITransport`) ke DB yang sedang jalan. Minta persetujuan user sebelum rebuild atau restart stack: DB mungkin sudah di-migrate oleh branch lain, sehingga `alembic upgrade head` di branch Anda gagal.

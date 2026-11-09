@@ -65,7 +65,7 @@ Dokumentasi interaktif: `http://localhost:8000/docs` (Swagger UI) dan `http://lo
 
 ### Docker Compose (full stack)
 
-Stack di `compose.yaml` (root): service `db` (postgres:16-alpine), `backend` (port host `8555` → container `8000`), `frontend` (port host `3535` → `3000`). Backend punya `HEALTHCHECK` ke `/health`.
+Stack di `compose.yaml` (root): service `db` (postgres:18-alpine), `backend` (port host `8555` → container `8000`), `frontend` (port host `3535` → `3000`). Backend punya `HEALTHCHECK` ke `/health`.
 
 ```bash
 docker compose up -d

@@ -26,7 +26,7 @@ Cloudflare SSL → VM Reverse Proxy (port 3535) → Frontend Container (Next.js 
 
 | Service | Image | Port Mapping |
 |---------|-------|-------------|
-| db | `postgres:16-alpine` | 5433:5432 |
+| db | `postgres:18-alpine` | 5433:5432 |
 | backend | `ghcr.io/apeuta/sa-portal-backend:latest` | 8555:8000 |
 | frontend | `ghcr.io/apeuta/sa-portal-frontend:latest` | 3535:3000 |
 
@@ -172,22 +172,24 @@ Data yang di-seed:
    - Harus menampilkan data utilisasi (jika seed data sudah dijalankan)
    - Jika error, akan menampilkan detail pesan error untuk debugging
 
-### Upgrade PostgreSQL 15 → 16
+### Upgrade PostgreSQL 16 → 18
 
-`compose.yaml` kini memakai `postgres:16-alpine`. **Folder data PostgreSQL 15 tidak bisa dibuka oleh PostgreSQL 16** (beda major version). Jika container 16 dijalankan di atas data dir 15, server langsung exit dengan error (terverifikasi empiris):
+`compose.yaml` kini memakai `postgres:18-alpine`. **Folder data PostgreSQL 16 tidak bisa dibuka oleh PostgreSQL 18** (beda major version). Jika container 18 dijalankan di atas data dir 16, server langsung exit dengan error:
 
 ```
 FATAL:  database files are incompatible with server
-DETAIL:  The data directory was initialized by PostgreSQL version 15, which is not compatible with this version 16.x.
+DETAIL:  The data directory was initialized by PostgreSQL version 16, which is not compatible with this version 18.x.
 ```
 
-Karena itu upgrade **wajib lewat dump/restore** (`pg_dump` → `pg_restore`), bukan sekadar mengganti tag image. Prosedur dump/restore format custom (`-Fc`) dari 15 ke 16 sudah divalidasi pada data sintetis (row count, FK, jsonb, dan `alembic_version` identik setelah restore).
+Karena itu upgrade **wajib lewat dump/restore** (`pg_dump` → `pg_restore`), bukan sekadar mengganti tag image. Pakai `pg_dump`/`pg_restore` dari image **18** (versi target) saat mengekspor dari server 16 agar format dump kompatibel. Prosedur dump/restore format custom (`-Fc`) menjaga row count, FK, jsonb, dan `alembic_version` identik setelah restore.
 
-> **Peringatan**: jangan `docker compose pull`/redeploy stack dengan image 16 sebelum backup selesai. Jika container db 16 sempat start di atas data dir lama, ia hanya gagal start (data 15 tidak diubah), tetapi stack akan down.
+> **Catatan**: PostgreSQL 18 memperkenalkan asynchronous I/O (AIO). Default `io_method=worker` aman untuk semua Linux; tuning opsional (mis. `io_uring`) bisa dilakukan belakangan, bukan bagian dari upgrade ini.
+
+> **Peringatan**: jangan `docker compose pull`/redeploy stack dengan image 18 sebelum backup selesai. Jika container db 18 sempat start di atas data dir lama, ia hanya gagal start (data 16 tidak diubah), tetapi stack akan down.
 
 #### A. Lokal (`compose.local.yaml`)
 
-`compose.local.yaml` memakai named volume `postgres-data` (di Compose project `sa-apps`: `sa-apps_postgres-data`). Pada mesin yang pernah menjalankan stack, volume ini **berisi data PostgreSQL 15** dan akan membuat db 16 gagal start dengan error di atas. Pilih salah satu:
+`compose.local.yaml` memakai named volume `postgres-data` (di Compose project `sa-apps`: `sa-apps_postgres-data`). Pada mesin yang pernah menjalankan stack, volume ini **berisi data PostgreSQL 16** dan akan membuat db 18 gagal start dengan error di atas. Pilih salah satu:
 
 **Opsi 1 — data lokal boleh hilang (paling sederhana)**
 
@@ -203,7 +205,7 @@ docker compose -f compose.yaml -f compose.local.yaml up -d --build
 **Opsi 2 — data lokal harus dipertahankan**
 
 ```bash
-# 1. Dump dari db 15 (stack lama masih berjalan dengan image 15)
+# 1. Dump dari db 16 (stack lama masih berjalan dengan image 16)
 docker exec sa-portal-db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc -f /tmp/sa.dump'
 docker cp sa-portal-db:/tmp/sa.dump ./sa-local.dump
 
@@ -211,7 +213,7 @@ docker cp sa-portal-db:/tmp/sa.dump ./sa-local.dump
 docker compose -f compose.yaml -f compose.local.yaml down
 docker volume rm sa-apps_postgres-data
 
-# 3. Start HANYA db (image 16) dengan volume baru yang kosong
+# 3. Start HANYA db (image 18) dengan volume baru yang kosong
 docker compose -f compose.yaml -f compose.local.yaml up -d db
 
 # 4. Restore
@@ -228,13 +230,13 @@ Simpan `sa-local.dump` sampai Anda yakin data benar; jangan commit file dump.
 
 **Downtime**: aplikasi tidak tersedia dari langkah 2 sampai langkah 7. Perkirakan beberapa menit untuk database kecil; ukur waktu `pg_dump`/`pg_restore` pada langkah 1 untuk memperkirakan jendela maintenance. Jadwalkan di luar jam kerja.
 
-**Risiko**: (1) kehilangan data bila backup tidak valid — selalu verifikasi dump dan simpan data dir lama; (2) stack gagal start bila db 16 menemukan data dir 15; (3) perubahan perilaku minor antar-major (mis. collation/ekstensi) — cek log setelah restore.
+**Risiko**: (1) kehilangan data bila backup tidak valid — selalu verifikasi dump dan simpan data dir lama; (2) stack gagal start bila db 18 menemukan data dir 16; (3) perubahan perilaku minor antar-major (mis. collation/ekstensi) — cek log setelah restore.
 
-1. **Backup** (stack masih berjalan, image 15):
+1. **Backup** (stack masih berjalan, image 16):
 
    ```bash
    docker exec sa-portal-db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc -f /tmp/sa.dump'
-   docker cp sa-portal-db:/tmp/sa.dump /opt/docker_srv/sa-portal/backup-pg15-$(date +%F).dump
+   docker cp sa-portal-db:/tmp/sa.dump /opt/docker_srv/sa-portal/backup-pg16-$(date +%F).dump
    # Verifikasi dump terbaca dan catat row count untuk dibandingkan nanti
    docker exec sa-portal-db pg_restore -l /tmp/sa.dump | head
    docker exec sa-portal-db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "select count(*) from projects"'
@@ -246,20 +248,20 @@ Simpan `sa-local.dump` sampai Anda yakin data benar; jangan commit file dump.
 3. **Simpan data dir lama sebagai rollback** (jangan dihapus, jangan di-chmod):
 
    ```bash
-   sudo mv /opt/docker_srv/sa-portal/postgres-data /opt/docker_srv/sa-portal/postgres-data-pg15
+   sudo mv /opt/docker_srv/sa-portal/postgres-data /opt/docker_srv/sa-portal/postgres-data-pg16
    sudo mkdir /opt/docker_srv/sa-portal/postgres-data
    ```
 
-4. **Start PG16 dengan data dir baru (kosong)**: update stack di Portainer ke `compose.yaml` terbaru (image `postgres:16-alpine`), dan start **hanya service `db`** dulu. Container akan menginisialisasi cluster baru memakai `POSTGRES_USER`/`POSTGRES_DB`/`POSTGRES_PASSWORD` dari env stack. Pastikan healthy.
+4. **Start PG18 dengan data dir baru (kosong)**: update stack di Portainer ke `compose.yaml` terbaru (image `postgres:18-alpine`), dan start **hanya service `db`** dulu. Container akan menginisialisasi cluster baru memakai `POSTGRES_USER`/`POSTGRES_DB`/`POSTGRES_PASSWORD` dari env stack. Pastikan healthy.
 
 5. **Restore**:
 
    ```bash
-   docker cp /opt/docker_srv/sa-portal/backup-pg15-<tanggal>.dump sa-portal-db:/tmp/sa.dump
+   docker cp /opt/docker_srv/sa-portal/backup-pg16-<tanggal>.dump sa-portal-db:/tmp/sa.dump
    docker exec sa-portal-db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error /tmp/sa.dump'
    ```
 
-6. **Verifikasi data**: bandingkan row count dengan langkah 1 dan pastikan versi server 16:
+6. **Verifikasi data**: bandingkan row count dengan langkah 1 dan pastikan versi server 18:
 
    ```bash
    docker exec sa-portal-db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "show server_version; select count(*) from projects; select version_num from alembic_version"'
@@ -270,16 +272,16 @@ Simpan `sa-local.dump` sampai Anda yakin data benar; jangan commit file dump.
    - `GET /health` backend healthy, dan jalankan checklist "Verifikasi Deployment" di atas.
    - Cek log `sa-portal-db` dan `sa-portal-backend` tanpa error.
 
-8. **Pembersihan**: simpan `postgres-data-pg15` dan file dump minimal beberapa hari/minggu sampai aplikasi terbukti stabil, baru hapus.
+8. **Pembersihan**: simpan `postgres-data-pg16` dan file dump minimal beberapa hari/minggu sampai aplikasi terbukti stabil, baru hapus.
 
-**Rencana rollback** (bila langkah 5–7 gagal): stop stack, kembalikan image db ke `postgres:15-alpine` di stack Portainer, lalu
+**Rencana rollback** (bila langkah 5–7 gagal): stop stack, kembalikan image db ke `postgres:16-alpine` di stack Portainer, lalu
 
 ```bash
-sudo mv /opt/docker_srv/sa-portal/postgres-data /opt/docker_srv/sa-portal/postgres-data-pg16-gagal
-sudo mv /opt/docker_srv/sa-portal/postgres-data-pg15 /opt/docker_srv/sa-portal/postgres-data
+sudo mv /opt/docker_srv/sa-portal/postgres-data /opt/docker_srv/sa-portal/postgres-data-pg18-gagal
+sudo mv /opt/docker_srv/sa-portal/postgres-data-pg16 /opt/docker_srv/sa-portal/postgres-data
 ```
 
-lalu start stack. Data yang ditulis setelah langkah 7 (jika backend sempat berjalan di PG16) tidak ada di data dir 15 — itu sebabnya backend baru dinyalakan setelah verifikasi data.
+lalu start stack. Data yang ditulis setelah langkah 7 (jika backend sempat berjalan di PG18) tidak ada di data dir 16 — itu sebabnya backend baru dinyalakan setelah verifikasi data.
 
 **Catatan healthcheck**: `compose.yaml` memakai `pg_isready -U sa_portal -d sa_portal_db` (hardcoded). Tidak diubah pada upgrade ini; pastikan `POSTGRES_USER`/`POSTGRES_DB` di env tetap bernilai `sa_portal`/`sa_portal_db`.
 

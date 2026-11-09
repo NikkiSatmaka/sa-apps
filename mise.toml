@@ -4,11 +4,13 @@
 # Versi di-pin agar selaras dengan Dockerfile (build produksi tetap memakai image
 # Docker sebagai sumber kebenaran: python:3.12-slim, node:24-alpine, uv 0.13).
 #
+# Python sengaja TIDAK di-pin di sini: interpreter dikelola uv, versinya mengikuti
+# backend/.python-version (uv mengunduhnya otomatis saat `uv sync` / `uv run`).
+#
 # Semua tool yang dibutuhkan untuk mengembangkan repo ini di-track di sini —
 # tambahkan tool baru ke blok [tools] agar seluruh contributor memakai versi sama.
 
 [tools]
-python = "3.12"
 node = "24"
 # pnpm: package manager untuk frontend/ (sumber kebenaran dependency via
 # package.json + pnpm-lock.yaml). Di-pin ke major 12 selaras dengan Dockerfile

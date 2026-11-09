@@ -300,7 +300,7 @@ class NotificationService:
         try:
             # Panggilan Gmail API bersifat synchronous (blocking); jalankan di
             # executor agar tidak memblokir event loop async.
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None,
                 partial(self._send_email_sync, to, subject, template, context),

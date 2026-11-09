@@ -131,7 +131,7 @@ class FolderProvisioner:
             FolderProvisioningError: Jika semua retry habis
         """
         last_error = None
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         for attempt in range(1, MAX_RETRIES + 1):
             try:

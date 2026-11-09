@@ -4,7 +4,7 @@ Menyimpan data kolaborator yang ditag ke suatu proyek.
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import String, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
@@ -53,7 +53,7 @@ class ProjectCollaborator(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(UTC),
         comment="Waktu penambahan kolaborator",
     )
 

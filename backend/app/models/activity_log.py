@@ -4,7 +4,7 @@ Menyimpan catatan aktivitas harian SA per proyek.
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -94,7 +94,7 @@ class ActivityLog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
+        default=lambda: datetime.now(UTC),
         comment="Waktu pembuatan record",
     )
 

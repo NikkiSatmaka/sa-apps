@@ -33,3 +33,8 @@ enter = "git config core.hooksPath .githooks"
 [tasks.setup-hooks]
 description = "Pasang git hooks repo (core.hooksPath -> .githooks)"
 run = "git config core.hooksPath .githooks"
+
+[tasks.publish]
+description = "Build & push image backend/frontend (versi ditanya per komponen; config dari .env)"
+usage = 'arg "[component]" help="backend atau frontend; kosong = keduanya"'
+run = "./scripts/publish.sh ${usage_component:-}"

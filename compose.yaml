@@ -28,7 +28,7 @@ services:
   # Backup DB tetap dilakukan manual sebelum deploy. Migration harus kompatibel
   # mundur (expand/contract) karena rollback image tidak me-rollback schema.
   backend-init:
-    image: ghcr.io/apeuta/sa-portal-backend:${IMAGE_TAG:-latest}
+    image: ghcr.io/${IMAGE_OWNER:-nikkisatmaka}/sa-portal-backend:${IMAGE_TAG:-latest}
     restart: "no"
     depends_on:
       db:
@@ -41,7 +41,7 @@ services:
       - sa-network
 
   backend:
-    image: ghcr.io/apeuta/sa-portal-backend:${IMAGE_TAG:-latest}
+    image: ghcr.io/${IMAGE_OWNER:-nikkisatmaka}/sa-portal-backend:${IMAGE_TAG:-latest}
     container_name: sa-portal-backend
     restart: always
     depends_on:
@@ -78,7 +78,7 @@ services:
       - sa-network
 
   frontend:
-    image: ghcr.io/apeuta/sa-portal-frontend:${IMAGE_TAG:-latest}
+    image: ghcr.io/${IMAGE_OWNER:-nikkisatmaka}/sa-portal-frontend:${IMAGE_TAG:-latest}
     container_name: sa-portal-frontend
     restart: always
     depends_on:

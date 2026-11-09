@@ -42,6 +42,12 @@ Thumbs.db
 dist/
 build/
 
+# Hypothesis property-based testing: database contoh gagal (cache lokal, regenerable)
+.hypothesis/
+
+# Log eksekusi task per sesi milik tooling Kiro (noise, bukan bagian spec)
+.kiro/specs/*/tasks.meta.json
+
 # === Folder SA Docs yang TIDAK masuk Git ===
 Astra International/
 Batch Data Analytics/

@@ -27,7 +27,7 @@ Dokumen pelacakan untuk fitur yang dibutuhkan agar mencapai MVP yang layak. Stat
 |---|-------|--------|-----------|
 | 1 | Halaman login | ✅ Selesai | Demo mode opt-in + hard block produksi; token OAuth di URL hash (bukan query); default produksi aman (JWT secret fail-fast, CORS allow-list); authz `scoring.py` & `PATCH /projects/{id}` beres (B8/B9, Fase 0.6) |
 | 2 | Request Sales / buat opportunity | ✅ Selesai | — |
-| 3 | Form pertanyaan awal | 🔴 Belum ada | Tidak ada konsep kuesioner intake |
+| 3 | Form pertanyaan awal | 🔴 Belum ada | Dipecah jadi Kuesioner kualifikasi (Fase 5A, spec #24) dan generate Requirement (Fase 5B, spec #25); belum ada kode |
 | 4 | BANT scoring | ✅ Selesai | AI + manual keduanya berfungsi |
 | 5 | Kualifikasi & assignment oleh Lead SA | ✅ Selesai | Folder provisioner di-wire end-to-end (#45): assign men-schedule provisioning, persist `gdrive_folder_id` + `gdrive_solutions_folder_id` + status pending/provisioned/failed, badge dashboard + endpoint re-provision. Tidak ada step qualify terpisah — gate BANT ≥ 60% otomatis sudah memenuhi spec (Fase 2.3) |
 | 6 | Staff mengikuti subtask / respons subtask via activity log | ✅ Selesai | Entity `Subtask` assignable end-to-end: seeding auto-assign ke SA proyek (T1), activity log memajukan `open → in_progress` dengan validasi scope (T2, ADR 0008), dan section Subtask di `projects/[id]` dengan kontrol per-role + badge status + ringkasan "N/M selesai" (T3). `done` selalu eksplisit via tombol "Tandai selesai" |
@@ -150,15 +150,27 @@ Ditemukan saat asesmen dan sebaiknya diperbaiki lebih awal — ini merusak fungs
 
 ## Fase 5 — Form Pertanyaan Awal (fitur 3)
 
-**Tujuan:** intake kualifikasi terstruktur saat pembuatan opportunity.
+**Tujuan:** intake kualifikasi terstruktur saat pembuatan opportunity, dan dokumen Requirement turunan AI sebagai baseline Fase 6. **Dipecah dua (keputusan sesi grill, 2026-11-10):** 5A (kuesioner + skor di backend) dan 5B (generate Requirement). Spec: [#24](https://github.com/NikkiSatmaka/sa-apps/issues/24) (5A), [#25](https://github.com/NikkiSatmaka/sa-apps/issues/25) (5B). Tiket: #26–#37.
 
-- [ ] 5.1 **Perlu keputusan:** set pertanyaan tetap vs template yang bisa dikonfigurasi admin. Asumsi default: hybrid — kuesioner inti tetap dulu, bisa dikonfigurasi admin nanti.
-- [ ] 5.2 Definisikan schema pertanyaan; simpan jawaban sebagai structured data di proyek (JSONB) atau tabel khusus.
-- [ ] 5.3 Frontend: render kuesioner sebagai step dalam flow "opportunity baru" Sales (`projects/new`).
-- [ ] 5.4 (Opsional AI) kirim jawaban + dokumen upload ke Gemini untuk men-generate pertanyaan klarifikasi area BANT yang lemah, ditampilkan ke Sales (terhubung dengan status "Need Clarification" yang sudah ada).
-- [ ] 5.5 **Generate dokumen Requirement (summary turunan AI).** Dokumen `Requirement` BUKAN file yang di-upload user, melainkan **konten turunan**: ringkasan terstruktur kebutuhan customer yang di-generate Gemini dari **source of truth = dokumen MoM/RFP yang di-upload + penjelasan Sales di field form** (kuesioner 5.x + estimasi/kebutuhan yang diisi saat buat opportunity). Hasilnya **disimpan sebagai `Document` dengan `doc_type="Requirement"`** (reuse tabel dokumen; `gdrive_link` boleh null / konten disimpan sebagai teks ter-generate), sehingga muncul di daftar dokumen proyek dan menjadi baseline perbandingan Fase 6. **Keputusan diambil (2026-10-19, product owner):** derived content, bukan upload; di-generate dari MoM/RFP + field Sales; **di-resummarize** saat source berubah (bukan snapshot sekali jadi); hidup di tabel `Document`. **✅ Diputuskan (sesi grill, 2026-10-21):** SA **BOLEH** meng-edit/override hasil generate, ditandai flag `is_overridden`. Saat source berubah dan konten sudah di-override, re-summarize **tidak** menimpa diam-diam — sistem memberi notifikasi dan minta konfirmasi dulu. Lihat [`docs/adr/0004-requirement-override-blocks-silent-resummarize.md`](adr/0004-requirement-override-blocks-silent-resummarize.md).
+### Fase 5A — Kuesioner kualifikasi (spec #24)
 
-**Kriteria selesai:** Sales menjawab kuesioner terstruktur saat membuat opportunity; jawaban tersimpan dan terlihat di proyek; sistem men-generate dokumen `Requirement` turunan dari MoM/RFP + field Sales dan menyimpannya sebagai `Document` proyek, yang di-resummarize saat source berubah.
+- [ ] 5.1 ✅ **Diputuskan (2026-11-10):** set pertanyaan **tetap** di kode untuk MVP (12 pertanyaan, 6 wajib), jawaban disimpan bersama `schema_version` agar bisa dikonfigurasi admin kelak (backlog pasca-MVP).
+- [ ] 5.2 Skema jawaban (JSONB di proyek) + rubrik skor deterministik **di backend**; `score-manual` dibatasi sebagai override Lead SA/Admin. Lihat [`docs/adr/0010-bant-score-computed-in-backend.md`](adr/0010-bant-score-computed-in-backend.md). Tiket #26, #28, #30.
+- [ ] 5.3 Frontend: `projects/new` menjadi form dua langkah (data dasar + file, lalu kuesioner) dengan satu pengiriman; form manual BANT dihapus; detail/edit proyek menampilkan jawaban dan data legacy. Tiket #26, #29, #32.
+- [ ] 5.3a Source document: tipe MoM/RFP per file + ekstraksi teks via LLM disimpan di DB (bahan Requirement). Tiket #31.
+- ~~5.4 (Opsional AI) pertanyaan klarifikasi yang di-generate AI.~~ **Ditunda pasca-MVP (2026-11-10):** bertanda opsional dan Fase 6 tidak bergantung padanya. Jalan keluar `Need Clarification` ditangani 5A lewat edit kuesioner + re-score (#32).
+
+**Kriteria selesai 5A:** Sales mengisi kuesioner saat membuat opportunity; skor BANT dihitung backend (rubrik + gabungan AI max per kriteria); `Need Clarification` bisa diperbaiki dan dinilai ulang; Lead SA bisa override dengan alasan tercatat; teks MoM/RFP tersimpan sebagai Source document.
+
+### Fase 5B — Generate dokumen Requirement (spec #25)
+
+- [ ] 5.5 **Generate dokumen Requirement (summary turunan AI).** Dokumen `Requirement` BUKAN file yang di-upload user, melainkan **konten turunan**: daftar butir terstruktur (`kategori` + `butir`) yang di-generate Gemini dari **kuesioner + Source document (MoM/RFP)**, disimpan sebagai `Document` dengan `doc_type="Requirement"` (`gdrive_link` nullable lewat CHECK khusus Requirement, `folder_type=Inventory`), muncul di daftar dokumen proyek dan menjadi baseline Fase 6. Di-generate otomatis saat proyek pertama kali lolos gate; di-resummarize saat `source_hash` berubah. **Keputusan (2026-10-19, product owner):** derived content, bukan upload; di-resummarize saat source berubah; hidup di tabel `Document`. **✅ Diputuskan (sesi grill, 2026-10-21):** SA **BOLEH** meng-edit/override hasil generate, ditandai flag `is_overridden`; saat source berubah dan sudah di-override, re-summarize **tidak** menimpa diam-diam — notifikasi dan konfirmasi dulu. Lihat [`docs/adr/0004-requirement-override-blocks-silent-resummarize.md`](adr/0004-requirement-override-blocks-silent-resummarize.md). Tiket #33–#37.
+
+**Kriteria selesai 5B:** proyek yang lolos gate memiliki dokumen Requirement terstruktur yang di-resummarize saat sumber berubah (kecuali sudah di-override, yang memunculkan notifikasi dan konfirmasi).
+
+**Kriteria selesai Fase 5:** 5A dan 5B selesai.
+
+> **Catatan Drive:** persistensi file MoM/RFP ke Google Drive (staging folder lalu dipindah ke `Inventory`) **belum** termasuk Fase 5 dan menunggu verifikasi Drive nyata ([#27](https://github.com/NikkiSatmaka/sa-apps/issues/27)). Untuk sekarang hanya teks ekstraksi yang disimpan di DB.
 
 ---
 
@@ -202,11 +214,11 @@ Fase 2A (SLA DQ gating e2e)      ← wire SLA/doc_ready/email; butuh Fase 2 (gdr
       │
 Fase 3 (due date calendar)   ──┐  ← ⏸️ DITUNDA pasca-MVP (ADR 0007)
 Fase 4 (subtask assignable)  ──┤  ← independen, bisa diparalelkan
-Fase 5 (form pertanyaan awal)──┘
+Fase 5A (kuesioner) → 5B (Requirement) ──┘  ← 5B butuh Source document dari 5A
       │
 Fase 7 (guardrails LLM)          ← sebelum Fase 6 (penggunaan LLM yang berat dokumen)
       │
-Fase 6 (BoQ vs Requirement)      ← terakhir; butuh tipe Requirement (1.2) + konten Requirement turunan (5.5) + guardrails (7)
+Fase 6 (BoQ vs Requirement)      ← terakhir; butuh tipe Requirement (1.2) + konten Requirement turunan (5B / 5.5) + guardrails (7)
 ```
 
 > Catatan dependensi: dokumen Requirement adalah **konten turunan AI** (di-generate di Fase 5.5 dari MoM/RFP + field Sales), bukan upload customer. Karena itu Fase 6 kini bergantung pada Fase 5, bukan hanya pada penambahan tipe enum di Fase 1.2.
@@ -215,6 +227,7 @@ Fase 6 (BoQ vs Requirement)      ← terakhir; butuh tipe Requirement (1.2) + ko
 
 ## Rekomendasi Lintas-Fitur (tidak memblokir MVP, tapi layak dilacak)
 
+- [ ] **Verifikasi Google Drive nyata** ([#27](https://github.com/NikkiSatmaka/sa-apps/issues/27)): `GDRIVE_SERVICE_ACCOUNT_KEY` belum dikonfigurasi/didokumentasikan; seluruh pekerjaan Drive Fase 2/2A baru terbukti lewat mock. Gerbang untuk persistensi MoM/RFP ke Drive.
 - [ ] Tambah CI (lint + test backend) — belum ada hari ini.
 - [ ] Tambah test frontend — belum ada hari ini.
 - [ ] Perluas coverage test backend ke auth, state machine dokumen, handover, notifikasi (saat ini condong ke AI/provisioning/SLA/scoring).
@@ -230,7 +243,7 @@ Fase 6 (BoQ vs Requirement)      ← terakhir; butuh tipe Requirement (1.2) + ko
 
 Beberapa item di bawah sudah **diputuskan pada sesi grill 2026-10-21** (ditandai ✅); sisanya masih asumsi default yang menggerakkan roadmap — konfirmasi atau koreksi.
 
-1. **Form pertanyaan awal (Fase 5):** set tetap vs bisa dikonfigurasi admin? _(diasumsikan: hybrid, tetap dulu)_
+1. **Form pertanyaan awal (Fase 5):** set tetap vs bisa dikonfigurasi admin? **✅ Diputuskan (sesi grill, 2026-11-10):** set tetap di kode untuk MVP dengan `schema_version`; konfigurasi admin jadi backlog pasca-MVP.
 2. **Subtask (Fase 4):** subtask yang benar-benar bisa ditugaskan vs tetap model kategori? _(diasumsikan: subtask nyata)_
 3. **Seeding subtask (4.4):** auto-seed checklist default saat assignment? **✅ Diputuskan (sesi grill, 2026-10-21):** YA — auto-seed checklist subtask default saat assignment (mis. Requirement → BoQ → PropTek → HLD); Lead SA tetap bisa tambah/hapus manual.
 4. **BoQ compare (Fase 6):** analisis gap AI dengan skor coverage vs side-by-side biasa? _(diasumsikan: AI + skor)_

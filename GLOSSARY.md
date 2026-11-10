@@ -36,8 +36,12 @@ Status proyek saat menunggu DQ Number diisi; milik Flow 2 (Dokumen, DQ Number & 
 ## Kualifikasi
 
 **BANT score**:
-Skor kualifikasi 0–100 (Budget, Authority, Need, Timeline). Gate otomatis: `≥ 60` → proyek lanjut ke assignment; `< 60` → `Need Clarification`. Threshold ditetapkan spec, bukan asumsi.
+Skor kualifikasi 0–100 (Budget, Authority, Need, Timeline). Dihitung backend dari jawaban Kuesioner kualifikasi dan/atau hasil analisis dokumen, bukan angka kiriman klien. Gate otomatis: `≥ 60` → proyek lanjut ke assignment; `< 60` → `Need Clarification`. Threshold ditetapkan spec, bukan asumsi.
 _Avoid_: Lead score, qualification score
+
+**Kuesioner kualifikasi**:
+Kumpulan pertanyaan faktual terstruktur yang diisi Sales saat membuat opportunity (set tetap, bertanda `schema_version`). Jawabannya menjadi evidence untuk BANT score dan bahan dokumen Requirement; Sales tidak menilai dirinya sendiri.
+_Avoid_: Form BANT manual, form pertanyaan awal, skor manual Sales
 
 **DQ Number**:
 Nomor identifikasi proyek yang menjadi gate Flow 2: fungsi tertentu terkunci sampai DQ Number terisi.
@@ -60,8 +64,12 @@ _Avoid_: Timeline, log narasi
 ## Dokumen
 
 **Requirement** (dokumen):
-Ringkasan terstruktur kebutuhan customer yang **di-generate AI** dari MoM/RFP + field Sales — konten turunan, bukan file upload customer. Disimpan sebagai `Document` dengan `doc_type="Requirement"`, menjadi baseline perbandingan BoQ.
+Daftar butir kebutuhan customer terstruktur (`kategori` + `butir`) yang **di-generate AI** dari Kuesioner kualifikasi + Source document — konten turunan, bukan file upload customer. Disimpan sebagai `Document` dengan `doc_type="Requirement"`, menjadi baseline perbandingan BoQ. SA yang mengedit menandainya `is_overridden`.
 _Avoid_: Spec customer, dokumen kebutuhan upload
+
+**Source document**:
+File MoM atau RFP yang di-upload Sales saat intake; teks hasil ekstraksinya disimpan sebagai bahan Requirement. Bukan dokumen deliverable proyek.
+_Avoid_: Lampiran, attachment, dokumen referensi
 
 **BoQ** (Bill of Quantity):
 Dokumen daftar item/kuantitas yang dibandingkan terhadap dokumen Requirement untuk analisis gap coverage.

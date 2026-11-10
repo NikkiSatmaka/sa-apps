@@ -32,6 +32,7 @@ from sqlalchemy import and_, func, select, update
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.notification_log import NotificationLog
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,7 @@ class NotificationService:
     def __init__(self) -> None:
         """Inisialisasi service. Gmail service dibangun lazy saat pertama dipakai."""
         self._gmail_service = None
+        self._background_tasks: set[asyncio.Task] = set()
 
     def _is_gmail_configured(self) -> bool:
         """
@@ -198,6 +200,49 @@ class NotificationService:
                 logger.error(f"Gagal mengirim notifikasi: {e}")
                 # Notifikasi tidak boleh menggagalkan flow utama
                 # Hanya log error dan lanjut
+
+    async def dispatch_email_for_user(
+        self,
+        event_type: NotificationEventType,
+        recipient_user_id: UUID,
+        reference_id: Optional[str] = None,
+        metadata: Optional[dict] = None,
+    ) -> None:
+        """
+        Picu email saja (tanpa in-app) untuk caller yang sudah menulis NotificationLog
+        in-app sendiri dalam transaksinya — mis. reminder/eskalasi SLA.
+
+        Graceful: no-op bila Gmail belum dikonfigurasi; tidak pernah raise. Email
+        dikirim di background dengan retry (`_send_email_with_retry`).
+        """
+        if not self._is_gmail_configured():
+            return
+
+        try:
+            async with AsyncSessionLocal() as db:
+                result = await db.execute(select(User).where(User.id == recipient_user_id))
+                user = result.scalar_one_or_none()
+
+            if user is None or not user.email:
+                logger.warning(
+                    f"Email {event_type.value} dilewati: user {recipient_user_id} "
+                    f"tidak ditemukan / tanpa email."
+                )
+                return
+
+            event = NotificationEvent(
+                event_type=event_type,
+                recipient_user_id=user.id,
+                recipient_email=user.email,
+                reference_id=reference_id,
+                metadata=metadata,
+            )
+            task = asyncio.create_task(self._send_email_with_retry(event))
+            # Simpan referensi agar task tidak di-GC sebelum selesai.
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+        except Exception as e:  # noqa: BLE001 - email tidak boleh menggagalkan caller
+            logger.error(f"Gagal menjadwalkan email {event_type.value}: {e}")
 
     async def _send_email_with_retry(self, event: NotificationEvent) -> None:
         """

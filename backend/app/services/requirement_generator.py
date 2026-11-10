@@ -29,8 +29,8 @@ from app.core.config import settings
 from app.models.document import Document
 from app.models.project import Project
 from app.models.source_document import SourceDocument
-from app.schemas.qualification_definition import answer_questions, question_labels
 from app.models.user import User
+from app.schemas.qualification_definition import answer_questions, question_labels
 from app.services.llm_provider import llm_factory
 from app.services.notification_service import (
     NotificationEvent,
@@ -43,6 +43,7 @@ from app.utils.guardrails import (
     sanitize_text_input,
     validate_llm_json,
 )
+from app.utils.identifiers import generate_doc_id
 
 logger = logging.getLogger(__name__)
 
@@ -169,14 +170,12 @@ async def _call_llm_with_retry(prompt: str, project_id: str) -> Optional[Require
     return None
 
 
-def _new_doc_id() -> str:
-    # Import lokal: menghindari impor siklik antara service dan router dokumen.
-    from app.api.documents import _generate_doc_id
-
-    return _generate_doc_id()
+def new_requirement_item(kategori: str, butir: str) -> dict[str, str]:
+    """Satu butir Requirement `{id, kategori, butir}`; id 8 hex acak."""
+    return {"id": uuid.uuid4().hex[:8], "kategori": kategori, "butir": butir}
 
 
-async def _collect_sources(db: Any, project: Project) -> tuple[list[SourceDocument], str]:
+async def collect_sources(db: Any, project: Project) -> tuple[list[SourceDocument], str]:
     """Source document `extracted` saat ini + `source_hash`-nya (bersama jawaban kuesioner)."""
     src_result = await db.execute(
         select(SourceDocument).where(
@@ -252,14 +251,11 @@ async def _generate(db: Any, project_id: str, replace: bool = False) -> None:
         await db.commit()
         return
 
-    sources, source_hash = await _collect_sources(db, project)
+    sources, source_hash = await collect_sources(db, project)
     extraction, truncated = await _summarize(project, sources)
 
     now = datetime.now(timezone.utc)
-    new_content = [
-        {"id": uuid.uuid4().hex[:8], "kategori": item.kategori, "butir": item.butir}
-        for item in extraction.items
-    ]
+    new_content = [new_requirement_item(item.kategori, item.butir) for item in extraction.items]
     if existing_doc is not None:
         # Generate ulang manual (#34): timpa konten dan hapus override; aksi eksplisit pengguna.
         existing_doc.content = new_content
@@ -276,7 +272,7 @@ async def _generate(db: Any, project_id: str, replace: bool = False) -> None:
 
     db.add(
         Document(
-            id_doc=_new_doc_id(),
+            id_doc=generate_doc_id(),
             id_project=project_id,
             doc_type=REQUIREMENT_DOC_TYPE,
             status="Draft",
@@ -397,8 +393,11 @@ async def generate_pending_requirement(project_id: str, replace: bool = False) -
             logger.error("[Requirement] %s: gagal menandai failed: %s", project_id, inner)
 
 
-def can_regenerate_requirement(project: Project, user: Any) -> bool:
-    """Hak generate ulang manual: Lead_SA, Admin, atau SA yang ditugaskan pada proyek."""
+def can_manage_requirement(project: Project, user: Any) -> bool:
+    """
+    Hak mengelola Requirement (edit butir, generate ulang, pertahankan versi): Lead_SA,
+    Admin, atau SA yang ditugaskan. Sales (termasuk PIC), SA lain, dan collaborator read-only.
+    """
     if user.role in ("Lead_SA", "Admin"):
         return True
     return user.role == "SA" and project.assigned_sa is not None and project.assigned_sa == user.id
@@ -498,7 +497,7 @@ async def _resummarize(db: Any, project_id: str) -> None:
     if requirement is None:
         return
 
-    sources, source_hash = await _collect_sources(db, project)
+    sources, source_hash = await collect_sources(db, project)
     # Di-override atau Final: konten tidak disentuh (ADR 0004); hanya beri tahu SA (#37).
     if is_protected_requirement(requirement):
         if is_source_changed(requirement, source_hash):
@@ -510,10 +509,7 @@ async def _resummarize(db: Any, project_id: str) -> None:
 
     extraction, truncated = await _summarize(project, sources)
     now = datetime.now(timezone.utc)
-    requirement.content = [
-        {"id": uuid.uuid4().hex[:8], "kategori": item.kategori, "butir": item.butir}
-        for item in extraction.items
-    ]
+    requirement.content = [new_requirement_item(item.kategori, item.butir) for item in extraction.items]
     requirement.source_hash = source_hash
     requirement.generated_at = now
     requirement.source_truncated = truncated

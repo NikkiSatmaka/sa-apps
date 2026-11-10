@@ -21,8 +21,8 @@ from app.api.handover import router as handover_router
 from app.api.notifications import router as notifications_router
 from app.api.projects import router as projects_router
 from app.api.qualification import router as qualification_router
-from app.api.scoring import router as scoring_router
 from app.api.requirement import router as requirement_router
+from app.api.scoring import router as scoring_router
 from app.api.sla import router as sla_router
 from app.api.subtasks import router as subtasks_router
 from app.api.workflow import router as workflow_router

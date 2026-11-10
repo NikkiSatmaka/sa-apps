@@ -10,15 +10,16 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.documents import _to_response
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
+from app.models.document import Document
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.response import success_response
-from app.models.document import Document
 from app.services.requirement_generator import (
-    _collect_sources,
-    can_regenerate_requirement,
+    can_manage_requirement,
+    collect_sources,
     generate_pending_requirement,
     is_protected_requirement,
 )
@@ -49,7 +50,7 @@ async def regenerate_requirement(
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
 
-    if not can_regenerate_requirement(project, current_user):
+    if not can_manage_requirement(project, current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Hanya SA yang ditugaskan, Lead SA, atau Admin yang dapat generate ulang Requirement.",
@@ -104,9 +105,6 @@ async def keep_requirement_version(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Import lokal: menghindari impor siklik antara router dokumen dan router ini.
-    from app.api.documents import _to_response
-
     project = (
         await db.execute(select(Project).where(Project.id_project == project_id))
     ).scalar_one_or_none()
@@ -115,7 +113,7 @@ async def keep_requirement_version(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
-    if not can_regenerate_requirement(project, current_user):
+    if not can_manage_requirement(project, current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Hanya SA yang ditugaskan, Lead SA, atau Admin yang dapat mempertahankan versi Requirement.",
@@ -141,7 +139,7 @@ async def keep_requirement_version(
             detail="Requirement belum di-override dan belum Final; tidak ada versi yang dipertahankan.",
         )
 
-    _, current_hash = await _collect_sources(db, project)
+    _, current_hash = await collect_sources(db, project)
     document.source_hash = current_hash
     document.updated_by = current_user.id
     await db.commit()

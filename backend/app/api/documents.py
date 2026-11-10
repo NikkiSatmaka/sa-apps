@@ -11,9 +11,6 @@ State Machine:
 """
 
 import logging
-import random
-import string
-import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -32,30 +29,25 @@ from app.schemas.document import (
     DocumentStatusUpdate,
 )
 from app.schemas.response import success_response
-from app.services.requirement_generator import (
-    _collect_sources,
-    can_regenerate_requirement,
-    is_protected_requirement,
-    is_source_changed,
-)
-from app.utils.guardrails import RequirementItem
 from app.services.folder_provisioner import folder_provisioner
 from app.services.notification_service import (
     NotificationEvent,
     NotificationEventType,
     notification_service,
 )
+from app.services.requirement_generator import (
+    can_manage_requirement,
+    collect_sources,
+    is_protected_requirement,
+    is_source_changed,
+    new_requirement_item,
+)
+from app.utils.guardrails import RequirementItem
+from app.utils.identifiers import generate_doc_id
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Documents"])
-
-
-def _generate_doc_id() -> str:
-    """Generate ID dokumen unik dengan format DOC-{YYYYMMDD}-{random6}."""
-    date_part = datetime.now(timezone.utc).strftime("%Y%m%d")
-    random_part = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    return f"DOC-{date_part}-{random_part}"
 
 
 def _to_response(doc: Document, source_changed: bool = False) -> dict:
@@ -233,7 +225,7 @@ async def create_document(
 
     # Generate ID dokumen dan timestamp
     now = datetime.now(timezone.utc)
-    doc_id = _generate_doc_id()
+    doc_id = generate_doc_id()
 
     # Buat record dokumen baru
     new_document = Document(
@@ -300,7 +292,7 @@ async def list_project_documents(
     for doc in documents:
         changed = False
         if doc.doc_type == "Requirement" and is_protected_requirement(doc):
-            _, current_hash = await _collect_sources(db, project)
+            _, current_hash = await collect_sources(db, project)
             changed = is_source_changed(doc, current_hash)
         documents_data.append(_to_response(doc, source_changed=changed))
 
@@ -310,7 +302,7 @@ async def list_project_documents(
             "total": len(documents_data),
             # Status generate Requirement (#34): UI menampilkan pending/gagal + tombol coba lagi.
             "requirement_generation_status": project.requirement_generation_status,
-            "can_regenerate_requirement": can_regenerate_requirement(project, current_user),
+            "can_regenerate_requirement": can_manage_requirement(project, current_user),
         },
         message=f"Ditemukan {len(documents_data)} dokumen untuk proyek '{project_id}'.",
     )
@@ -438,7 +430,7 @@ async def _load_requirement_for_edit(
     Ambil dokumen Requirement proyek (dikunci FOR UPDATE) untuk diedit.
 
     Edit hanya untuk Lead_SA, Admin, dan SA yang ditugaskan pada proyek; peran lain
-    (Sales, SA tidak ditugaskan, collaborator) read-only -> 403. Requirement `Final`
+    (Sales termasuk Sales PIC, SA tidak ditugaskan, collaborator) read-only -> 403. Requirement `Final`
     terkunci (409) kecuali Lead_SA menurunkan statusnya lebih dulu.
     """
     project = (
@@ -450,9 +442,7 @@ async def _load_requirement_for_edit(
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
 
-    is_privileged = current_user.role in ("Lead_SA", "Admin")
-    is_assigned_sa = current_user.role == "SA" and project.assigned_sa == current_user.id
-    if not (is_privileged or is_assigned_sa):
+    if not can_manage_requirement(project, current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Hanya SA yang ditugaskan, Lead_SA, atau Admin yang dapat mengedit Requirement.",
@@ -513,7 +503,7 @@ async def add_requirement_item(
     """Tambah butir baru (id 8 hex); menyetel `is_overridden`."""
     document = await _load_requirement_for_edit(project_id, current_user, db)
     items = list(document.content or [])
-    items.append({"id": uuid.uuid4().hex[:8], "kategori": body.kategori, "butir": body.butir})
+    items.append(new_requirement_item(body.kategori, body.butir))
     await _save_requirement_items(document, items, current_user, db)
     return success_response(data=_to_response(document), message="Butir Requirement ditambahkan.")
 

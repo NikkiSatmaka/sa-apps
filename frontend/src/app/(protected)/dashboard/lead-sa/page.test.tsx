@@ -298,6 +298,8 @@ describe("Dashboard Lead SA — utilisasi per bulan", () => {
         urls.push(new URL(request.url).search);
         return HttpResponse.json(successEnvelope(makeMonthlyUtilization()));
       }),
+      // Default global /sa/available (grup operations) berisi SA lain; test ini butuh "SA Demo".
+      http.get(api("/sa/available"), () => HttpResponse.json(successEnvelope([makeAvailableSA()]))),
     );
     const { user } = renderWithProviders(<LeadSADashboard />, { role: "Lead_SA" });
     const tahun = new Date().getFullYear();

@@ -447,6 +447,8 @@ describe("Detail proyek — Project Story", () => {
   }
 
   it("keadaan kosong: pesan dan tanpa tombol Summarize", async () => {
+    // Default global (grup operations) berisi activity log; test ini butuh story kosong.
+    serveStory([]);
     setup("Lead_SA");
     expect(await screen.findByText("Belum ada activity log untuk proyek ini.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Summarize" })).not.toBeInTheDocument();

@@ -4,6 +4,8 @@ import { assignProject, getAvailableSA, getPendingAssignment, reassignProject, r
 
 describe("assignment API", () => {
   it("getPendingAssignment mengembalikan daftar (kosong maupun terisi)", async () => {
+    // Default global (grup shell) berisi satu proyek; test ini mulai dari keadaan kosong.
+    server.use(http.get(api("/projects/pending-assignment"), () => HttpResponse.json(successEnvelope([]))));
     await expect(getPendingAssignment()).resolves.toEqual([]);
     server.use(http.get(api("/projects/pending-assignment"), () => HttpResponse.json(successEnvelope([{ id_project: "p1" }]))));
     await expect(getPendingAssignment()).resolves.toEqual([{ id_project: "p1" }]);

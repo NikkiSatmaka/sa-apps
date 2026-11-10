@@ -64,3 +64,9 @@ Redshift_Beginner_Presentation_Guide.md
 Redshift_Beginner_Slide_Deck.md
 Redshift_Presentation_Outline.md
 .kiro/steering/
+
+# Artefak cakupan test
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml

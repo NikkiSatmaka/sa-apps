@@ -33,8 +33,16 @@ uv remove <paket>
 ## Development
 
 ```bash
-# Jalankan test suite
+# Jalankan test suite (±9 detik; DATABASE_URL dipaksa ke target yang gagal cepat di conftest,
+# jadi test unit tidak pernah menyentuh database nyata)
 uv run pytest
+
+# Laporan cakupan baris + cabang per modul (konfigurasi di [tool.coverage] pyproject.toml)
+uv run pytest --cov --cov-report=term-missing
+# Laporan HTML: tambahkan --cov-report=html (hasil di htmlcov/)
+
+# Audit durasi test paling lambat
+uv run pytest --durations=10
 
 # Lint
 uv run ruff check .

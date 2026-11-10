@@ -1,0 +1,108 @@
+import { describe, expect, it } from "vitest";
+import { http, HttpResponse, server, api, successEnvelope, errorEnvelope } from "@/test";
+import { makeNotification, makePaginatedNotifications } from "@/test/fixtures/notifications";
+import { getNotifications, getUnreadCount, markAsRead } from "./notifications";
+
+describe("getNotifications", () => {
+  it("default halaman 1 dengan 20 per halaman", async () => {
+    let search = "";
+    server.use(
+      http.get(api("/notifications"), ({ request }) => {
+        search = new URL(request.url).search;
+        return HttpResponse.json(successEnvelope(makePaginatedNotifications([makeNotification()])));
+      })
+    );
+    const res = await getNotifications();
+    expect(search).toBe("?page=1&per_page=20");
+    expect(res.items).toHaveLength(1);
+  });
+
+  it("meneruskan nomor halaman dan menyertakan token", async () => {
+    localStorage.setItem("access_token", "tok");
+    let search = "";
+    let auth: string | null = null;
+    server.use(
+      http.get(api("/notifications"), ({ request }) => {
+        search = new URL(request.url).search;
+        auth = request.headers.get("Authorization");
+        return HttpResponse.json(successEnvelope(makePaginatedNotifications([])));
+      })
+    );
+    const res = await getNotifications(3);
+    expect(search).toBe("?page=3&per_page=20");
+    expect(auth).toBe("Bearer tok");
+    expect(res.items).toEqual([]); // keadaan kosong
+  });
+
+  it("error: pesan backend, lalu pesan bawaan", async () => {
+    server.use(http.get(api("/notifications"), () => HttpResponse.json(errorEnvelope("Sesi habis"), { status: 401 })));
+    await expect(getNotifications()).rejects.toMatchObject({ status: 401, message: "Sesi habis" });
+    server.use(http.get(api("/notifications"), () => new HttpResponse("x", { status: 500 })));
+    await expect(getNotifications()).rejects.toMatchObject({ message: "Gagal mengambil notifikasi (status 500)" });
+  });
+});
+
+describe("markAsRead", () => {
+  it("PATCH ke notifikasi yang tepat dan tidak mengembalikan nilai", async () => {
+    let method = "";
+    let path = "";
+    server.use(
+      http.patch(api("/notifications/:id/read"), ({ request }) => {
+        method = request.method;
+        path = new URL(request.url).pathname;
+        return HttpResponse.json(successEnvelope(null));
+      })
+    );
+    await expect(markAsRead("n-7")).resolves.toBeUndefined();
+    expect(method).toBe("PATCH");
+    expect(path).toMatch(/\/notifications\/n-7\/read$/);
+  });
+
+  it("error: pesan backend, lalu pesan bawaan", async () => {
+    server.use(http.patch(api("/notifications/:id/read"), () => HttpResponse.json(errorEnvelope("Bukan milik Anda"), { status: 403 })));
+    await expect(markAsRead("n-7")).rejects.toMatchObject({ status: 403, message: "Bukan milik Anda" });
+    server.use(http.patch(api("/notifications/:id/read"), () => new HttpResponse("x", { status: 500 })));
+    await expect(markAsRead("n-7")).rejects.toMatchObject({ message: "Gagal menandai notifikasi (status 500)" });
+  });
+});
+
+describe("getUnreadCount", () => {
+  it("mengembalikan jumlah belum dibaca (termasuk nol)", async () => {
+    server.use(http.get(api("/notifications/unread-count"), () => HttpResponse.json(successEnvelope({ count: 0 }))));
+    await expect(getUnreadCount()).resolves.toEqual({ count: 0 });
+    server.use(http.get(api("/notifications/unread-count"), () => HttpResponse.json(successEnvelope({ count: 4 }))));
+    await expect(getUnreadCount()).resolves.toEqual({ count: 4 });
+  });
+
+  it("error: pesan backend, lalu pesan bawaan", async () => {
+    server.use(http.get(api("/notifications/unread-count"), () => HttpResponse.json(errorEnvelope("Gagal"), { status: 500 })));
+    await expect(getUnreadCount()).rejects.toMatchObject({ message: "Gagal" });
+    server.use(http.get(api("/notifications/unread-count"), () => new HttpResponse("x", { status: 503 })));
+    await expect(getUnreadCount()).rejects.toMatchObject({ message: "Gagal mengambil unread count (status 503)" });
+  });
+});
+
+describe("notifications API: token dan respons tanpa envelope", () => {
+  it("markAsRead dan getUnreadCount menyertakan token; body tanpa envelope dipakai utuh", async () => {
+    localStorage.setItem("access_token", "tok");
+    const auths: (string | null)[] = [];
+    server.use(
+      http.patch(api("/notifications/:id/read"), ({ request }) => {
+        auths.push(request.headers.get("Authorization"));
+        return HttpResponse.json(successEnvelope(null));
+      }),
+      http.get(api("/notifications/unread-count"), ({ request }) => {
+        auths.push(request.headers.get("Authorization"));
+        return HttpResponse.json({ count: 2 });
+      })
+    );
+    await markAsRead("n1");
+    await expect(getUnreadCount()).resolves.toEqual({ count: 2 });
+    expect(auths).toEqual(["Bearer tok", "Bearer tok"]);
+  });
+
+  it("getNotifications memakai body utuh bila tanpa `data`", async () => {
+    server.use(http.get(api("/notifications"), () => HttpResponse.json({ items: [], total: 0 })));
+    await expect(getNotifications()).resolves.toEqual({ items: [], total: 0 });
+  });
+});

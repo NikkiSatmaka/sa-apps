@@ -35,6 +35,7 @@ from app.schemas.project import FileUploadResult, ProjectResponse
 from app.schemas.qualification import parse_answers
 from app.schemas.response import error_response, success_response
 from app.services import bant_rubric
+from app.services.qualification_view import build_qualification_view
 
 logger = logging.getLogger(__name__)
 
@@ -431,6 +432,7 @@ async def get_project_detail(
         "dq_number": project.dq_number,
         "bant_score": project.bant_score,
         "bant_detail": project.bant_detail,
+        "qualification": build_qualification_view(project),
         "use_case_tags": project.use_case_tags or [],
         "estimasi_nilai": str(project.estimasi_nilai)
         if project.estimasi_nilai is not None

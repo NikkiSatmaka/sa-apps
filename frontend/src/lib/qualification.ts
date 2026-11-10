@@ -90,3 +90,38 @@ export function toPayload(a: QualificationAnswers): Record<string, string | numb
   }
   return out;
 }
+
+/** Label pertanyaan kuesioner untuk tampilan read-only (urutan = urutan tampil). */
+export const ANSWER_LABELS: [keyof QualificationAnswers, string][] = [
+  ["mrr", "MRR (IDR)"],
+  ["budget_dialokasikan", "Budget sudah dialokasikan/disetujui?"],
+  ["pic_nama", "Nama PIC"],
+  ["pic_jabatan", "Jabatan PIC"],
+  ["pic_email", "Email PIC"],
+  ["peran_pic", "Peran PIC dalam keputusan"],
+  ["stakeholder_lain", "Stakeholder lain dalam keputusan"],
+  ["masalah_bisnis", "Masalah bisnis yang ingin diselesaikan"],
+  ["jenis_workload", "Jenis workload"],
+  ["lingkungan", "Lingkungan saat ini"],
+  ["skala", "Skala (jumlah server, volume data)"],
+  ["persyaratan_khusus", "Persyaratan khusus"],
+  ["kompetitor", "Kompetitor/vendor lain"],
+  ["target_go_live", "Target go-live / keputusan beli"],
+];
+
+/** Bagian `qualification` dari GET /projects/{id} (dihitung backend; read-only). */
+export interface QualificationView {
+  legacy: boolean;
+  schema_version: number | null;
+  answers: Record<string, string | number | null> | null;
+  sub_scores: { budget: number; authority: number; need: number; timeline: number } | null;
+  feedback: string | null;
+  legacy_data: {
+    budget_mrr?: number | null;
+    pic_name?: string | null;
+    pic_position?: string | null;
+    pic_email?: string | null;
+    need_description?: string | null;
+    timeline_target?: string | null;
+  } | null;
+}

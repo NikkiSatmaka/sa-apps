@@ -54,7 +54,7 @@ def _pdf():
 def test_create_dengan_file_status_scoring_pending_dan_skor_rubrik_tersimpan():
     with patch("app.api.projects._trigger_scoring_engine", new=AsyncMock()) as trigger:
         with _api() as (client, session):
-            resp = client.post(URL, data=_form(jawaban_lemah()), files=[_pdf()])
+            resp = client.post(URL, data=_form(jawaban_lemah(), file_types=["MoM"]), files=[_pdf()])
     assert resp.status_code == 201
     d = resp.json()["data"]
     assert d["status"] == "Scoring Pending"
@@ -120,7 +120,10 @@ def _jalankan_background(
     ), patch("app.services.scoring_engine.asyncio.sleep", new=AsyncMock()):
         with _api() as (client, _):
             resp = client.post(
-                URL, data=_form(jawaban if jawaban is not None else jawaban_lemah()), files=[_pdf()]
+                URL, data=_form(
+                    jawaban if jawaban is not None else jawaban_lemah(), file_types=["MoM"]
+                ),
+                files=[_pdf()]
             )
     assert resp.status_code == 201
     return proyek, bg, provider

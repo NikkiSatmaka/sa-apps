@@ -65,11 +65,11 @@ def _project(**kw):
 
 
 def _get(project, user, *, collaborator=False, extra_lookups=0):
-    """Urutan execute: project, cek collaborator, [lookup user...], daftar collaborators."""
+    """Urutan execute: project, cek collaborator, [lookup user...], daftar collaborators, Source document."""
     session = AsyncMock()
     seq = [_res(project), _res(MagicMock() if collaborator else None)]
     seq += [_res(None)] * extra_lookups
-    seq += [_res(items=[])]
+    seq += [_res(items=[]), _res(items=[])]
     session.execute = AsyncMock(side_effect=seq)
 
     async def _db():

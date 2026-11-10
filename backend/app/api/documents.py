@@ -31,6 +31,7 @@ from app.schemas.document import (
     DocumentStatusUpdate,
 )
 from app.schemas.response import success_response
+from app.services.requirement_generator import can_regenerate_requirement
 from app.services.folder_provisioner import folder_provisioner
 from app.services.notification_service import (
     NotificationEvent,
@@ -292,7 +293,13 @@ async def list_project_documents(
     ]
 
     return success_response(
-        data={"documents": documents_data, "total": len(documents_data)},
+        data={
+            "documents": documents_data,
+            "total": len(documents_data),
+            # Status generate Requirement (#34): UI menampilkan pending/gagal + tombol coba lagi.
+            "requirement_generation_status": project.requirement_generation_status,
+            "can_regenerate_requirement": can_regenerate_requirement(project, current_user),
+        },
         message=f"Ditemukan {len(documents_data)} dokumen untuk proyek '{project_id}'.",
     )
 

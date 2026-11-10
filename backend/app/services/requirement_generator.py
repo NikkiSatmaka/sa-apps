@@ -169,19 +169,20 @@ def _new_doc_id() -> str:
     return _generate_doc_id()
 
 
-async def _generate(db: Any, project_id: str) -> None:
+async def _generate(db: Any, project_id: str, replace: bool = False) -> None:
     result = await db.execute(select(Project).where(Project.id_project == project_id))
     project = result.scalar_one_or_none()
     if project is None or project.requirement_generation_status != "pending":
         return
 
     # Idempoten: Requirement sudah ada (mis. balapan dua trigger) → cukup tandai ready.
-    existing = await db.execute(
+    existing_result = await db.execute(
         select(Document).where(
             Document.id_project == project_id, Document.doc_type == REQUIREMENT_DOC_TYPE
         )
     )
-    if existing.scalar_one_or_none() is not None:
+    existing_doc = existing_result.scalar_one_or_none()
+    if existing_doc is not None and not replace:
         project.requirement_generation_status = "ready"
         await db.commit()
         return
@@ -235,6 +236,23 @@ async def _generate(db: Any, project_id: str) -> None:
         raise RuntimeError("Keluaran LLM tidak valid setelah semua percobaan.")
 
     now = datetime.now(timezone.utc)
+    new_content = [
+        {"id": uuid.uuid4().hex[:8], "kategori": item.kategori, "butir": item.butir}
+        for item in extraction.items
+    ]
+    if existing_doc is not None:
+        # Generate ulang manual (#34): timpa konten dan hapus override; aksi eksplisit pengguna.
+        existing_doc.content = new_content
+        existing_doc.is_overridden = False
+        existing_doc.source_hash = source_hash
+        existing_doc.generated_at = now
+        existing_doc.source_truncated = truncated
+        existing_doc.updated_at = now
+        project.requirement_generation_status = "ready"
+        await db.commit()
+        logger.info("[Requirement] %s: digenerate ulang (%d butir).", project_id, len(new_content))
+        return
+
     db.add(
         Document(
             id_doc=_new_doc_id(),
@@ -244,10 +262,7 @@ async def _generate(db: Any, project_id: str) -> None:
             gdrive_link=None,
             folder_type=REQUIREMENT_FOLDER_TYPE,
             created_by=None,
-            content=[
-                {"id": uuid.uuid4().hex[:8], "kategori": item.kategori, "butir": item.butir}
-                for item in extraction.items
-            ],
+            content=new_content,
             is_overridden=False,
             source_hash=source_hash,
             generated_at=now,
@@ -277,20 +292,23 @@ async def _mark_failed(project_id: str) -> None:
             await db.commit()
 
 
-async def generate_pending_requirement(project_id: str) -> None:
+async def generate_pending_requirement(project_id: str, replace: bool = False) -> None:
     """
     Background task: generate Requirement bila proyek bertanda `pending`.
 
     Sesi DB sendiri; tidak pernah melempar. Tanpa penanda `pending` ini no-op (aman
     dipanggil dari semua jalur menuju Pending Assignment). Gagal akhir → status `failed`,
     tidak ada baris Document, alur proyek tidak terganggu.
+
+    `replace=True` (generate ulang manual, #34): bila Requirement sudah ada, kontennya
+    ditimpa (override dihapus); bila gagal, konten lama tidak disentuh.
     """
     from app.core.database import AsyncSessionLocal
 
     try:
         async with AsyncSessionLocal() as db:
             try:
-                await _generate(db, project_id)
+                await _generate(db, project_id, replace)
             except IntegrityError:
                 # Requirement sudah dibuat proses lain (unique index) → anggap ready.
                 await db.rollback()
@@ -305,3 +323,10 @@ async def generate_pending_requirement(project_id: str) -> None:
             await _mark_failed(project_id)
         except Exception as inner:  # noqa: BLE001
             logger.error("[Requirement] %s: gagal menandai failed: %s", project_id, inner)
+
+
+def can_regenerate_requirement(project: Project, user: Any) -> bool:
+    """Hak generate ulang manual: Lead_SA, Admin, atau SA yang ditugaskan pada proyek."""
+    if user.role in ("Lead_SA", "Admin"):
+        return True
+    return user.role == "SA" and project.assigned_sa is not None and project.assigned_sa == user.id

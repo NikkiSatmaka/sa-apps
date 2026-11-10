@@ -9,6 +9,7 @@ import { DocumentForm } from "@/components/DocumentForm";
 import { DQNumberInput } from "@/components/DQNumberInput";
 import { RAGPanel } from "@/components/RAGPanel";
 import { RequirementItemsView } from "@/components/RequirementItemsView";
+import { RequirementRegenerateSection } from "@/components/RequirementRegenerateSection";
 import {
   createDocument,
   getProjectDocuments,
@@ -200,6 +201,11 @@ export default function DocumentsPage() {
       </div>
 
       {/* DQ Number Section — dipindahkan ke halaman detail proyek */}
+
+      <RequirementRegenerateSection
+        projectId={projectId}
+        onChanged={() => mutateDocuments()}
+      />
 
       {/* Daftar Dokumen */}
       <div className="bg-white border border-neutral-200 rounded-lg">

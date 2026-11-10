@@ -6,7 +6,6 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import { useAuthStore } from "@/store/auth";
 import { DocumentForm } from "@/components/DocumentForm";
-import { DQNumberInput } from "@/components/DQNumberInput";
 import { RAGPanel } from "@/components/RAGPanel";
 import { RequirementItemsView } from "@/components/RequirementItemsView";
 import { RequirementSourceChangedBanner } from "@/components/RequirementSourceChangedBanner";
@@ -16,7 +15,6 @@ import {
   createDocument,
   getProjectDocuments,
   updateDocumentStatus,
-  updateDQNumber,
   type Document,
   type DocStatus,
   type CreateDocumentInput,
@@ -84,7 +82,6 @@ export default function DocumentsPage() {
   const [showForm, setShowForm] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState<string | null>(null);
-  const [isDQSubmitting, setIsDQSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Fetch daftar dokumen
@@ -101,7 +98,6 @@ export default function DocumentsPage() {
   const {
     data: project,
     error: projError,
-    mutate: mutateProject,
   } = useSWR<ProjectDetail>(`/projects/${projectId}`, fetcher);
 
   // Edit butir Requirement: Lead_SA, Admin, atau SA yang ditugaskan (backend yang menegakkan)
@@ -156,26 +152,6 @@ export default function DocumentsPage() {
       }
     },
     [mutateDocuments, showToast]
-  );
-
-  /**
-   * Handle submit DQ Number
-   */
-  const handleDQSubmit = useCallback(
-    async (dqNumber: string) => {
-      setIsDQSubmitting(true);
-      try {
-        await updateDQNumber(projectId, dqNumber);
-        await mutateProject();
-        showToast("success", "DQ Number berhasil disimpan");
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Gagal menyimpan DQ Number";
-        showToast("error", message);
-      } finally {
-        setIsDQSubmitting(false);
-      }
-    },
-    [projectId, mutateProject, showToast]
   );
 
   // Cek apakah user bisa mengubah status dokumen Final

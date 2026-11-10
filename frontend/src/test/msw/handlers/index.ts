@@ -7,6 +7,7 @@ import { documentHandlers } from "./documents";
 import { notificationHandlers } from "./notifications";
 import { projectHandlers } from "./projects";
 import { qualificationHandlers } from "./qualification";
+import { requirementHandlers } from "./requirement";
 
 export const handlers = [
   ...authHandlers,
@@ -14,4 +15,5 @@ export const handlers = [
   ...documentHandlers,
   ...qualificationHandlers,
   ...notificationHandlers,
+  ...requirementHandlers,
 ];

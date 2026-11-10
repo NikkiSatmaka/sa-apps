@@ -11,6 +11,7 @@ import { opportunityHandlers } from "./opportunity";
 import { projectDetailHandlers } from "./project-detail";
 import { projectHandlers } from "./projects";
 import { qualificationHandlers } from "./qualification";
+import { requirementHandlers } from "./requirement";
 
 export const handlers = [
   ...authHandlers,
@@ -22,4 +23,5 @@ export const handlers = [
   ...notificationHandlers,
   ...libHandlers,
   ...opportunityHandlers,
+  ...requirementHandlers,
 ];

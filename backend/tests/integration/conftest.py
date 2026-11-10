@@ -118,7 +118,8 @@ def jalankan_alembic(url: str, *args: str) -> subprocess.CompletedProcess[str]:
     )
     if hasil.returncode != 0:
         raise AssertionError(
-            f"alembic {' '.join(args)} gagal (exit {hasil.returncode}):\n{hasil.stdout}\n{hasil.stderr}"
+            f"alembic {' '.join(args)} gagal (exit {hasil.returncode}):\n"
+            f"{hasil.stdout}\n{hasil.stderr}"
         )
     return hasil
 
@@ -144,7 +145,9 @@ class ServerUji:
         # Jaga-jaga: hanya database buatan fixture ini yang boleh dihapus.
         assert nama.startswith(PREFIX_DB) and nama in self.dibuat, nama
         _jalankan(
-            lambda: _perintah_admin(self.url_admin, f'DROP DATABASE IF EXISTS "{nama}" WITH (FORCE)')
+            lambda: _perintah_admin(
+                self.url_admin, f'DROP DATABASE IF EXISTS "{nama}" WITH (FORCE)'
+            )
         )
         self.dibuat.remove(nama)
 
@@ -211,7 +214,9 @@ def session_factory(db_connection: AsyncConnection) -> async_sessionmaker[AsyncS
 
 
 @pytest_asyncio.fixture
-async def db_session(session_factory: async_sessionmaker[AsyncSession]) -> AsyncIterator[AsyncSession]:
+async def db_session(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[AsyncSession]:
     async with session_factory() as session:
         yield session
 
@@ -226,7 +231,8 @@ def patch_session_factory(
     `dependency_overrides[get_db]` tidak menjangkaunya. Modul yang mengimpor di level modul
     (mis. `notification_service`, `sla_timer`) menyimpan referensi sendiri, sedangkan yang
     mengimpor lokal membaca `app.core.database.AsyncSessionLocal` saat dipanggil; memindai
-    `sys.modules` menutup keduanya dan modul baru di masa depan. Mengembalikan nama modul yang dipatch.
+    `sys.modules` menutup keduanya dan modul baru di masa depan. Mengembalikan nama modul
+    yang dipatch.
     """
     import app.core.database  # noqa: F401  - pastikan modul sudah dimuat
 

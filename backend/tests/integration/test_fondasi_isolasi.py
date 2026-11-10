@@ -37,7 +37,13 @@ async def test_isolasi_b(db_session):
 async def test_data_test_tidak_terlihat_koneksi_lain(db_session, database_uji_url):
     """Data yang di-commit via sesi test tidak pernah sampai ke koneksi independen."""
     db_session.add(
-        User(id=uuid.uuid4(), email="tak-terlihat@portal-sa.local", name="X", role="SA", google_id="g-x")
+        User(
+            id=uuid.uuid4(),
+            email="tak-terlihat@portal-sa.local",
+            name="X",
+            role="SA",
+            google_id="g-x",
+        )
     )
     await db_session.commit()
 

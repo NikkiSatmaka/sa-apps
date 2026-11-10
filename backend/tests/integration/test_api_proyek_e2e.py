@@ -54,7 +54,9 @@ async def test_demo_login_buat_proyek_lolos_gate_tersimpan_di_postgres(api, db_s
     dokumen = (await db_session.execute(select(Document))).scalars().all()
     assert dokumen == []
     # Notifikasi in-app untuk Lead_SA tertulis lewat sesi yang sama.
-    jumlah_notif = (await db_session.execute(text("SELECT count(*) FROM notification_logs"))).scalar_one()
+    jumlah_notif = (
+        await db_session.execute(text("SELECT count(*) FROM notification_logs"))
+    ).scalar_one()
     assert jumlah_notif >= 1
 
 

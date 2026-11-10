@@ -7,8 +7,8 @@ dengan rollback per test.
 """
 
 import asyncio
-import uuid
 import re
+import uuid
 
 import pytest
 from sqlalchemy import text
@@ -69,7 +69,8 @@ def _versi(url: str) -> str | None:
 def _tabel_aplikasi(url: str) -> set[str]:
     baris = _sql(
         url,
-        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'alembic_version'",
+        "SELECT tablename FROM pg_tables "
+        "WHERE schemaname = 'public' AND tablename <> 'alembic_version'",
     )
     return {b[0] for b in baris}
 
@@ -86,7 +87,8 @@ def _isi_user_dan_proyek(url: str) -> None:
     )
     _sql(
         url,
-        "INSERT INTO projects (id_project, project_name, customer_name, sales_pic, target_submit) "
+        "INSERT INTO projects "
+        "(id_project, project_name, customer_name, sales_pic, target_submit) "
         "VALUES ('PRJ-MIG', 'Proyek Mig', 'PT Mig', :u, '2030-01-01')",
         {"u": USER_ID},
     )
@@ -95,7 +97,8 @@ def _isi_user_dan_proyek(url: str) -> None:
 def _doc(url: str, id_doc: str, doc_type: str, link: str | None, created_by: str | None) -> None:
     _sql(
         url,
-        "INSERT INTO documents (id_doc, id_project, doc_type, folder_type, gdrive_link, created_by) "
+        "INSERT INTO documents "
+        "(id_doc, id_project, doc_type, folder_type, gdrive_link, created_by) "
         "VALUES (:d, 'PRJ-MIG', :t, 'Solutions', :l, :c)",
         {"d": id_doc, "t": doc_type, "l": link, "c": created_by},
     )
@@ -174,7 +177,7 @@ def test_upgrade_ulang_dengan_data_requirement_hasil_generate_dibuang_dokumen_la
 
 
 def test_upgrade_dari_013_mempertahankan_requirement_lama_dengan_nilai_bawaan(database_kosong_url):
-    """Baris Requirement era 013 (link & pembuat terisi) bertahan dan mendapat default kolom baru."""
+    """Requirement era 013 (link & pembuat terisi) bertahan dan dapat default kolom baru."""
     url = database_kosong_url
     jalankan_alembic(url, "upgrade", "013")
     _isi_user_dan_proyek(url)
@@ -201,7 +204,8 @@ def test_upgrade_dari_013_mempertahankan_requirement_lama_dengan_nilai_bawaan(da
 async def _proyek(db, id_project: str, user_id: uuid.UUID) -> None:
     await db.execute(
         text(
-            "INSERT INTO projects (id_project, project_name, customer_name, sales_pic, target_submit) "
+            "INSERT INTO projects "
+            "(id_project, project_name, customer_name, sales_pic, target_submit) "
             "VALUES (:p, 'P', 'C', :u, '2030-01-01')"
         ),
         {"p": id_project, "u": user_id},
@@ -220,7 +224,8 @@ async def _user(db) -> uuid.UUID:
 async def _dokumen(db, id_doc, id_project, doc_type, link, created_by) -> None:
     await db.execute(
         text(
-            "INSERT INTO documents (id_doc, id_project, doc_type, folder_type, gdrive_link, created_by) "
+            "INSERT INTO documents "
+            "(id_doc, id_project, doc_type, folder_type, gdrive_link, created_by) "
             "VALUES (:d, :p, :t, 'Solutions', :l, :c)"
         ),
         {"d": id_doc, "p": id_project, "t": doc_type, "l": link, "c": created_by},
@@ -228,7 +233,7 @@ async def _dokumen(db, id_doc, id_project, doc_type, link, created_by) -> None:
 
 
 async def _ditolak(db, nama_constraint: str, **dokumen) -> None:
-    """Pernyataan harus ditolak Postgres oleh constraint `nama_constraint`; sesi tetap bisa dipakai."""
+    """Pernyataan harus ditolak Postgres oleh `nama_constraint`; sesi tetap bisa dipakai."""
     with pytest.raises(IntegrityError) as err:
         async with db.begin_nested():
             await _dokumen(db, **dokumen)
@@ -267,7 +272,9 @@ async def test_requirement_kedua_per_proyek_ditolak_tetapi_proyek_lain_boleh(db_
     uid = await _user(db_session)
     await _proyek(db_session, "PRJ-C3", uid)
     await _proyek(db_session, "PRJ-C4", uid)
-    await _dokumen(db_session, "R1", "PRJ-C3", "Requirement", None, None)  # null sah utk Requirement
+    await _dokumen(
+        db_session, "R1", "PRJ-C3", "Requirement", None, None
+    )  # null sah utk Requirement
 
     await _ditolak(
         db_session,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { Fragment, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
@@ -8,6 +8,7 @@ import { useAuthStore } from "@/store/auth";
 import { DocumentForm } from "@/components/DocumentForm";
 import { DQNumberInput } from "@/components/DQNumberInput";
 import { RAGPanel } from "@/components/RAGPanel";
+import { RequirementItemsView } from "@/components/RequirementItemsView";
 import {
   createDocument,
   getProjectDocuments,
@@ -280,8 +281,8 @@ export default function DocumentsPage() {
                     doc.status === "Final" ? canChangeFinalStatus : true;
 
                   return (
+                    <Fragment key={doc.id_doc}>
                     <tr
-                      key={doc.id_doc}
                       className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors"
                     >
                       {/* Tipe dokumen */}
@@ -298,8 +299,9 @@ export default function DocumentsPage() {
                         </span>
                       </td>
 
-                      {/* Link GDrive — clickable */}
+                      {/* Link GDrive — kosong untuk Requirement (konten turunan AI) */}
                       <td className="px-4 py-3">
+                        {doc.gdrive_link ? (
                         <a
                           href={doc.gdrive_link}
                           target="_blank"
@@ -311,6 +313,9 @@ export default function DocumentsPage() {
                           <span className="truncate">Buka di Drive</span>
                           <span aria-hidden="true">↗</span>
                         </a>
+                        ) : (
+                          <span className="text-xs text-neutral-400">—</span>
+                        )}
                       </td>
 
                       {/* Catatan */}
@@ -351,6 +356,15 @@ export default function DocumentsPage() {
                         )}
                       </td>
                     </tr>
+                    {/* Requirement: butir per kategori, read-only */}
+                    {doc.doc_type === "Requirement" && (
+                      <tr className="border-b border-neutral-50 bg-neutral-50/50">
+                        <td colSpan={5} className="px-4 py-3">
+                          <RequirementItemsView doc={doc} />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>

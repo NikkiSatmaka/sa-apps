@@ -7,7 +7,7 @@ import type { DocType, FolderType, CreateDocumentInput } from "@/lib/api/documen
  * Form untuk menambahkan dokumen baru ke proyek
  *
  * Fitur:
- * - Select tipe dokumen (Requirement, PropTek, BOQ, Mandays, MoM, RFP, HLD)
+ * - Select tipe dokumen (PropTek, BOQ, Mandays, MoM, RFP, HLD)
  * - Input link GDrive (wajib)
  * - Select folder type (Inventory, Diagram, Solutions)
  * - Textarea catatan (max 500 karakter, dengan counter)
@@ -17,9 +17,8 @@ import type { DocType, FolderType, CreateDocumentInput } from "@/lib/api/documen
  * Requirements: 7.1, 7.2
  */
 
-// Opsi tipe dokumen yang didukung
+// Opsi tipe dokumen yang diunggah manual (Requirement dibuat otomatis oleh sistem)
 const DOC_TYPE_OPTIONS: { value: DocType; label: string }[] = [
-  { value: "Requirement", label: "Requirement" },
   { value: "PropTek", label: "PropTek" },
   { value: "BOQ", label: "BOQ" },
   { value: "Mandays", label: "Mandays" },

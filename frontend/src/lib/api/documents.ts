@@ -24,19 +24,43 @@ export type FolderType = "Inventory" | "Diagram" | "Solutions";
 /** Status dokumen */
 export type DocStatus = "Draft" | "Reviewed" | "Final";
 
+/** Kategori butir Requirement (himpunan tetap, selaras kontrak backend) */
+export type RequirementKategori =
+  | "Fungsional"
+  | "Teknis"
+  | "Kepatuhan"
+  | "Integrasi"
+  | "Timeline"
+  | "Asumsi";
+
+/** Satu butir Requirement turunan AI */
+export interface RequirementItem {
+  id: string;
+  kategori: RequirementKategori;
+  butir: string;
+}
+
 /** Interface dokumen dari backend */
 export interface Document {
   id_doc: string;
   id_project: string;
   doc_type: DocType;
   status: DocStatus;
-  gdrive_link: string;
+  /** Kosong hanya untuk Requirement (konten turunan AI, tanpa file Drive) */
+  gdrive_link: string | null;
   folder_type: FolderType;
   notes: string | null;
   created_at: string;
   updated_at: string;
-  created_by: string;
+  /** Kosong untuk Requirement hasil generate sistem */
+  created_by: string | null;
   updated_by: string | null;
+  /** Hanya Requirement: daftar butir; null untuk dokumen lain */
+  content: RequirementItem[] | null;
+  is_overridden: boolean;
+  source_hash: string | null;
+  generated_at: string | null;
+  source_truncated: boolean;
 }
 
 /** Input untuk membuat dokumen baru */

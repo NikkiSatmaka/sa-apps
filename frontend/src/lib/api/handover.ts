@@ -22,7 +22,7 @@ export interface Recommendation {
   project_name: string;
   doc_type: string;
   use_case_tags: string[];
-  gdrive_link: string;
+  gdrive_link: string | null;
   match_count: number;
 }
 

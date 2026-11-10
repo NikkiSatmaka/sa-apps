@@ -6,7 +6,7 @@
  * Proyek lama (legacy): metadata BANT lama apa adanya, tanpa backfill.
  */
 
-import { ANSWER_LABELS, type QualificationView } from "@/lib/qualification";
+import { useQualificationSchema, type QualificationView } from "@/lib/qualification";
 
 const SUB_SCORE_LABELS: [keyof NonNullable<QualificationView["sub_scores"]>, string][] = [
   ["budget", "Budget"],
@@ -66,31 +66,40 @@ export function QualificationSection({
   qualification: QualificationView | undefined;
   targetSubmit: string | null;
 }) {
+  const { schema, error: schemaError } = useQualificationSchema();
   if (!qualification) return null;
   const q = qualification;
 
   if (!q.legacy && q.answers) {
+    const answers = q.answers;
+    const headerValues: Record<string, string | null> = { target_submit: targetSubmit };
+    if (!schema) {
+      return (
+        <div className="bg-white border border-neutral-200 rounded-lg p-5 text-sm text-neutral-500">
+          {schemaError ? "Gagal memuat skema kuesioner." : "Memuat kuesioner..."}
+        </div>
+      );
+    }
     return (
       <div className="bg-white border border-neutral-200 rounded-lg p-5 space-y-4">
         <h2 className="text-sm font-semibold text-neutral-700">Kuesioner Kualifikasi</h2>
         <SubScores q={q} />
         <dl className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <div className="p-3 bg-neutral-50 rounded-lg">
-            <dt className="text-xs font-medium text-neutral-500 mb-1">Target submit</dt>
-            <dd className="text-neutral-800">{targetSubmit ? formatTanggal(targetSubmit) : KOSONG}</dd>
-          </div>
-          {ANSWER_LABELS.map(([key, label]) => {
-            const value = q.answers![key];
+          {schema.questions.map((q) => {
+            // Field header (mis. target_submit) berasal dari proyek, bukan dari jawaban.
+            const value = q.header ? headerValues[q.name] : answers[q.name];
             const kosong = value === null || value === undefined || value === "";
             return (
-              <div key={key} className="p-3 bg-neutral-50 rounded-lg">
-                <dt className="text-xs font-medium text-neutral-500 mb-1">{label}</dt>
+              <div key={q.name} className="p-3 bg-neutral-50 rounded-lg">
+                <dt className="text-xs font-medium text-neutral-500 mb-1">{q.short_label}</dt>
                 <dd className="text-neutral-800 whitespace-pre-line">
                   {kosong
                     ? KOSONG
-                    : key === "mrr"
+                    : q.display === "currency_idr"
                       ? `Rp ${Number(value).toLocaleString("id-ID")}`
-                      : String(value)}
+                      : q.display === "date"
+                        ? formatTanggal(String(value))
+                        : String(value)}
                 </dd>
               </div>
             );

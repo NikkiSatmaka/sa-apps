@@ -7,7 +7,7 @@
  */
 
 import { ApiError, apiRequest } from "../fetcher";
-import { toPayload, type QualificationAnswers } from "../qualification";
+import { toPayload, type QualificationAnswers, type QualificationSchema } from "../qualification";
 
 // Base URL API backend
 const API_BASE_URL =
@@ -159,10 +159,11 @@ export interface UpdateAnswersResult {
 /** Edit jawaban kuesioner (PUT /projects/{id}/qualification-answers); skor dihitung backend. */
 export function updateQualificationAnswers(
   projectId: string,
+  schema: QualificationSchema,
   answers: QualificationAnswers
 ): Promise<UpdateAnswersResult> {
   return apiRequest<UpdateAnswersResult>(`/projects/${projectId}/qualification-answers`, {
     method: "PUT",
-    body: toPayload(answers),
+    body: toPayload(schema, answers),
   });
 }

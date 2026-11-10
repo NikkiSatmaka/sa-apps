@@ -1,113 +1,122 @@
 /**
- * Kuesioner kualifikasi v1 — tipe, pilihan, dan label pertanyaan.
+ * Kuesioner kualifikasi — tipe & util sisi klien.
  *
- * Pilihan HARUS identik dengan backend (backend/app/services/bant_rubric.py).
- * Skor dihitung backend dari jawaban ini; frontend tidak menghitung skor apa pun.
+ * Definisi (nama field, label, tipe, wajib, pilihan, petunjuk, tata letak) TIDAK disimpan di
+ * sini: seluruhnya dimuat dari backend lewat GET /qualification/schema (satu sumber definisi).
+ * Validasi klien hanya umpan balik cepat yang diturunkan dari skema; backend tetap otoritatif.
+ * Skor dihitung backend; frontend tidak menghitung skor apa pun.
  */
 
-export const QUESTIONNAIRE_SCHEMA_VERSION = 1;
+import useSWR from "swr";
+import { fetcher } from "./fetcher";
 
-export const BUDGET_DIALOKASIKAN_CHOICES = ["Ya", "Belum", "Tidak tahu"] as const;
-export const PERAN_PIC_CHOICES = ["Pengambil keputusan", "Perantara", "Tidak tahu"] as const;
-export const JENIS_WORKLOAD_CHOICES = [
-  "Migrasi ke cloud",
-  "Data warehouse/analytics",
-  "Disaster recovery/backup",
-  "Aplikasi baru/modernisasi",
-  "Keamanan",
-  "Lainnya",
-] as const;
-export const LINGKUNGAN_CHOICES = ["On-prem", "Cloud", "Hybrid"] as const;
-export const TARGET_GO_LIVE_CHOICES = ["≤ 3 bulan", "≤ 6 bulan", "> 6 bulan", "Tidak tahu"] as const;
+export type QuestionType = "number" | "choice" | "text" | "short" | "email" | "date";
 
-/** Jawaban kuesioner di form: semua string agar mudah dikontrol; "" = belum diisi. */
-export interface QualificationAnswers {
-  mrr: string;
-  budget_dialokasikan: string;
-  pic_nama: string;
-  pic_jabatan: string;
-  pic_email: string;
-  peran_pic: string;
-  stakeholder_lain: string;
-  masalah_bisnis: string;
-  jenis_workload: string;
-  lingkungan: string;
-  skala: string;
-  persyaratan_khusus: string;
-  kompetitor: string;
-  target_go_live: string;
+export interface QuestionDef {
+  name: string;
+  group: string;
+  type: QuestionType;
+  label: string;
+  short_label: string;
+  required: boolean;
+  choices: string[] | null;
+  hint: string | null;
+  placeholder: string | null;
+  max_length: number | null;
+  min_value: number | null;
+  max_value: number | null;
+  pattern: string | null;
+  row: string | null;
+  row_hint: string | null;
+  display: "currency_idr" | "date" | null;
+  show_char_count: boolean;
+  /** True: field header proyek (bukan bagian jawaban); hanya tampil di baca-saja. */
+  header: boolean;
 }
 
-export type QualificationErrors = Partial<Record<keyof QualificationAnswers, string>>;
+export interface QualificationSchema {
+  schema_version: number;
+  groups: { key: string; title: string }[];
+  questions: QuestionDef[];
+}
 
-export const EMPTY_ANSWERS: QualificationAnswers = {
-  mrr: "",
-  budget_dialokasikan: "",
-  pic_nama: "",
-  pic_jabatan: "",
-  pic_email: "",
-  peran_pic: "",
-  stakeholder_lain: "",
-  masalah_bisnis: "",
-  jenis_workload: "",
-  lingkungan: "",
-  skala: "",
-  persyaratan_khusus: "",
-  kompetitor: "",
-  target_go_live: "",
-};
+/** Muat skema kuesioner dari backend (statis per versi; tidak perlu revalidasi sering). */
+export function useQualificationSchema() {
+  const { data, error, isLoading } = useSWR<QualificationSchema>("/qualification/schema", fetcher, {
+    revalidateOnFocus: false,
+  });
+  return { schema: data, error, isLoading };
+}
 
-/** Field wajib (pertanyaan #11 Target submit ada di langkah 1). */
-const REQUIRED: (keyof QualificationAnswers)[] = [
-  "budget_dialokasikan",
-  "peran_pic",
-  "masalah_bisnis",
-  "jenis_workload",
-  "lingkungan",
-  "skala",
-  "target_go_live",
-];
+/** Jawaban kuesioner di form: semua string agar mudah dikontrol; ""/tidak ada = belum diisi. */
+export type QualificationAnswers = Record<string, string>;
+export type QualificationErrors = Record<string, string | undefined>;
 
-/** Validasi kelengkapan di sisi klien (hanya umpan balik cepat; backend tetap memvalidasi). */
-export function validateAnswers(a: QualificationAnswers): QualificationErrors {
-  const errors: QualificationErrors = {};
-  for (const key of REQUIRED) {
-    if (!a[key].trim()) errors[key] = "Wajib diisi";
+/** Pertanyaan yang jawabannya dikirim ke backend (tanpa field header). */
+export function answerQuestions(schema: QualificationSchema): QuestionDef[] {
+  return schema.questions.filter((q) => !q.header);
+}
+
+/** Baris tata letak: pertanyaan berurutan dengan `row` sama dikelompokkan sebaris. */
+export interface LayoutRow {
+  questions: QuestionDef[];
+  hint: string | null;
+}
+
+/** Susun pertanyaan sebuah kelompok BANT menjadi baris sesuai petunjuk tata letak skema. */
+export function layoutRows(schema: QualificationSchema, groupKey: string): LayoutRow[] {
+  const rows: LayoutRow[] = [];
+  for (const q of answerQuestions(schema).filter((x) => x.group === groupKey)) {
+    const last = rows[rows.length - 1];
+    if (q.row && last && last.questions[0].row === q.row) {
+      last.questions.push(q);
+      last.hint = last.hint ?? q.row_hint;
+    } else {
+      rows.push({ questions: [q], hint: q.row_hint });
+    }
   }
-  if (a.mrr.trim() && !(Number(a.mrr) >= 0)) errors.mrr = "Harus berupa angka";
-  if (a.pic_email.trim() && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a.pic_email.trim())) {
-    errors.pic_email = "Format email tidak valid";
+  return rows;
+}
+
+/** Validasi di sisi klien, diturunkan dari skema (hanya umpan balik cepat; backend tetap memvalidasi). */
+export function validateAnswers(schema: QualificationSchema, a: QualificationAnswers): QualificationErrors {
+  const errors: QualificationErrors = {};
+  for (const q of answerQuestions(schema)) {
+    const v = (a[q.name] ?? "").trim();
+    if (!v) {
+      if (q.required) errors[q.name] = "Wajib diisi";
+      continue;
+    }
+    if (q.type === "number") {
+      const n = Number(v);
+      if (!Number.isFinite(n)) errors[q.name] = "Harus berupa angka";
+      else if ((q.min_value !== null && n < q.min_value) || (q.max_value !== null && n > q.max_value)) {
+        errors[q.name] = `Harus antara ${q.min_value ?? "-∞"} dan ${q.max_value ?? "∞"}`;
+      }
+    } else if (q.type === "choice") {
+      if (!q.choices?.includes(v)) errors[q.name] = "Pilihan tidak valid";
+    } else {
+      if (q.max_length !== null && v.length > q.max_length) errors[q.name] = `Maksimal ${q.max_length} karakter`;
+      else if (q.pattern && !new RegExp(q.pattern).test(v)) {
+        errors[q.name] = q.type === "email" ? "Format email tidak valid" : "Format tidak valid";
+      }
+    }
   }
   return errors;
 }
 
-/** Bentuk payload JSON yang dikirim ke backend (string kosong → null, MRR → angka). */
-export function toPayload(a: QualificationAnswers): Record<string, string | number | null> {
+/** Bentuk payload JSON ke backend (string kosong → null, tipe number → angka). */
+export function toPayload(
+  schema: QualificationSchema,
+  a: QualificationAnswers
+): Record<string, string | number | null> {
   const out: Record<string, string | number | null> = {};
-  for (const [key, value] of Object.entries(a)) {
-    const trimmed = value.trim();
-    out[key] = trimmed === "" ? null : key === "mrr" ? Number(trimmed) : trimmed;
+  for (const q of answerQuestions(schema)) {
+    const trimmed = (a[q.name] ?? "").trim();
+    out[q.name] = trimmed === "" ? null : q.type === "number" ? Number(trimmed) : trimmed;
   }
   return out;
 }
-
-/** Label pertanyaan kuesioner untuk tampilan read-only (urutan = urutan tampil). */
-export const ANSWER_LABELS: [keyof QualificationAnswers, string][] = [
-  ["mrr", "MRR (IDR)"],
-  ["budget_dialokasikan", "Budget sudah dialokasikan/disetujui?"],
-  ["pic_nama", "Nama PIC"],
-  ["pic_jabatan", "Jabatan PIC"],
-  ["pic_email", "Email PIC"],
-  ["peran_pic", "Peran PIC dalam keputusan"],
-  ["stakeholder_lain", "Stakeholder lain dalam keputusan"],
-  ["masalah_bisnis", "Masalah bisnis yang ingin diselesaikan"],
-  ["jenis_workload", "Jenis workload"],
-  ["lingkungan", "Lingkungan saat ini"],
-  ["skala", "Skala (jumlah server, volume data)"],
-  ["persyaratan_khusus", "Persyaratan khusus"],
-  ["kompetitor", "Kompetitor/vendor lain"],
-  ["target_go_live", "Target go-live / keputusan beli"],
-];
 
 /** Bagian `qualification` dari GET /projects/{id} (dihitung backend; read-only). */
 export interface QualificationView {
@@ -157,13 +166,13 @@ export function answerEditMode(
 
 /** Ubah jawaban dari backend (string | number | null) menjadi state form. */
 export function answersFromView(
+  schema: QualificationSchema,
   answers: Record<string, string | number | null> | null
 ): QualificationAnswers {
-  const out: QualificationAnswers = { ...EMPTY_ANSWERS };
-  if (!answers) return out;
-  for (const key of Object.keys(EMPTY_ANSWERS) as (keyof QualificationAnswers)[]) {
-    const v = answers[key];
-    out[key] = v === null || v === undefined ? "" : String(v);
+  const out: QualificationAnswers = {};
+  for (const q of answerQuestions(schema)) {
+    const v = answers?.[q.name];
+    out[q.name] = v === null || v === undefined ? "" : String(v);
   }
   return out;
 }

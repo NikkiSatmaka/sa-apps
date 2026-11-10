@@ -10,10 +10,10 @@ import {
   CreateProjectResponse,
 } from "@/lib/api/projects";
 import {
-  EMPTY_ANSWERS,
   QualificationAnswers,
   QualificationErrors,
   toPayload,
+  useQualificationSchema,
   validateAnswers,
 } from "@/lib/qualification";
 
@@ -99,8 +99,9 @@ export default function NewProjectPage() {
   // Wizard: langkah 1 = data dasar + file, langkah 2 = kuesioner kualifikasi.
   // State dimiliki komponen ini sehingga kembali ke langkah 1 tidak menghilangkan isian.
   const [step, setStep] = useState<1 | 2>(1);
-  const [answers, setAnswers] = useState<QualificationAnswers>(EMPTY_ANSWERS);
+  const [answers, setAnswers] = useState<QualificationAnswers>({});
   const [answerErrors, setAnswerErrors] = useState<QualificationErrors>({});
+  const { schema, error: schemaError } = useQualificationSchema();
 
   // Submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -203,7 +204,7 @@ export default function NewProjectPage() {
 
   // Update jawaban kuesioner
   const updateAnswer = useCallback(
-    (field: keyof QualificationAnswers, value: string) => {
+    (field: string, value: string) => {
       setAnswers((prev) => ({ ...prev, [field]: value }));
       setAnswerErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
     },
@@ -223,7 +224,11 @@ export default function NewProjectPage() {
   const submitAll = useCallback(async () => {
     setSubmitError(null);
 
-    const answerValidation = validateAnswers(answers);
+    if (!schema) {
+      setSubmitError("Skema kuesioner belum dimuat. Muat ulang halaman.");
+      return;
+    }
+    const answerValidation = validateAnswers(schema, answers);
     setAnswerErrors(answerValidation);
     if (Object.keys(answerValidation).length > 0) return;
 
@@ -242,7 +247,7 @@ export default function NewProjectPage() {
         formData.append("dq_number", form.dqNumber.trim());
       }
 
-      formData.append("qualification_answers", JSON.stringify(toPayload(answers)));
+      formData.append("qualification_answers", JSON.stringify(toPayload(schema, answers)));
 
       // Tambahkan file valid
       validFiles.forEach((item) => {
@@ -271,7 +276,7 @@ export default function NewProjectPage() {
       const answerErrs: QualificationErrors = {};
       for (const { field, reason } of fieldErrors) {
         if (field.startsWith("qualification_answers.")) {
-          answerErrs[field.split(".")[1] as keyof QualificationAnswers] = reason;
+          answerErrs[field.split(".")[1]] = reason;
         } else if (HEADER_FIELDS[field]) {
           headerErrs[HEADER_FIELDS[field]] = reason;
         }
@@ -290,7 +295,7 @@ export default function NewProjectPage() {
       setIsSubmitting(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form, answers, validFiles, router, showToast]);
+  }, [form, answers, schema, validFiles, router, showToast]);
 
   // Submit form: langkah 1 → lanjut ke langkah 2; langkah 2 → kirim
   const handleSubmit = useCallback(
@@ -545,8 +550,14 @@ export default function NewProjectPage() {
         </>
         )}
 
-        {step === 2 && (
+        {step === 2 && !schema && (
+          <p className="text-sm text-neutral-500" role="status">
+            {schemaError ? "Gagal memuat kuesioner. Muat ulang halaman." : "Memuat kuesioner..."}
+          </p>
+        )}
+        {step === 2 && schema && (
           <QualificationForm
+            schema={schema}
             answers={answers}
             errors={answerErrors}
             onChange={updateAnswer}

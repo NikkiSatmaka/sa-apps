@@ -11,6 +11,7 @@ import { extractFieldErrors, updateQualificationAnswers } from "@/lib/api/projec
 import {
   answerEditMode,
   answersFromView,
+  useQualificationSchema,
   validateAnswers,
   type QualificationAnswers,
   type QualificationErrors,
@@ -49,6 +50,7 @@ export default function EditProjectPage() {
   const { mutate } = useSWRConfig();
   const [answers, setAnswers] = useState<QualificationAnswers | null>(null);
   const [answerErrors, setAnswerErrors] = useState<QualificationErrors>({});
+  const { schema } = useQualificationSchema();
   const [isSavingAnswers, setIsSavingAnswers] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
@@ -101,13 +103,13 @@ export default function EditProjectPage() {
   };
 
   const handleSaveAnswers = async () => {
-    if (!answers) return;
-    const clientErrors = validateAnswers(answers);
+    if (!answers || !schema) return;
+    const clientErrors = validateAnswers(schema, answers);
     setAnswerErrors(clientErrors);
     if (Object.keys(clientErrors).length > 0) return;
     setIsSavingAnswers(true);
     try {
-      const res = await updateQualificationAnswers(projectId, answers);
+      const res = await updateQualificationAnswers(projectId, schema, answers);
       await mutate(`/projects/${projectId}`);
       setToast({
         type: "success",
@@ -121,7 +123,7 @@ export default function EditProjectPage() {
       const errs: QualificationErrors = {};
       for (const { field, reason } of extractFieldErrors(err)) {
         if (field.startsWith("qualification_answers.")) {
-          errs[field.split(".")[1] as keyof QualificationAnswers] = reason;
+          errs[field.split(".")[1]] = reason;
         }
       }
       setAnswerErrors(errs);
@@ -152,8 +154,8 @@ export default function EditProjectPage() {
   const editMode = isLegacy
     ? "none"
     : answerEditMode(user?.role, user?.id, project.sales_pic?.id, project.status);
-  if (!isLegacy && answers === null && project.qualification) {
-    setAnswers(answersFromView(project.qualification.answers));
+  if (!isLegacy && answers === null && project.qualification && schema) {
+    setAnswers(answersFromView(schema, project.qualification.answers));
   }
 
   const updateField = (key: string, value: string) => {
@@ -254,7 +256,7 @@ export default function EditProjectPage() {
       </button>
 
       {/* Kuesioner kualifikasi (proyek baru). Kontrol edit hanya sesuai role/status. */}
-      {!isLegacy && answers && (
+      {!isLegacy && answers && schema && (
         <div className="bg-white border border-neutral-200 rounded-lg p-6 space-y-4">
           <h2 className="text-base font-semibold text-neutral-800">Kuesioner Kualifikasi</h2>
           {editMode === "none" ? (
@@ -270,6 +272,7 @@ export default function EditProjectPage() {
                   : "Koreksi jawaban tidak menghitung ulang skor dan tidak mengubah status."}
               </p>
               <QualificationForm
+                schema={schema}
                 answers={answers}
                 errors={answerErrors}
                 onChange={(field, value) => setAnswers((prev) => (prev ? { ...prev, [field]: value } : prev))}

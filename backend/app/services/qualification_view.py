@@ -35,6 +35,15 @@ def _extract_sub_scores(detail: dict[str, Any]) -> Optional[BANTSubScores]:
         return None
 
 
+def _override_view(project: Any) -> Optional[dict[str, int]]:
+    """Sub-skor override Lead SA (batas bawah) bila ada dan valid; selain itu None."""
+    raw = getattr(project, "override_sub_scores", None)
+    if not isinstance(raw, dict):
+        return None
+    sub = _extract_sub_scores(raw)
+    return sub.model_dump() if sub is not None else None
+
+
 def build_qualification_view(project: Any) -> dict[str, Any]:
     detail = dict(project.bant_detail or {})
     answers = project.qualification_answers
@@ -59,5 +68,6 @@ def build_qualification_view(project: Any) -> dict[str, Any]:
         "answers": None if is_legacy else dict(answers),
         "sub_scores": sub_scores.model_dump() if sub_scores is not None else None,
         "feedback": feedback,
+        "override_sub_scores": _override_view(project),
         "legacy_data": legacy_data,
     }

@@ -110,6 +110,11 @@ class Project(Base):
         nullable=True,
         comment="Hasil analisis AI terakhir atas file (sub_scores, use_case_tags), terpisah dari rubrik",
     )
+    override_sub_scores: Mapped[Optional[dict]] = mapped_column(
+        MutableDict.as_mutable(JSONB),
+        nullable=True,
+        comment="Sub-skor override Lead SA/Admin (batas bawah skor akhir), terpisah dari rubrik dan AI",
+    )
     estimasi_nilai: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(14, 2),
         nullable=True,

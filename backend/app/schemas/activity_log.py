@@ -184,8 +184,11 @@ class ActivityLogCreate(BaseModel):
     @field_validator("raw_notes")
     @classmethod
     def strip_notes(cls, v: str) -> str:
-        """Trim whitespace di awal/akhir."""
-        return v.strip()
+        """Trim whitespace di awal/akhir; catatan yang hanya berisi spasi dianggap kosong."""
+        v = v.strip()
+        if not v:
+            raise ValueError("raw_notes wajib diisi (tidak boleh hanya spasi).")
+        return v
 
 
 class ActivityLogResponse(BaseModel):

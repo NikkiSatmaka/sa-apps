@@ -49,6 +49,11 @@ module-root = ""
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Default hanya test unit; test integrasi (Postgres nyata) dipilih eksplisit: `-m integration`.
+addopts = "-m 'not integration'"
+markers = [
+    "integration: test integrasi terhadap Postgres nyata (butuh TEST_DATABASE_URL; lihat backend/README.md)",
+]
 
 # Cakupan: lihat CONSTRAINTS.md di root repo (gerbang baris >= 90%, cabang >= 80%).
 # Jalankan: uv run pytest --cov (konfigurasi di bawah dipakai otomatis).

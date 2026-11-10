@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { Fragment, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
@@ -8,6 +8,10 @@ import { useAuthStore } from "@/store/auth";
 import { DocumentForm } from "@/components/DocumentForm";
 import { DQNumberInput } from "@/components/DQNumberInput";
 import { RAGPanel } from "@/components/RAGPanel";
+import { RequirementItemsView } from "@/components/RequirementItemsView";
+import { RequirementSourceChangedBanner } from "@/components/RequirementSourceChangedBanner";
+import { RequirementRegenerateSection } from "@/components/RequirementRegenerateSection";
+import { RequirementItemsEditor } from "@/components/RequirementItemsEditor";
 import {
   createDocument,
   getProjectDocuments,
@@ -68,6 +72,7 @@ interface ProjectDetail {
   status: string;
   dq_number: string | null;
   use_case_tags?: string[];
+  assigned_sa?: { id: string | null } | null;
 }
 
 export default function DocumentsPage() {
@@ -98,6 +103,12 @@ export default function DocumentsPage() {
     error: projError,
     mutate: mutateProject,
   } = useSWR<ProjectDetail>(`/projects/${projectId}`, fetcher);
+
+  // Edit butir Requirement: Lead_SA, Admin, atau SA yang ditugaskan (backend yang menegakkan)
+  const canEditRequirement =
+    user?.role === "Lead_SA" ||
+    user?.role === "Admin" ||
+    (user?.role === "SA" && !!user.id && project?.assigned_sa?.id === user.id);
 
   // Toast helper
   const showToast = useCallback((type: "success" | "error", message: string) => {
@@ -200,6 +211,11 @@ export default function DocumentsPage() {
 
       {/* DQ Number Section — dipindahkan ke halaman detail proyek */}
 
+      <RequirementRegenerateSection
+        projectId={projectId}
+        onChanged={() => mutateDocuments()}
+      />
+
       {/* Daftar Dokumen */}
       <div className="bg-white border border-neutral-200 rounded-lg">
         {/* Header section */}
@@ -280,8 +296,8 @@ export default function DocumentsPage() {
                     doc.status === "Final" ? canChangeFinalStatus : true;
 
                   return (
+                    <Fragment key={doc.id_doc}>
                     <tr
-                      key={doc.id_doc}
                       className="border-b border-neutral-50 hover:bg-neutral-50 transition-colors"
                     >
                       {/* Tipe dokumen */}
@@ -298,8 +314,9 @@ export default function DocumentsPage() {
                         </span>
                       </td>
 
-                      {/* Link GDrive — clickable */}
+                      {/* Link GDrive — kosong untuk Requirement (konten turunan AI) */}
                       <td className="px-4 py-3">
+                        {doc.gdrive_link ? (
                         <a
                           href={doc.gdrive_link}
                           target="_blank"
@@ -311,6 +328,9 @@ export default function DocumentsPage() {
                           <span className="truncate">Buka di Drive</span>
                           <span aria-hidden="true">↗</span>
                         </a>
+                        ) : (
+                          <span className="text-xs text-neutral-400">—</span>
+                        )}
                       </td>
 
                       {/* Catatan */}
@@ -351,6 +371,30 @@ export default function DocumentsPage() {
                         )}
                       </td>
                     </tr>
+                    {/* Requirement: butir per kategori, read-only */}
+                    {doc.doc_type === "Requirement" && (
+                      <tr className="border-b border-neutral-50 bg-neutral-50/50">
+                        <td colSpan={5} className="px-4 py-3">
+                          {doc.source_changed && canEditRequirement && (
+                            <RequirementSourceChangedBanner
+                              projectId={projectId}
+                              onChanged={() => mutateDocuments()}
+                            />
+                          )}
+                          {canEditRequirement && doc.status !== "Final" ? (
+                            <RequirementItemsEditor
+                              projectId={projectId}
+                              doc={doc}
+                              onChanged={() => mutateDocuments()}
+                              onError={(msg) => showToast("error", msg)}
+                            />
+                          ) : (
+                            <RequirementItemsView doc={doc} />
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>

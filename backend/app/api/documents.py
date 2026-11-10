@@ -11,8 +11,6 @@ State Machine:
 """
 
 import logging
-import random
-import string
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -20,11 +18,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import ensure_project_access, get_current_user
 from app.models.document import Document
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.document import (
+    DocTypeEnum,
     DocumentCreate,
     DocumentResponse,
     DocumentStatusUpdate,
@@ -36,17 +35,42 @@ from app.services.notification_service import (
     NotificationEventType,
     notification_service,
 )
+from app.services.requirement_generator import (
+    can_manage_requirement,
+    collect_sources,
+    is_protected_requirement,
+    is_source_changed,
+    new_requirement_item,
+)
+from app.utils.guardrails import RequirementItem
+from app.utils.identifiers import generate_doc_id
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Documents"])
 
 
-def _generate_doc_id() -> str:
-    """Generate ID dokumen unik dengan format DOC-{YYYYMMDD}-{random6}."""
-    date_part = datetime.now(timezone.utc).strftime("%Y%m%d")
-    random_part = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    return f"DOC-{date_part}-{random_part}"
+def _to_response(doc: Document, source_changed: bool = False) -> dict:
+    """Bentuk respons dokumen (JSON-ready), termasuk kolom khusus Requirement."""
+    return DocumentResponse(
+        id_doc=doc.id_doc,
+        id_project=doc.id_project,
+        doc_type=doc.doc_type,
+        status=doc.status,
+        gdrive_link=doc.gdrive_link,
+        folder_type=doc.folder_type,
+        notes=doc.notes,
+        created_by=doc.created_by,
+        updated_by=doc.updated_by,
+        created_at=doc.created_at,
+        updated_at=doc.updated_at,
+        content=doc.content,
+        is_overridden=doc.is_overridden,
+        source_hash=doc.source_hash,
+        generated_at=doc.generated_at,
+        source_truncated=doc.source_truncated,
+        source_changed=source_changed,
+    ).model_dump(mode="json")
 
 
 # Definisi transisi yang valid dalam state machine
@@ -182,6 +206,13 @@ async def create_document(
     3. Set status awal "Draft"
     4. Simpan ke database
     """
+    # Requirement hanya dibuat sistem (generate AI), bukan lewat input link.
+    if body.doc_type == DocTypeEnum.Requirement:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Dokumen Requirement dibuat otomatis oleh sistem dan tidak dapat ditambahkan manual.",
+        )
+
     # Validasi proyek ada
     project_result = await db.execute(select(Project).where(Project.id_project == project_id))
     project = project_result.scalar_one_or_none()
@@ -194,7 +225,7 @@ async def create_document(
 
     # Generate ID dokumen dan timestamp
     now = datetime.now(timezone.utc)
-    doc_id = _generate_doc_id()
+    doc_id = generate_doc_id()
 
     # Buat record dokumen baru
     new_document = Document(
@@ -215,19 +246,7 @@ async def create_document(
     await db.refresh(new_document)
 
     # Format response
-    response_data = DocumentResponse(
-        id_doc=new_document.id_doc,
-        id_project=new_document.id_project,
-        doc_type=new_document.doc_type,
-        status=new_document.status,
-        gdrive_link=new_document.gdrive_link,
-        folder_type=new_document.folder_type,
-        notes=new_document.notes,
-        created_by=new_document.created_by,
-        updated_by=new_document.updated_by,
-        created_at=new_document.created_at,
-        updated_at=new_document.updated_at,
-    ).model_dump(mode="json")
+    response_data = _to_response(new_document)
 
     return success_response(
         data=response_data,
@@ -258,6 +277,7 @@ async def list_project_documents(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
+    await ensure_project_access(db, project, current_user)
 
     # Query semua dokumen untuk proyek ini
     result = await db.execute(
@@ -267,26 +287,23 @@ async def list_project_documents(
     )
     documents = result.scalars().all()
 
-    # Format response
-    documents_data = [
-        DocumentResponse(
-            id_doc=doc.id_doc,
-            id_project=doc.id_project,
-            doc_type=doc.doc_type,
-            status=doc.status,
-            gdrive_link=doc.gdrive_link,
-            folder_type=doc.folder_type,
-            notes=doc.notes,
-            created_by=doc.created_by,
-            updated_by=doc.updated_by,
-            created_at=doc.created_at,
-            updated_at=doc.updated_at,
-        ).model_dump(mode="json")
-        for doc in documents
-    ]
+    # Banner "sumber berubah" (#37): hanya Requirement yang di-override/Final perlu hash saat ini.
+    documents_data = []
+    for doc in documents:
+        changed = False
+        if doc.doc_type == "Requirement" and is_protected_requirement(doc):
+            _, current_hash = await collect_sources(db, project)
+            changed = is_source_changed(doc, current_hash)
+        documents_data.append(_to_response(doc, source_changed=changed))
 
     return success_response(
-        data={"documents": documents_data, "total": len(documents_data)},
+        data={
+            "documents": documents_data,
+            "total": len(documents_data),
+            # Status generate Requirement (#34): UI menampilkan pending/gagal + tombol coba lagi.
+            "requirement_generation_status": project.requirement_generation_status,
+            "can_regenerate_requirement": can_manage_requirement(project, current_user),
+        },
         message=f"Ditemukan {len(documents_data)} dokumen untuk proyek '{project_id}'.",
     )
 
@@ -389,23 +406,13 @@ async def update_document_status(
 
     # Side-effect doc_ready: HANYA saat transisi ke `Reviewed` dengan DQ terisi.
     # Transisi lain (ke Final, mundur, dll) tidak memicu ini (fix B13 / Fase 2A.3).
-    if new_status == "Reviewed":
+    # Requirement (konten turunan AI, bukan dokumen kerja SA) tidak memicu doc_ready
+    # maupun pembukaan folder Solutions (#33).
+    if new_status == "Reviewed" and document.doc_type != "Requirement":
         await _handle_doc_ready(document, db)
 
     # Format response
-    response_data = DocumentResponse(
-        id_doc=document.id_doc,
-        id_project=document.id_project,
-        doc_type=document.doc_type,
-        status=document.status,
-        gdrive_link=document.gdrive_link,
-        folder_type=document.folder_type,
-        notes=document.notes,
-        created_by=document.created_by,
-        updated_by=document.updated_by,
-        created_at=document.created_at,
-        updated_at=document.updated_at,
-    ).model_dump(mode="json")
+    response_data = _to_response(document)
 
     return success_response(
         data=response_data,
@@ -413,3 +420,127 @@ async def update_document_status(
             f"Status dokumen '{doc_id}' berhasil diubah: '{current_status}' → '{new_status}'."
         ),
     )
+
+
+# --------------------------------------------------------------------------- override Requirement (5B-4)
+async def _load_requirement_for_edit(
+    project_id: str, current_user: User, db: AsyncSession
+) -> Document:
+    """
+    Ambil dokumen Requirement proyek (dikunci FOR UPDATE) untuk diedit.
+
+    Edit hanya untuk Lead_SA, Admin, dan SA yang ditugaskan pada proyek; peran lain
+    (Sales termasuk Sales PIC, SA tidak ditugaskan, collaborator) read-only -> 403. Requirement `Final`
+    terkunci (409) kecuali Lead_SA menurunkan statusnya lebih dulu.
+    """
+    project = (
+        await db.execute(select(Project).where(Project.id_project == project_id))
+    ).scalar_one_or_none()
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
+        )
+
+    if not can_manage_requirement(project, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hanya SA yang ditugaskan, Lead_SA, atau Admin yang dapat mengedit Requirement.",
+        )
+
+    document = (
+        await db.execute(
+            select(Document)
+            .where(Document.id_project == project_id, Document.doc_type == "Requirement")
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Requirement untuk proyek ini belum tersedia.",
+        )
+    if document.status == "Final":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Requirement berstatus Final tidak dapat diedit.",
+        )
+    return document
+
+
+async def _save_requirement_items(
+    document: Document, items: list[dict], current_user: User, db: AsyncSession
+) -> None:
+    """Simpan daftar butir hasil edit manual; `source_hash` sengaja tidak disentuh."""
+    document.content = items  # assign list baru agar perubahan JSONB terdeteksi
+    document.is_overridden = True
+    document.updated_by = current_user.id
+    document.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+
+def _find_item(items: list[dict], item_id: str) -> int:
+    for idx, item in enumerate(items):
+        if item.get("id") == item_id:
+            return idx
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Butir Requirement '{item_id}' tidak ditemukan.",
+    )
+
+
+@router.post(
+    "/projects/{project_id}/requirement/items",
+    status_code=status.HTTP_201_CREATED,
+    summary="Tambah butir Requirement",
+)
+async def add_requirement_item(
+    project_id: str,
+    body: RequirementItem,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Tambah butir baru (id 8 hex); menyetel `is_overridden`."""
+    document = await _load_requirement_for_edit(project_id, current_user, db)
+    items = list(document.content or [])
+    items.append(new_requirement_item(body.kategori, body.butir))
+    await _save_requirement_items(document, items, current_user, db)
+    return success_response(data=_to_response(document), message="Butir Requirement ditambahkan.")
+
+
+@router.put(
+    "/projects/{project_id}/requirement/items/{item_id}",
+    summary="Ubah butir Requirement",
+)
+async def update_requirement_item(
+    project_id: str,
+    item_id: str,
+    body: RequirementItem,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ganti kategori/teks satu butir; `id` butir dipertahankan."""
+    document = await _load_requirement_for_edit(project_id, current_user, db)
+    items = [dict(i) for i in (document.content or [])]
+    idx = _find_item(items, item_id)
+    items[idx] = {"id": item_id, "kategori": body.kategori, "butir": body.butir}
+    await _save_requirement_items(document, items, current_user, db)
+    return success_response(data=_to_response(document), message="Butir Requirement diperbarui.")
+
+
+@router.delete(
+    "/projects/{project_id}/requirement/items/{item_id}",
+    summary="Hapus butir Requirement",
+)
+async def delete_requirement_item(
+    project_id: str,
+    item_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Hapus satu butir (boleh sampai kosong)."""
+    document = await _load_requirement_for_edit(project_id, current_user, db)
+    items = [dict(i) for i in (document.content or [])]
+    del items[_find_item(items, item_id)]
+    await _save_requirement_items(document, items, current_user, db)
+    return success_response(data=_to_response(document), message="Butir Requirement dihapus.")

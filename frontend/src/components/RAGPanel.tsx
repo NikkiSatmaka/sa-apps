@@ -102,10 +102,13 @@ export function RAGPanel({ projectId, hasTags = true }: RAGPanelProps) {
       {/* Daftar rekomendasi (max 5) */}
       {!isLoading && !error && recommendations && recommendations.length > 0 && (
         <ul className="space-y-3" aria-label="Daftar rekomendasi dokumen">
-          {recommendations.slice(0, 5).map((rec, index) => (
+          {recommendations
+            .filter((rec) => !!rec.gdrive_link)
+            .slice(0, 5)
+            .map((rec, index) => (
             <li key={`${rec.id_project}-${rec.doc_type}-${index}`}>
               <a
-                href={rec.gdrive_link}
+                href={rec.gdrive_link ?? undefined}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block p-3 rounded-lg border border-neutral-100 

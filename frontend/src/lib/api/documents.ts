@@ -24,19 +24,45 @@ export type FolderType = "Inventory" | "Diagram" | "Solutions";
 /** Status dokumen */
 export type DocStatus = "Draft" | "Reviewed" | "Final";
 
+/** Kategori butir Requirement (himpunan tetap, selaras kontrak backend) */
+export type RequirementKategori =
+  | "Fungsional"
+  | "Teknis"
+  | "Kepatuhan"
+  | "Integrasi"
+  | "Timeline"
+  | "Asumsi";
+
+/** Satu butir Requirement turunan AI */
+export interface RequirementItem {
+  id: string;
+  kategori: RequirementKategori;
+  butir: string;
+}
+
 /** Interface dokumen dari backend */
 export interface Document {
   id_doc: string;
   id_project: string;
   doc_type: DocType;
   status: DocStatus;
-  gdrive_link: string;
+  /** Kosong hanya untuk Requirement (konten turunan AI, tanpa file Drive) */
+  gdrive_link: string | null;
   folder_type: FolderType;
   notes: string | null;
   created_at: string;
   updated_at: string;
-  created_by: string;
+  /** Kosong untuk Requirement hasil generate sistem */
+  created_by: string | null;
   updated_by: string | null;
+  /** Hanya Requirement: daftar butir; null untuk dokumen lain */
+  content: RequirementItem[] | null;
+  is_overridden: boolean;
+  source_hash: string | null;
+  generated_at: string | null;
+  source_truncated: boolean;
+  /** Requirement di-override/Final dan sumbernya berubah → tampilkan banner (#37) */
+  source_changed?: boolean;
 }
 
 /** Input untuk membuat dokumen baru */
@@ -259,4 +285,147 @@ export async function getSolutionsDocuments(
 
   const json = await response.json();
   return json.data ?? json;
+}
+
+/** Status generate Requirement di level proyek (#34) */
+export type RequirementGenerationStatus = "pending" | "ready" | "failed" | null;
+
+export interface RequirementStatusInfo {
+  requirement_generation_status: RequirementGenerationStatus;
+  can_regenerate_requirement: boolean;
+}
+
+function authHeaders(): HeadersInit {
+  const token = getAuthToken();
+  const headers: HeadersInit = { "Content-Type": "application/json" };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+/** Ambil status generate Requirement + hak generate ulang untuk pengguna saat ini */
+export async function getRequirementStatus(
+  projectId: string
+): Promise<RequirementStatusInfo> {
+  const response = await fetch(
+    `${API_BASE_URL}/projects/${projectId}/documents`,
+    { headers: authHeaders() }
+  );
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new ApiError(
+      errorData?.message ||
+        `Gagal mengambil status Requirement (status ${response.status})`,
+      response.status,
+      errorData
+    );
+  }
+  const json = await response.json();
+  return {
+    requirement_generation_status:
+      json.data?.requirement_generation_status ?? null,
+    can_regenerate_requirement: Boolean(json.data?.can_regenerate_requirement),
+  };
+}
+
+/** Generate ulang Requirement (juga dipakai sebagai "coba lagi") */
+export async function regenerateRequirement(projectId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/projects/${projectId}/requirement/regenerate`,
+    { method: "POST", headers: authHeaders() }
+  );
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new ApiError(
+      errorData?.detail ||
+        errorData?.message ||
+        `Gagal memulai generate ulang (status ${response.status})`,
+      response.status,
+      errorData
+    );
+  }
+}
+
+/** Isi butir yang dikirim saat menambah/mengubah butir Requirement */
+export interface RequirementItemInput {
+  kategori: RequirementKategori;
+  butir: string;
+}
+
+/** Request ke endpoint override butir Requirement (#36); mengembalikan dokumen terbaru */
+async function requirementItemRequest(
+  method: "POST" | "PUT" | "DELETE",
+  projectId: string,
+  itemId: string | null,
+  body?: RequirementItemInput
+): Promise<Document> {
+  const token = getAuthToken();
+  const headers: HeadersInit = { "Content-Type": "application/json" };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const suffix = itemId ? `/${itemId}` : "";
+  const response = await fetch(
+    `${API_BASE_URL}/projects/${projectId}/requirement/items${suffix}`,
+    { method, headers, body: body ? JSON.stringify(body) : undefined }
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new ApiError(
+      errorData?.message ||
+        errorData?.detail?.toString() ||
+        `Gagal menyimpan butir Requirement (status ${response.status})`,
+      response.status,
+      errorData
+    );
+  }
+
+  const json = await response.json();
+  return json.data ?? json;
+}
+
+/** Tambah butir Requirement (menyetel is_overridden) */
+export function addRequirementItem(
+  projectId: string,
+  input: RequirementItemInput
+): Promise<Document> {
+  return requirementItemRequest("POST", projectId, null, input);
+}
+
+/** Ubah kategori/teks satu butir Requirement */
+export function updateRequirementItem(
+  projectId: string,
+  itemId: string,
+  input: RequirementItemInput
+): Promise<Document> {
+  return requirementItemRequest("PUT", projectId, itemId, input);
+}
+
+/** Hapus satu butir Requirement */
+export function deleteRequirementItem(
+  projectId: string,
+  itemId: string
+): Promise<Document> {
+  return requirementItemRequest("DELETE", projectId, itemId);
+}
+
+/** "Pertahankan versi saya": perbarui hash sumber tanpa mengubah konten Requirement (#37) */
+export async function keepRequirementVersion(projectId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/projects/${projectId}/requirement/keep-version`,
+    { method: "POST", headers: authHeaders() }
+  );
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new ApiError(
+      errorData?.detail ||
+        errorData?.message ||
+        `Gagal mempertahankan versi Requirement (status ${response.status})`,
+      response.status,
+      errorData
+    );
+  }
 }

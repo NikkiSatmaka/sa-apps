@@ -115,6 +115,11 @@ class Project(Base):
         nullable=True,
         comment="Sub-skor override Lead SA/Admin (batas bawah skor akhir), terpisah dari rubrik dan AI",
     )
+    requirement_generation_status: Mapped[Optional[str]] = mapped_column(
+        String(10),
+        nullable=True,
+        comment="Status generate Requirement otomatis: pending/ready/failed (NULL = belum pernah lolos gate)",
+    )
     estimasi_nilai: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(14, 2),
         nullable=True,
@@ -209,6 +214,11 @@ class Project(Base):
             "folder_provisioning_status IS NULL OR "
             "folder_provisioning_status IN ('pending','provisioned','failed')",
             name="chk_projects_folder_provisioning_status",
+        ),
+        CheckConstraint(
+            "requirement_generation_status IS NULL OR "
+            "requirement_generation_status IN ('pending','ready','failed')",
+            name="chk_projects_requirement_generation_status",
         ),
         Index(
             "idx_projects_active",

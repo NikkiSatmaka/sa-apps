@@ -56,6 +56,12 @@ def _make_document(status: str = "Draft", folder_type: str = "Solutions"):
     doc.updated_by = None
     doc.created_at = datetime.now(timezone.utc)
     doc.updated_at = datetime.now(timezone.utc)
+    # Kolom Requirement (default untuk dokumen jenis lain)
+    doc.content = None
+    doc.is_overridden = False
+    doc.source_hash = None
+    doc.generated_at = None
+    doc.source_truncated = False
     return doc
 
 

@@ -40,6 +40,10 @@ from app.schemas.response import error_response, success_response
 from app.services import bant_rubric
 from app.services.scoring_engine import SCORING_MUTABLE_STATUSES, scoring_engine
 from app.services.qualification_view import build_qualification_view
+from app.services.requirement_generator import (
+    generate_pending_requirement,
+    resummarize_if_source_changed,
+)
 from app.services.source_document_extractor import extract_source_documents
 
 logger = logging.getLogger(__name__)
@@ -181,6 +185,10 @@ async def _trigger_scoring_engine(
             logger.error(
                 f"[ScoringEngine] Fallback rubrik gagal untuk proyek {project_id}: {fallback_error}"
             )
+
+    # Proyek yang baru lolos gate (jalur AI maupun fallback rubrik) → generate Requirement.
+    # No-op bila proyek tidak bertanda `pending`; tidak pernah melempar.
+    await generate_pending_requirement(project_id)
 
 
 @router.get(
@@ -575,6 +583,7 @@ async def delete_project(
 )
 async def update_qualification_answers(
     project_id: str,
+    background_tasks: BackgroundTasks,
     body: dict = Body(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -630,6 +639,8 @@ async def update_qualification_answers(
 
     if needs_clarification:
         bant_result = await scoring_engine.rescore_from_answers(db, project, answers)
+        if project.requirement_generation_status == "pending":
+            background_tasks.add_task(generate_pending_requirement, project.id_project)
         return success_response(
             data=bant_result.model_dump(),
             message=f"Jawaban disimpan dan skor dihitung ulang. Total skor: {bant_result.total_score}.",
@@ -639,6 +650,8 @@ async def update_qualification_answers(
     project.qualification_answers = answers
     project.updated_at = datetime.now(timezone.utc)
     await db.commit()
+    # Jawaban berubah → Requirement yang belum di-override diperbarui bila hash berbeda.
+    background_tasks.add_task(resummarize_if_source_changed, project.id_project)
     return success_response(
         data={
             "total_score": project.bant_score,
@@ -950,6 +963,10 @@ async def create_project(
         estimasi_nilai=estimasi_decimal,
         dq_number=validated_dq,
         status=initial_status,
+        # Lolos gate tanpa file: Requirement di-generate di background (#33).
+        requirement_generation_status=(
+            "pending" if scored_now and initial_status == "Pending Assignment" else None
+        ),
         sales_pic=current_user.id,
         qualification_answers=answers,
         qualification_schema_version=bant_rubric.QUESTIONNAIRE_SCHEMA_VERSION,
@@ -1004,6 +1021,7 @@ async def create_project(
             await scoring_engine.notify_new_opportunity(db, project_id, rubric_total)
         except Exception as e:  # proyek sudah tersimpan; kegagalan notifikasi tidak boleh 500
             logger.error(f"Gagal mengirim notifikasi New Opportunity {project_id}: {e}")
+        background_tasks.add_task(generate_pending_requirement, project_id)
 
     # === Build response ===
     response_data = ProjectResponse(

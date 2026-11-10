@@ -84,6 +84,7 @@ class Settings(BaseSettings):
 
     # Guardrails LLM
     LLM_MAX_INPUT_CHARS: int = 20000  # batas karakter input teks
+    LLM_MAX_SOURCE_CHARS: int = 60000  # anggaran karakter total sumber untuk generate Requirement
     LLM_MAX_DOCUMENT_BYTES: int = 10_485_760  # 10 MB batas byte dokumen
     GUARDRAIL_PII_DETECTION_ENABLED: bool = True  # toggle PII_Detector
 

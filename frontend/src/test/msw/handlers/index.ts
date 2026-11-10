@@ -7,6 +7,7 @@ import { authPagesHandlers } from "./auth-pages";
 import { documentHandlers } from "./documents";
 import { libHandlers } from "./lib";
 import { notificationHandlers } from "./notifications";
+import { opportunityHandlers } from "./opportunity";
 import { projectHandlers } from "./projects";
 import { qualificationHandlers } from "./qualification";
 
@@ -18,4 +19,5 @@ export const handlers = [
   ...qualificationHandlers,
   ...notificationHandlers,
   ...libHandlers,
+  ...opportunityHandlers,
 ];

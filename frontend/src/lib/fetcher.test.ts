@@ -137,3 +137,46 @@ describe("swrConfig.onErrorRetry", () => {
     }
   });
 });
+
+describe("apiRequest: kasus tambahan", () => {
+  it("memakai URL absolut apa adanya dan tidak mengirim body bila body kosong", async () => {
+    let text = "x";
+    server.use(
+      http.post("http://other.test/hook", async ({ request }) => {
+        text = await request.text();
+        return HttpResponse.json(successEnvelope("ok"));
+      })
+    );
+    await expect(apiRequest("http://other.test/hook")).resolves.toBe("ok");
+    expect(text).toBe("");
+  });
+
+  it("menyertakan Bearer token", async () => {
+    localStorage.setItem("access_token", "tok");
+    let auth: string | null = null;
+    server.use(
+      http.post(api("/things"), ({ request }) => {
+        auth = request.headers.get("Authorization");
+        return HttpResponse.json(successEnvelope(null));
+      })
+    );
+    await apiRequest("/things", { body: { a: 1 } });
+    expect(auth).toBe("Bearer tok");
+  });
+
+  it("error tanpa JSON: pesan generik dengan status", async () => {
+    server.use(http.post(api("/things"), () => new HttpResponse("<html>", { status: 502 })));
+    await expect(apiRequest("/things", { body: 1 })).rejects.toMatchObject({
+      status: 502,
+      message: "Request gagal dengan status 502",
+    });
+  });
+});
+
+describe("ApiError", () => {
+  it("adalah Error bernama ApiError dengan status dan data", () => {
+    const err = new ApiError("x", 418, { a: 1 });
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toMatchObject({ name: "ApiError", message: "x", status: 418, data: { a: 1 } });
+  });
+});

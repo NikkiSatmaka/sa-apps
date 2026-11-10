@@ -203,7 +203,8 @@ def _list(user, project, docs):
     session = AsyncMock()
     r_docs = MagicMock()
     r_docs.scalars.return_value.all.return_value = docs
-    session.execute = AsyncMock(side_effect=[_result(one=project), r_docs])
+    # project, cek collaborator (ensure_project_access), daftar dokumen
+    session.execute = AsyncMock(side_effect=[_result(one=project), _result(one=None), r_docs])
 
     async def _db():
         yield session
@@ -221,5 +222,8 @@ def test_daftar_dokumen_memuat_status_generate_dan_hak_generate_ulang():
 
 
 def test_daftar_dokumen_sales_tidak_boleh_generate_ulang():
-    data = _list(_user("Sales"), _project(status="ready"), []).json()["data"]
+    sales = _user("Sales")
+    project = _project(status="ready")
+    project.sales_pic = sales.id  # Sales PIC boleh membaca, tetapi tidak boleh generate ulang
+    data = _list(sales, project, []).json()["data"]
     assert data["can_regenerate_requirement"] is False

@@ -244,12 +244,14 @@ def test_get_dokumen_mengembalikan_flag_source_changed(status, overridden, hash_
     req = _requirement(status)
     req.is_overridden = overridden
     req.source_hash = STALE if hash_basi else _sumber_hash(sumber)
+    sa = _make_user("SA")
     results = [
-        _result_scalar(_project_with_answers()),
+        _result_scalar(_project_with_answers(assigned_sa=sa.id)),
+        _result_scalar(None),  # cek collaborator (ensure_project_access)
         _docs_result([req]),
         _result(items=sumber),
     ]
-    _setup(_make_user("SA"), results)
+    _setup(sa, results)
     resp = TestClient(app).get(f"/api/v1/projects/{PRJ}/documents")
     assert resp.status_code == 200
     [doc] = resp.json()["data"]["documents"]

@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import ensure_project_access, get_current_user
 from app.models.document import Document
 from app.models.project import Project
 from app.models.user import User
@@ -285,6 +285,7 @@ async def list_project_documents(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
+    await ensure_project_access(db, project, current_user)
 
     # Query semua dokumen untuk proyek ini
     result = await db.execute(

@@ -88,7 +88,10 @@ def test_post_dokumen_lain_tetap_wajib_link():
 def test_daftar_dokumen_mengembalikan_requirement_dengan_link_kosong_dan_butir():
     result = MagicMock()
     result.scalars.return_value.all.return_value = [_requirement()]
-    _setup(_make_user("SA"), [_result_scalar(_make_project()), result])
+    sa = _make_user("SA")
+    project = _make_project()
+    project.assigned_sa = sa.id  # akses proyek wajib (ensure_project_access)
+    _setup(sa, [_result_scalar(project), _result_scalar(None), result])
     resp = TestClient(app).get(f"/api/v1/projects/{PRJ}/documents")
     assert resp.status_code == 200
     [doc] = resp.json()["data"]["documents"]

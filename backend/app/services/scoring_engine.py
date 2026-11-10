@@ -23,6 +23,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
+import string
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -30,6 +32,7 @@ from typing import Any, Optional
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.audit_log import AuditLog
 from app.models.document import Document
 from app.models.notification_log import NotificationLog
 from app.models.project import Project
@@ -79,9 +82,19 @@ Return ONLY valid JSON (no markdown, no code fences):
 # Status Assigned dan sesudahnya tidak pernah ditimpa (mis. hasil AI yang selesai terlambat).
 SCORING_MUTABLE_STATUSES = frozenset({"New", "Scoring Pending", "Need Clarification"})
 
+# Override Lead_SA/Admin (#30) hanya untuk status yang menunggu keputusan manual.
+OVERRIDE_ALLOWED_STATUSES = frozenset({"Need Clarification", "Manual Review Required"})
+
 # Interval retry dalam detik
 RETRY_INTERVAL_SECONDS = 10
 MAX_SCORING_RETRIES = 3
+
+
+def _generate_audit_id() -> str:
+    """ID audit log: AUDIT-{YYYYMMDD}-{random6} (selaras dengan workflow.py)."""
+    date_part = datetime.now(timezone.utc).strftime("%Y%m%d")
+    random_part = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    return f"AUDIT-{date_part}-{random_part}"
 
 
 class ScoringEngine:
@@ -262,12 +275,56 @@ class ScoringEngine:
         )
         return await self._apply_scoring_result(db, project_id, result)
 
+    async def override_score(
+        self,
+        project_id: str,
+        budget: int,
+        authority: int,
+        need: int,
+        timeline: int,
+        reason: str,
+        performed_by: uuid.UUID,
+        db: AsyncSession,
+    ) -> BANTResult:
+        """
+        Override skor BANT oleh Lead_SA/Admin (#30).
+
+        Menimpa skor final, menerapkan gate 60 lewat jalur tulis yang sama dengan
+        scoring lain (dengan guard status override), dan menulis audit log
+        (nilai lama/baru, pelaku, alasan) dalam commit yang sama dengan perubahan skor.
+        """
+        sub_scores = BANTSubScores(
+            budget=budget, authority=authority, need=need, timeline=timeline
+        )
+        total_score = budget + authority + need + timeline
+        result = BANTResult(
+            total_score=total_score,
+            sub_scores=sub_scores,
+            use_case_tags=[],
+            status=bant_rubric.decide_status(total_score),
+            feedback=(
+                self._generate_feedback(sub_scores)
+                if total_score < bant_rubric.GATE_THRESHOLD
+                else None
+            ),
+        )
+        return await self._apply_scoring_result(
+            db,
+            project_id,
+            result,
+            mutable_statuses=OVERRIDE_ALLOWED_STATUSES,
+            audit={"action": "bant_override", "performed_by": performed_by, "reason": reason},
+        )
+
     async def _apply_scoring_result(
         self,
         db: AsyncSession,
         project_id: str,
         result: BANTResult,
         ai_result: Optional[dict[str, Any]] = None,
+        *,
+        mutable_statuses: frozenset[str] = SCORING_MUTABLE_STATUSES,
+        audit: Optional[dict[str, Any]] = None,
     ) -> BANTResult:
         """
         Simpan hasil scoring + terapkan gate 60, dengan guard status.
@@ -278,7 +335,12 @@ class ScoringEngine:
         Notifikasi Lead_SA dikirim hanya bila proyek benar-benar menjadi Pending Assignment.
         """
         applied, effective_status = await self._update_project_scoring(
-            db, project_id, result, ai_result=ai_result
+            db,
+            project_id,
+            result,
+            ai_result=ai_result,
+            mutable_statuses=mutable_statuses,
+            audit=audit,
         )
         if applied and result.status == "Pending Assignment":
             await self._notify_lead_sa(db, project_id, result.total_score)
@@ -533,6 +595,9 @@ class ScoringEngine:
         project_id: str,
         result: BANTResult,
         ai_result: Optional[dict[str, Any]] = None,
+        *,
+        mutable_statuses: frozenset[str] = SCORING_MUTABLE_STATUSES,
+        audit: Optional[dict[str, Any]] = None,
     ) -> tuple[bool, Optional[str]]:
         """
         Update record proyek dengan hasil scoring BANT (guard status).
@@ -549,14 +614,40 @@ class ScoringEngine:
             logger.error(f"Project {project_id} tidak ditemukan di database.")
             return False, None
 
-        if project.status not in SCORING_MUTABLE_STATUSES:
+        if project.status not in mutable_statuses:
             logger.warning(
                 f"Project {project_id}: hasil scoring diabaikan — "
                 f"status '{project.status}' tidak boleh ditimpa."
             )
             return False, project.status
 
-        detail = dict(project.bant_detail or {})
+        old_detail = dict(project.bant_detail or {})
+        if audit is not None:
+            # Tangkap nilai lama sebelum ditimpa; audit di-commit bersama perubahan skor.
+            old_value = {
+                "bant_score": project.bant_score,
+                "sub_scores": {k: old_detail.get(k) for k in result.sub_scores.model_dump()},
+                "status": project.status,
+            }
+            new_value = {
+                "bant_score": result.total_score,
+                "sub_scores": result.sub_scores.model_dump(),
+                "status": result.status,
+                "reason": audit["reason"],
+            }
+            db.add(
+                AuditLog(
+                    id=_generate_audit_id(),
+                    entity_type="project",
+                    entity_id=project_id,
+                    action=audit["action"],
+                    performed_by=audit["performed_by"],
+                    old_value=old_value,
+                    new_value=new_value,
+                )
+            )
+
+        detail = dict(old_detail)
         detail.update(result.sub_scores.model_dump())
         project.bant_score = result.total_score
         project.bant_detail = detail

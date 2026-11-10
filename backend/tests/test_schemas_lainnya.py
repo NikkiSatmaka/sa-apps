@@ -249,6 +249,17 @@ class TestScoring:
             with pytest.raises(ValidationError):
                 BANTOverrideInput(**base, reason=kosong)
 
+    @pytest.mark.parametrize("kolom", ["budget", "authority", "need", "timeline"])
+    @pytest.mark.parametrize("nilai,ok", [(-1, False), (0, True), (25, True), (26, False)])
+    def test_override_batas_sub_skor_per_kolom(self, kolom, nilai, ok):
+        data = {"budget": 1, "authority": 1, "need": 1, "timeline": 1, "reason": "alasan"}
+        data[kolom] = nilai
+        if ok:
+            assert getattr(BANTOverrideInput(**data), kolom) == nilai
+        else:
+            with pytest.raises(ValidationError):
+                BANTOverrideInput(**data)
+
     @given(st.integers(min_value=-50, max_value=80))
     def test_properti_sub_skor_valid_jika_dan_hanya_jika_0_sampai_25(self, n):
         try:

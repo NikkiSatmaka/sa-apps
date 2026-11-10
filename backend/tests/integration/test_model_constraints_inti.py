@@ -543,3 +543,48 @@ async def test_constraint_dan_index_bernama_di_model_ada_di_database_hasil_migra
         dijanjikan |= {i.name for i in tabel.indexes if i.name}
     assert len(dijanjikan) >= 25  # pagar: pastikan loop benar-benar menemukan constraint
     assert dijanjikan - di_db == set()
+
+
+async def test_kolom_unique_dan_index_di_model_sama_dengan_database(db_session):
+    """Kolom penyusun UNIQUE/Index bernama di model harus sama dengan yang ada di DB."""
+    from sqlalchemy import UniqueConstraint
+
+    import app.models  # noqa: F401
+    from app.core.database import Base
+
+    unik_db = {
+        r.conname: set(r.kolom)
+        for r in (
+            await db_session.execute(
+                text(
+                    "SELECT c.conname, array_agg(a.attname::text) AS kolom FROM pg_constraint c "
+                    "JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey) "
+                    "WHERE c.contype = 'u' AND c.connamespace = 'public'::regnamespace "
+                    "GROUP BY c.conname"
+                )
+            )
+        ).all()
+    }
+    definisi_index = dict(
+        (
+            await db_session.execute(
+                text("SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = 'public'")
+            )
+        ).all()
+    )
+    diperiksa = 0
+    for tabel in Base.metadata.tables.values():
+        for c in tabel.constraints:
+            if isinstance(c, UniqueConstraint) and c.name:
+                assert unik_db[c.name] == {col.name for col in c.columns}, c.name
+                diperiksa += 1
+        for idx in tabel.indexes:
+            if idx.name:
+                definisi = definisi_index[idx.name]
+                kolom_db = definisi.split("(", 1)[1].split(")", 1)[0]
+                assert [x.strip() for x in kolom_db.split(",")] == [c.name for c in idx.columns]
+                assert ("UNIQUE" in definisi) is bool(idx.unique), idx.name
+                parsial = idx.dialect_options["postgresql"]["where"]
+                assert (" WHERE " in definisi) is (parsial is not None), idx.name
+                diperiksa += 1
+    assert diperiksa >= 5

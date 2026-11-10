@@ -304,6 +304,7 @@ class TestStopTimer:
         mock_db.commit = AsyncMock()
         mock_db.refresh = AsyncMock()
         mock_db.add = MagicMock()
+        mock_db.begin_nested = MagicMock()  # SAVEPOINT penulisan audit log
 
         with patch(
             "app.services.sla_timer.folder_provisioner.unlock_solutions_folder",
@@ -456,6 +457,7 @@ class TestProcessSLAActions:
         ]
         mock_session.commit = AsyncMock()
         mock_session.add = MagicMock()
+        mock_session.begin_nested = MagicMock()  # SAVEPOINT penulisan audit log
 
         with (
             patch(

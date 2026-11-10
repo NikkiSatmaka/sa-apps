@@ -105,6 +105,11 @@ class Project(Base):
         nullable=True,
         comment="Versi skema kuesioner pada saat jawaban disimpan",
     )
+    ai_scoring_result: Mapped[Optional[dict]] = mapped_column(
+        MutableDict.as_mutable(JSONB),
+        nullable=True,
+        comment="Hasil analisis AI terakhir atas file (sub_scores, use_case_tags), terpisah dari rubrik",
+    )
     estimasi_nilai: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(14, 2),
         nullable=True,

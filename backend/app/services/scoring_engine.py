@@ -11,7 +11,11 @@ Bertanggung jawab untuk:
 Retry strategy:
 - Timeout 30s per request (dikonfigurasi di LLM provider)
 - Retry 3x dengan interval 10s
-- Fallback ke "Manual Review Required" jika semua retry gagal
+- Semua retry gagal → gate memakai skor rubrik saja; "Manual Review Required"
+  hanya bila skor rubrik tidak dapat dihitung (proyek tanpa jawaban kuesioner)
+
+Skor akhir per kriteria = max(rubrik, AI) (ADR 0010). Hasil AI disimpan terpisah
+di `projects.ai_scoring_result`.
 """
 
 from __future__ import annotations
@@ -121,7 +125,13 @@ class ScoringEngine:
                     f"dilewati — hanya PDF/DOCX yang didukung untuk scoring."
                 )
 
-        # Jika tidak ada file valid, return skor 0 dan arahkan ke manual
+        # Skor rubrik dihitung ulang dari jawaban kuesioner (fungsi murni); None bila tidak ada.
+        project = await self._load_project(db, project_id)
+        rubric = self._rubric_scores(project)
+
+        # Jika tidak ada file valid: pakai rubrik bila ada, selain itu arahkan ke manual
+        if not valid_files and rubric is not None:
+            return await self._fallback_to_rubric(db, project_id, project, rubric)
         if not valid_files:
             logger.info(
                 f"Project {project_id}: Tidak ada file PDF/DOCX valid. Arahkan ke scoring manual."
@@ -148,7 +158,15 @@ class ScoringEngine:
             if extraction is not None:
                 all_extractions.append(extraction)
 
-        # Jika semua retry gagal untuk semua file → Manual Review Required
+        # AI gagal setelah semua retry → gate memakai skor rubrik saja
+        if not all_extractions and rubric is not None:
+            logger.error(
+                f"Project {project_id}: Semua file gagal diekstrak. "
+                f"Gate memakai skor rubrik."
+            )
+            return await self._fallback_to_rubric(db, project_id, project, rubric)
+
+        # AI gagal dan rubrik tidak dapat dihitung → Manual Review Required
         if not all_extractions:
             logger.error(
                 f"Project {project_id}: Semua file gagal diekstrak. "
@@ -165,11 +183,16 @@ class ScoringEngine:
             )
 
         # Agregasi hasil dari semua file — ambil skor tertinggi per kriteria
-        sub_scores = self._aggregate_scores(all_extractions)
+        ai_sub_scores = self._aggregate_scores(all_extractions)
         use_case_tags = self._aggregate_tags(all_extractions)
-        total_score = (
-            sub_scores.budget + sub_scores.authority + sub_scores.need + sub_scores.timeline
-        )
+        # Skor akhir per kriteria = max(rubrik, AI); tanpa rubrik, AI saja
+        sub_scores = self._merge_max(rubric, ai_sub_scores) if rubric else ai_sub_scores
+        total_score = bant_rubric.total_score(sub_scores)
+        ai_result = {
+            "sub_scores": ai_sub_scores.model_dump(),
+            "use_case_tags": use_case_tags,
+            "scored_at": datetime.now(timezone.utc).isoformat(),
+        }
 
         # Terapkan threshold gating (dengan guard status) dan simpan hasil
         feedback = None
@@ -183,7 +206,7 @@ class ScoringEngine:
             status=bant_rubric.decide_status(total_score),
             feedback=feedback,
         )
-        return await self._apply_scoring_result(db, project_id, result)
+        return await self._apply_scoring_result(db, project_id, result, ai_result=ai_result)
 
     async def score_manual(
         self,
@@ -244,6 +267,7 @@ class ScoringEngine:
         db: AsyncSession,
         project_id: str,
         result: BANTResult,
+        ai_result: Optional[dict[str, Any]] = None,
     ) -> BANTResult:
         """
         Simpan hasil scoring + terapkan gate 60, dengan guard status.
@@ -253,7 +277,9 @@ class ScoringEngine:
         `status` pada hasil yang dikembalikan mencerminkan status proyek sebenarnya.
         Notifikasi Lead_SA dikirim hanya bila proyek benar-benar menjadi Pending Assignment.
         """
-        applied, effective_status = await self._update_project_scoring(db, project_id, result)
+        applied, effective_status = await self._update_project_scoring(
+            db, project_id, result, ai_result=ai_result
+        )
         if applied and result.status == "Pending Assignment":
             await self._notify_lead_sa(db, project_id, result.total_score)
         if effective_status is not None and effective_status != result.status:
@@ -506,6 +532,7 @@ class ScoringEngine:
         db: AsyncSession,
         project_id: str,
         result: BANTResult,
+        ai_result: Optional[dict[str, Any]] = None,
     ) -> tuple[bool, Optional[str]]:
         """
         Update record proyek dengan hasil scoring BANT (guard status).
@@ -534,6 +561,8 @@ class ScoringEngine:
         project.bant_score = result.total_score
         project.bant_detail = detail
         project.use_case_tags = result.use_case_tags
+        if ai_result is not None:
+            project.ai_scoring_result = ai_result
         project.status = result.status
         project.updated_at = datetime.now(timezone.utc)
         await db.commit()
@@ -542,6 +571,51 @@ class ScoringEngine:
             f"bant_score={result.total_score}, status={result.status}"
         )
         return True, result.status
+
+    async def _load_project(self, db: AsyncSession, project_id: str) -> Optional[Project]:
+        """Ambil proyek (None bila tidak ditemukan)."""
+        result = await db.execute(select(Project).where(Project.id_project == project_id))
+        return result.scalar_one_or_none()
+
+    def _rubric_scores(self, project: Optional[Project]) -> Optional[BANTSubScores]:
+        """Hitung ulang sub-skor rubrik dari jawaban kuesioner; None bila tidak dapat dihitung."""
+        if project is None or not isinstance(project.qualification_answers, dict):
+            return None
+        return bant_rubric.compute_rubric_scores(
+            project.qualification_answers, project.target_submit
+        )
+
+    @staticmethod
+    def _merge_max(rubric: BANTSubScores, ai: BANTSubScores) -> BANTSubScores:
+        """Skor akhir per kriteria = nilai tertinggi antara rubrik dan AI."""
+        return BANTSubScores(
+            budget=max(rubric.budget, ai.budget),
+            authority=max(rubric.authority, ai.authority),
+            need=max(rubric.need, ai.need),
+            timeline=max(rubric.timeline, ai.timeline),
+        )
+
+    async def _fallback_to_rubric(
+        self,
+        db: AsyncSession,
+        project_id: str,
+        project: Optional[Project],
+        rubric: BANTSubScores,
+    ) -> BANTResult:
+        """AI tidak menghasilkan skor: terapkan gate 60 dengan skor rubrik saja."""
+        total = bant_rubric.total_score(rubric)
+        result = BANTResult(
+            total_score=total,
+            sub_scores=rubric,
+            use_case_tags=list((project.use_case_tags if project else None) or []),
+            status=bant_rubric.decide_status(total),
+            feedback=(
+                bant_rubric.generate_feedback(rubric)
+                if total < bant_rubric.GATE_THRESHOLD
+                else None
+            ),
+        )
+        return await self._apply_scoring_result(db, project_id, result)
 
     async def _mark_manual_review_required(
         self,

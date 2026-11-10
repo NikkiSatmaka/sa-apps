@@ -355,8 +355,8 @@ class TestFileUploadValidation:
 class TestProjectRecordCreation:
     """Test pembuatan record project."""
 
-    def test_project_dibuat_dengan_status_new(self, mock_auth_and_db):
-        """Proyek baru dengan file berstatus 'New' sampai scoring AI selesai."""
+    def test_project_dengan_file_dibuat_dengan_status_scoring_pending(self, mock_auth_and_db):
+        """Proyek baru dengan file berstatus 'Scoring Pending' sampai scoring AI selesai."""
         client = TestClient(app)
         response = client.post(
             "/api/v1/projects",
@@ -371,7 +371,7 @@ class TestProjectRecordCreation:
         )
         assert response.status_code == status.HTTP_201_CREATED
         body = response.json()
-        assert body["data"]["status"] == "New"
+        assert body["data"]["status"] == "Scoring Pending"
 
     def test_project_id_format_prj(self, mock_auth_and_db):
         """ID proyek mengikuti format PRJ-{date}-{random}."""

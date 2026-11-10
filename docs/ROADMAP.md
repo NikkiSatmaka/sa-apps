@@ -160,7 +160,7 @@ Ditemukan saat asesmen dan sebaiknya diperbaiki lebih awal — ini merusak fungs
 - [x] 5.3a Source document: tipe MoM/RFP per file + ekstraksi teks via LLM disimpan di DB (bahan Requirement). Tiket #31.
 - ~~5.4 (Opsional AI) pertanyaan klarifikasi yang di-generate AI.~~ **Ditunda pasca-MVP (2026-11-10):** bertanda opsional dan Fase 6 tidak bergantung padanya. Jalan keluar `Need Clarification` ditangani 5A lewat edit kuesioner + re-score (#32).
 
-**Status 5A:** terimplementasi di branch `feat/phase-5a-kuesioner-kualifikasi` (tiket #26, #28–#32); migration 010–012 diverifikasi lewat SQL offline dan DB sementara; Gemini di-mock pada test.
+**Status 5A:** terimplementasi di branch `feat/phase-5a-kuesioner-kualifikasi` (tiket #26, #28–#32); migration 010–012 baru diverifikasi lewat SQL offline (upgrade/downgrade di database nyata belum dijalankan); Gemini di-mock pada test.
 
 **Kriteria selesai 5A:** Sales mengisi kuesioner saat membuat opportunity; skor BANT dihitung backend (rubrik + gabungan AI max per kriteria); `Need Clarification` bisa diperbaiki dan dinilai ulang; Lead SA bisa override dengan alasan tercatat; teks MoM/RFP tersimpan sebagai Source document.
 

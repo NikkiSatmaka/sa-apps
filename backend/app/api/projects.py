@@ -173,6 +173,14 @@ async def _trigger_scoring_engine(
             )
     except Exception as e:
         logger.error(f"[ScoringEngine] Gagal memproses proyek {project_id}: {e}")
+        # Jaring pengaman: jangan biarkan proyek menggantung di Scoring Pending
+        try:
+            async with AsyncSessionLocal() as db:
+                await scoring_engine.fallback_after_failure(db, project_id)
+        except Exception as fallback_error:
+            logger.error(
+                f"[ScoringEngine] Fallback rubrik gagal untuk proyek {project_id}: {fallback_error}"
+            )
 
 
 @router.get(
@@ -456,8 +464,17 @@ async def get_project_detail(
         "customer_name": project.customer_name,
         "status": project.status,
         "dq_number": project.dq_number,
-        "bant_score": project.bant_score,
-        "bant_detail": project.bant_detail,
+        # Selama Scoring Pending skor sementara tidak ditampilkan sebagai hasil final
+        "bant_score": None if project.status == "Scoring Pending" else project.bant_score,
+        "bant_detail": (
+            {
+                k: v
+                for k, v in (project.bant_detail or {}).items()
+                if k not in bant_rubric.SUB_SCORE_KEYS
+            }
+            if project.status == "Scoring Pending"
+            else project.bant_detail
+        ),
         "qualification": build_qualification_view(project),
         "use_case_tags": project.use_case_tags or [],
         "estimasi_nilai": str(project.estimasi_nilai)

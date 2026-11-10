@@ -25,6 +25,16 @@ function formatTanggal(value: string): string {
 }
 
 function SubScores({ q }: { q: QualificationView }) {
+  if (q.scoring_pending) {
+    return (
+      <div
+        role="status"
+        className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800"
+      >
+        Analisis AI sedang berjalan. Skor dan feedback akan tampil setelah analisis selesai.
+      </div>
+    );
+  }
   if (!q.sub_scores) return null;
   return (
     <div>
@@ -92,7 +102,7 @@ export function QualificationSection({
 
   // Proyek lama: tampilkan metadata lama sebagai "legacy"; tidak ada data yang diubah.
   const d = q.legacy_data;
-  if (!d && !q.sub_scores) return null;
+  if (!d && !q.sub_scores && !q.scoring_pending) return null;
   return (
     <div className="bg-white border border-neutral-200 rounded-lg p-5 space-y-4">
       <div className="flex items-center gap-2">

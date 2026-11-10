@@ -112,6 +112,8 @@ export const ANSWER_LABELS: [keyof QualificationAnswers, string][] = [
 /** Bagian `qualification` dari GET /projects/{id} (dihitung backend; read-only). */
 export interface QualificationView {
   legacy: boolean;
+  /** True selama status Scoring Pending: skor/feedback belum final dan disembunyikan. */
+  scoring_pending?: boolean;
   schema_version: number | null;
   answers: Record<string, string | number | null> | null;
   sub_scores: { budget: number; authority: number; need: number; timeline: number } | null;

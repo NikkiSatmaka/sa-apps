@@ -77,6 +77,7 @@ def _jalankan_background(
     jawaban=None,
     ai_response=None,
     ai_lama=None,
+    provider_error=None,
 ):
     """
     Create dengan file lalu jalankan background scoring. Proyek di DB background dibuat
@@ -116,7 +117,9 @@ def _jalankan_background(
     provider = MagicMock()
     provider.parse_document = AsyncMock(return_value=ai_response)
     with patch("app.core.database.AsyncSessionLocal", new=lambda: _Ctx()), patch(
-        "app.services.scoring_engine.llm_factory.get_provider", return_value=provider
+        "app.services.scoring_engine.llm_factory.get_provider",
+        return_value=provider,
+        side_effect=provider_error,
     ), patch("app.services.scoring_engine.asyncio.sleep", new=AsyncMock()):
         with _api() as (client, _):
             resp = client.post(
@@ -230,6 +233,32 @@ def test_ai_gagal_dan_rubrik_tidak_dapat_dihitung_manual_review_required():
             )
         )
     assert proyek.status == "Manual Review Required"
+
+
+def test_exception_tak_terduga_di_luar_retry_llm_jatuh_ke_rubrik_lolos():
+    proyek, bg, _ = _jalankan_background(
+        jawaban=jawaban_kuat(), provider_error=RuntimeError("DB/tak terduga")
+    )
+    assert proyek.status == "Pending Assignment"  # tidak menggantung di Scoring Pending
+    assert proyek.bant_score == 100
+    assert len(bg.of_type(NotificationLog)) == 1
+
+
+def test_exception_tak_terduga_jatuh_ke_rubrik_tidak_lolos():
+    proyek, bg, _ = _jalankan_background(
+        jawaban=jawaban_lemah(), provider_error=RuntimeError("DB/tak terduga")
+    )
+    assert proyek.status == "Need Clarification"
+    assert proyek.bant_score == 22
+    assert bg.of_type(NotificationLog) == []
+
+
+def test_exception_tak_terduga_tidak_menimpa_status_assigned():
+    proyek, bg, _ = _jalankan_background(
+        status_awal="Assigned", jawaban=jawaban_kuat(), provider_error=RuntimeError("x")
+    )
+    assert proyek.status == "Assigned"
+    assert bg.of_type(NotificationLog) == []
 
 
 @pytest.mark.parametrize("status", ["Assigned", "Ready", "Closed-Win"])

@@ -199,3 +199,15 @@ def test_metadata_deskriptif_tidak_lagi_diterima():
     assert r.status_code == 200
     assert "need_description" not in project.bant_detail
     assert project.bant_detail["budget_mrr"] == 5000  # tak tertimpa
+
+
+@pytest.mark.parametrize("status", ["Need Clarification", "Manual Review Required"])
+def test_override_mempertahankan_use_case_tags_hasil_ai(status):
+    project = _project(status=status)
+    project.use_case_tags = ["cloud-migration", "dr"]
+    _setup(_user("Lead_SA"), project)
+
+    r = TestClient(app).post(URL, json=BODY)
+
+    assert r.status_code == 200
+    assert project.use_case_tags == ["cloud-migration", "dr"]

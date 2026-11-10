@@ -2,10 +2,10 @@
 Scoring Engine — Modul AI untuk BANT scoring via LLM.
 
 Bertanggung jawab untuk:
-- Menganalisis dokumen attachment via LLM untuk ekstraksi BANT
+- Menganalisis Source document via LLM untuk ekstraksi BANT
 - Menghitung BANT Score (0-100) dari sub-skor per kriteria
 - Menerapkan threshold gating (>= 60 lolos, < 60 klarifikasi)
-- Menyediakan scoring manual sebagai fallback
+- Override skor oleh Lead_SA/Admin dan re-score dari jawaban kuesioner
 - Mencari proyek serupa berdasarkan use_case_tags (RAG recommendation)
 
 Retry strategy:
@@ -101,9 +101,8 @@ class ScoringEngine:
     """
     Engine untuk BANT scoring proyek.
 
-    Mendukung dua mode scoring:
-    1. Otomatis via LLM — parsing dokumen PDF/DOCX untuk ekstraksi BANT
-    2. Manual — input langsung dari Sales (4 kriteria, skala 0-25)
+    Mendukung scoring otomatis via LLM (parsing dokumen PDF/DOCX untuk ekstraksi BANT),
+    re-score dari jawaban kuesioner, dan override Lead_SA/Admin.
 
     Threshold gating:
     - Score >= 60: Status "Pending Assignment", notifikasi ke Lead_SA
@@ -117,7 +116,7 @@ class ScoringEngine:
         db: AsyncSession,
     ) -> BANTResult:
         """
-        Scoring otomatis via LLM dari dokumen attachment.
+        Scoring otomatis via LLM dari Source document.
 
         Args:
             project_id: ID proyek yang akan di-score.
@@ -210,7 +209,7 @@ class ScoringEngine:
         # Terapkan threshold gating (dengan guard status) dan simpan hasil
         feedback = None
         if total_score < bant_rubric.GATE_THRESHOLD:
-            feedback = self._generate_feedback(sub_scores, all_extractions)
+            feedback = bant_rubric.generate_feedback(sub_scores)
 
         result = BANTResult(
             total_score=total_score,
@@ -220,60 +219,6 @@ class ScoringEngine:
             feedback=feedback,
         )
         return await self._apply_scoring_result(db, project_id, result, ai_result=ai_result)
-
-    async def score_manual(
-        self,
-        project_id: str,
-        budget: int,
-        authority: int,
-        need: int,
-        timeline: int,
-        db: AsyncSession,
-    ) -> BANTResult:
-        """
-        Scoring manual dari input Sales (4 kriteria, skala 0-25).
-
-        Args:
-            project_id: ID proyek.
-            budget: Sub-skor Budget (0-25).
-            authority: Sub-skor Authority (0-25).
-            need: Sub-skor Need (0-25).
-            timeline: Sub-skor Timeline (0-25).
-            db: Database session.
-
-        Returns:
-            BANTResult dengan total skor dan status.
-        """
-        # Validasi range (sudah divalidasi oleh Pydantic, tapi double-check)
-        for name, value in [
-            ("budget", budget),
-            ("authority", authority),
-            ("need", need),
-            ("timeline", timeline),
-        ]:
-            if not (0 <= value <= 25):
-                raise ValueError(f"Sub-skor {name} harus dalam rentang 0-25, diterima: {value}")
-
-        total_score = budget + authority + need + timeline
-        sub_scores = BANTSubScores(
-            budget=budget,
-            authority=authority,
-            need=need,
-            timeline=timeline,
-        )
-
-        feedback = None
-        if total_score < bant_rubric.GATE_THRESHOLD:
-            feedback = self._generate_feedback(sub_scores)
-
-        result = BANTResult(
-            total_score=total_score,
-            sub_scores=sub_scores,
-            use_case_tags=[],
-            status=bant_rubric.decide_status(total_score),
-            feedback=feedback,
-        )
-        return await self._apply_scoring_result(db, project_id, result)
 
     async def override_score(
         self,
@@ -296,14 +241,16 @@ class ScoringEngine:
         sub_scores = BANTSubScores(
             budget=budget, authority=authority, need=need, timeline=timeline
         )
-        total_score = budget + authority + need + timeline
+        total_score = bant_rubric.total_score(sub_scores)
+        # Override tidak membawa hasil AI baru: pertahankan use_case_tags yang sudah ada.
+        project = await self._load_project(db, project_id)
         result = BANTResult(
             total_score=total_score,
             sub_scores=sub_scores,
-            use_case_tags=[],
+            use_case_tags=list((project.use_case_tags if project else None) or []),
             status=bant_rubric.decide_status(total_score),
             feedback=(
-                self._generate_feedback(sub_scores)
+                bant_rubric.generate_feedback(sub_scores)
                 if total_score < bant_rubric.GATE_THRESHOLD
                 else None
             ),
@@ -616,17 +563,6 @@ class ScoringEngine:
 
         return all_tags[:5]
 
-    def _generate_feedback(
-        self,
-        sub_scores: BANTSubScores,
-        extractions: Optional[list[dict[str, Any]]] = None,
-    ) -> str:
-        """
-        Generate feedback untuk Sales ketika skor < 60.
-        Identifikasi kriteria dengan sub-skor < 15.
-        """
-        return bant_rubric.generate_feedback(sub_scores)
-
     async def _update_project_scoring(
         self,
         db: AsyncSession,
@@ -718,10 +654,7 @@ class ScoringEngine:
     def _merge_max(rubric: BANTSubScores, ai: BANTSubScores) -> BANTSubScores:
         """Skor akhir per kriteria = nilai tertinggi antara rubrik dan AI."""
         return BANTSubScores(
-            budget=max(rubric.budget, ai.budget),
-            authority=max(rubric.authority, ai.authority),
-            need=max(rubric.need, ai.need),
-            timeline=max(rubric.timeline, ai.timeline),
+            **{k: max(getattr(rubric, k), getattr(ai, k)) for k in bant_rubric.SUB_SCORE_KEYS}
         )
 
     async def _fallback_to_rubric(
@@ -745,6 +678,21 @@ class ScoringEngine:
             ),
         )
         return await self._apply_scoring_result(db, project_id, result)
+
+    async def fallback_after_failure(self, db: AsyncSession, project_id: str) -> None:
+        """
+        Jaring pengaman scoring background: exception di luar retry LLM (mis. error DB atau
+        error tak terduga) tidak boleh membiarkan proyek menggantung di `Scoring Pending`.
+
+        Gate memakai skor rubrik (guard status sama dengan jalur lain); bila rubrik tidak
+        dapat dihitung → `Manual Review Required`.
+        """
+        project = await self._load_project(db, project_id)
+        rubric = self._rubric_scores(project)
+        if rubric is not None:
+            await self._fallback_to_rubric(db, project_id, project, rubric)
+        else:
+            await self._mark_manual_review_required(db, project_id)
 
     async def _mark_manual_review_required(
         self,

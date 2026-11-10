@@ -520,7 +520,7 @@ export default function NewProjectPage() {
         <div className="bg-white rounded-lg border border-neutral-200 p-6">
           <div className="mb-4">
             <h2 className="text-sm font-medium text-neutral-700">
-              File Attachment
+              Source document
             </h2>
             <p className="text-xs text-neutral-500 mt-0.5">
               Upload dokumen referensi (opsional). Penilaian kelayakan berdasarkan

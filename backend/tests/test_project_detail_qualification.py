@@ -180,3 +180,22 @@ def test_proyek_lama_tanpa_bant_detail():
     assert q["legacy_data"] is None
     assert q["sub_scores"] is None
     assert q["feedback"] is None
+
+
+def test_scoring_pending_tidak_menampilkan_skor_dan_feedback_sebagai_hasil_final():
+    p = _baru(score=40, status="Scoring Pending")
+    p.bant_detail = {"budget": 5, "authority": 15, "need": 10, "timeline": 10}
+    d = _get(p, _user("Admin")).json()["data"]
+    assert d["bant_score"] is None
+    assert "budget" not in d["bant_detail"]
+    q = d["qualification"]
+    assert q["scoring_pending"] is True
+    assert q["feedback"] is None
+    assert q["sub_scores"] is None
+    assert q["answers"]["masalah_bisnis"] == "Migrasi data center"  # jawaban tetap tampil
+
+
+def test_status_selain_scoring_pending_tidak_ditandai_pending():
+    d = _get(_baru(score=40), _user("Admin")).json()["data"]
+    assert d["bant_score"] == 40
+    assert d["qualification"]["scoring_pending"] is False

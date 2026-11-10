@@ -10,10 +10,11 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from pydantic import ValidationError
+
 from app.schemas.scoring import BANTSubScores
 from app.services import bant_rubric
 
-SUB_SCORE_KEYS = ("budget", "authority", "need", "timeline")
 LEGACY_KEYS = (
     "budget_mrr",
     "pic_name",
@@ -24,25 +25,28 @@ LEGACY_KEYS = (
 )
 
 
-def _extract_sub_scores(detail: dict[str, Any]) -> Optional[dict[str, int]]:
-    if not all(
-        isinstance(detail.get(k), int) and not isinstance(detail.get(k), bool)
-        for k in SUB_SCORE_KEYS
-    ):
+def _extract_sub_scores(detail: dict[str, Any]) -> Optional[BANTSubScores]:
+    """Sub-skor dari bant_detail; None bila tidak lengkap/tidak valid (mis. proyek lama)."""
+    try:
+        return BANTSubScores.model_validate(
+            {k: detail.get(k) for k in bant_rubric.SUB_SCORE_KEYS}, strict=True
+        )
+    except ValidationError:
         return None
-    return {k: int(detail[k]) for k in SUB_SCORE_KEYS}
 
 
 def build_qualification_view(project: Any) -> dict[str, Any]:
     detail = dict(project.bant_detail or {})
     answers = project.qualification_answers
     is_legacy = answers is None
+    # Selama Scoring Pending skor rubrik hanya sementara; jangan tampil sebagai hasil final.
+    scoring_pending = project.status == "Scoring Pending"
 
-    sub_scores = _extract_sub_scores(detail)
+    sub_scores = None if scoring_pending else _extract_sub_scores(detail)
     feedback = None
     score = project.bant_score
     if sub_scores is not None and score is not None and score < bant_rubric.GATE_THRESHOLD:
-        feedback = bant_rubric.generate_feedback(BANTSubScores(**sub_scores))
+        feedback = bant_rubric.generate_feedback(sub_scores)
 
     legacy_data = None
     if is_legacy:
@@ -50,9 +54,10 @@ def build_qualification_view(project: Any) -> dict[str, Any]:
 
     return {
         "legacy": is_legacy,
+        "scoring_pending": scoring_pending,
         "schema_version": None if is_legacy else project.qualification_schema_version,
         "answers": None if is_legacy else dict(answers),
-        "sub_scores": sub_scores,
+        "sub_scores": sub_scores.model_dump() if sub_scores is not None else None,
         "feedback": feedback,
         "legacy_data": legacy_data,
     }

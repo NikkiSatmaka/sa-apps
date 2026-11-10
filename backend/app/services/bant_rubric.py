@@ -115,7 +115,7 @@ def compute_rubric_scores(
 
 def total_score(sub_scores: BANTSubScores) -> int:
     """Jumlah empat sub-skor (0-100)."""
-    return sub_scores.budget + sub_scores.authority + sub_scores.need + sub_scores.timeline
+    return sum(getattr(sub_scores, k) for k in SUB_SCORE_KEYS)
 
 
 def decide_status(total: int) -> str:
@@ -125,16 +125,10 @@ def decide_status(total: int) -> str:
 
 def generate_feedback(sub_scores: BANTSubScores) -> str:
     """Feedback untuk Sales saat skor < GATE_THRESHOLD: kriteria yang lemah."""
-    kriteria = (
-        ("Budget", sub_scores.budget),
-        ("Authority", sub_scores.authority),
-        ("Need", sub_scores.need),
-        ("Timeline", sub_scores.timeline),
-    )
     lemah = [
-        f"- {nama} (skor: {skor}/25): informasi kurang jelas"
-        for nama, skor in kriteria
-        if skor < WEAK_CRITERION_THRESHOLD
+        f"- {k.capitalize()} (skor: {getattr(sub_scores, k)}/25): informasi kurang jelas"
+        for k in SUB_SCORE_KEYS
+        if getattr(sub_scores, k) < WEAK_CRITERION_THRESHOLD
     ]
     if not lemah:
         return f"Skor total belum mencapai threshold {GATE_THRESHOLD}. Lengkapi informasi proyek."

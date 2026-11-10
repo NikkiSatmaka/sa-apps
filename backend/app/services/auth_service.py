@@ -7,6 +7,7 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from urllib.parse import urlencode
 
 import httpx
 from jose import JWTError, jwt
@@ -70,9 +71,11 @@ class AuthService:
         """Parse ROLE_MAPPING dari environment variable (JSON string)."""
         if self._role_mapping is None:
             try:
-                self._role_mapping = json.loads(settings.ROLE_MAPPING)
+                dimuat = json.loads(settings.ROLE_MAPPING)
             except (json.JSONDecodeError, TypeError):
-                self._role_mapping = {}
+                dimuat = {}
+            # JSON valid tapi bukan objek (list/string/null) dianggap mapping kosong.
+            self._role_mapping = dimuat if isinstance(dimuat, dict) else {}
         return self._role_mapping
 
     def initiate_oauth(self, state: Optional[str] = None) -> str:
@@ -91,8 +94,9 @@ class AuthService:
         if state:
             params["state"] = state
 
-        query_string = "&".join(f"{k}={v}" for k, v in params.items())
-        return f"{GOOGLE_AUTH_URL}?{query_string}"
+        # urlencode agar state/redirect_uri berisi `&`, `#`, atau spasi tidak menyisipkan
+        # parameter OAuth tambahan.
+        return f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
 
     async def handle_callback(
         self, code: str, db: AsyncSession

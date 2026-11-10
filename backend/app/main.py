@@ -22,6 +22,7 @@ from app.api.notifications import router as notifications_router
 from app.api.projects import router as projects_router
 from app.api.qualification import router as qualification_router
 from app.api.scoring import router as scoring_router
+from app.api.requirement import router as requirement_router
 from app.api.sla import router as sla_router
 from app.api.subtasks import router as subtasks_router
 from app.api.workflow import router as workflow_router
@@ -77,6 +78,7 @@ register_exception_handlers(app)
 # `GET /projects/{project_id}`. Dijaga oleh tests/test_route_shadowing.py.
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(scoring_router, prefix="/api/v1")
+app.include_router(requirement_router, prefix="/api/v1")
 app.include_router(assignment_router, prefix="/api/v1")
 app.include_router(projects_router, prefix="/api/v1")
 app.include_router(workflow_router, prefix="/api/v1")

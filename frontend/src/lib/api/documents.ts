@@ -284,3 +284,63 @@ export async function getSolutionsDocuments(
   const json = await response.json();
   return json.data ?? json;
 }
+
+/** Status generate Requirement di level proyek (#34) */
+export type RequirementGenerationStatus = "pending" | "ready" | "failed" | null;
+
+export interface RequirementStatusInfo {
+  requirement_generation_status: RequirementGenerationStatus;
+  can_regenerate_requirement: boolean;
+}
+
+function authHeaders(): HeadersInit {
+  const token = getAuthToken();
+  const headers: HeadersInit = { "Content-Type": "application/json" };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+/** Ambil status generate Requirement + hak generate ulang untuk pengguna saat ini */
+export async function getRequirementStatus(
+  projectId: string
+): Promise<RequirementStatusInfo> {
+  const response = await fetch(
+    `${API_BASE_URL}/projects/${projectId}/documents`,
+    { headers: authHeaders() }
+  );
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new ApiError(
+      errorData?.message ||
+        `Gagal mengambil status Requirement (status ${response.status})`,
+      response.status,
+      errorData
+    );
+  }
+  const json = await response.json();
+  return {
+    requirement_generation_status:
+      json.data?.requirement_generation_status ?? null,
+    can_regenerate_requirement: Boolean(json.data?.can_regenerate_requirement),
+  };
+}
+
+/** Generate ulang Requirement (juga dipakai sebagai "coba lagi") */
+export async function regenerateRequirement(projectId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/projects/${projectId}/requirement/regenerate`,
+    { method: "POST", headers: authHeaders() }
+  );
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new ApiError(
+      errorData?.detail ||
+        errorData?.message ||
+        `Gagal memulai generate ulang (status ${response.status})`,
+      response.status,
+      errorData
+    );
+  }
+}

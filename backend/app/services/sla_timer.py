@@ -26,6 +26,10 @@ from app.models.notification_log import NotificationLog
 from app.models.project import Project
 from app.models.sla_tracking import SLATracking
 from app.models.user import User
+from app.services.notification_service import (
+    NotificationEventType,
+    notification_service,
+)
 from app.services.folder_provisioner import (
     FolderProvisioningError,
     folder_provisioner,
@@ -364,6 +368,12 @@ class SLATimer:
             },
         )
         db.add(notification)
+        await notification_service.dispatch_email_for_user(
+            NotificationEventType.SLA_REMINDER,
+            project.sales_pic,
+            project.id_project,
+            notification.notification_metadata,
+        )
 
         logger.info(
             f"Reminder SLA dikirim ke Sales ({project.sales_pic}) "
@@ -411,6 +421,12 @@ class SLATimer:
                 },
             )
             db.add(escalation_notif)
+            await notification_service.dispatch_email_for_user(
+                NotificationEventType.SLA_ESCALATION,
+                manager.id,
+                project.id_project,
+                escalation_notif.notification_metadata,
+            )
 
         # Notifikasi ke Sales bahwa folder akan di-lock
         lock_notif = NotificationLog(
@@ -432,6 +448,12 @@ class SLATimer:
             },
         )
         db.add(lock_notif)
+        await notification_service.dispatch_email_for_user(
+            NotificationEventType.SLA_ESCALATION,
+            project.sales_pic,
+            project.id_project,
+            lock_notif.notification_metadata,
+        )
 
         logger.info(
             f"Eskalasi SLA dikirim ke {len(managers)} manager(s) "

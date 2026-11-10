@@ -154,11 +154,13 @@ Ditemukan saat asesmen dan sebaiknya diperbaiki lebih awal — ini merusak fungs
 
 ### Fase 5A — Kuesioner kualifikasi (spec #24)
 
-- [ ] 5.1 ✅ **Diputuskan (2026-11-10):** set pertanyaan **tetap** di kode untuk MVP (12 pertanyaan, 6 wajib), jawaban disimpan bersama `schema_version` agar bisa dikonfigurasi admin kelak (backlog pasca-MVP).
-- [ ] 5.2 Skema jawaban (JSONB di proyek) + rubrik skor deterministik **di backend**; `score-manual` dibatasi sebagai override Lead SA/Admin. Lihat [`docs/adr/0010-bant-score-computed-in-backend.md`](adr/0010-bant-score-computed-in-backend.md). Tiket #26, #28, #30.
-- [ ] 5.3 Frontend: `projects/new` menjadi form dua langkah (data dasar + file, lalu kuesioner) dengan satu pengiriman; form manual BANT dihapus; detail/edit proyek menampilkan jawaban dan data legacy. Tiket #26, #29, #32.
-- [ ] 5.3a Source document: tipe MoM/RFP per file + ekstraksi teks via LLM disimpan di DB (bahan Requirement). Tiket #31.
+- [x] 5.1 ✅ **Diputuskan (2026-11-10):** set pertanyaan **tetap** di kode untuk MVP (12 pertanyaan, 6 wajib), jawaban disimpan bersama `schema_version` agar bisa dikonfigurasi admin kelak (backlog pasca-MVP).
+- [x] 5.2 Skema jawaban (JSONB di proyek) + rubrik skor deterministik **di backend**; `score-manual` dibatasi sebagai override Lead SA/Admin. Lihat [`docs/adr/0010-bant-score-computed-in-backend.md`](adr/0010-bant-score-computed-in-backend.md). Tiket #26, #28, #30.
+- [x] 5.3 Frontend: `projects/new` menjadi form dua langkah (data dasar + file, lalu kuesioner) dengan satu pengiriman; form manual BANT dihapus; detail/edit proyek menampilkan jawaban dan data legacy. Tiket #26, #29, #32.
+- [x] 5.3a Source document: tipe MoM/RFP per file + ekstraksi teks via LLM disimpan di DB (bahan Requirement). Tiket #31.
 - ~~5.4 (Opsional AI) pertanyaan klarifikasi yang di-generate AI.~~ **Ditunda pasca-MVP (2026-11-10):** bertanda opsional dan Fase 6 tidak bergantung padanya. Jalan keluar `Need Clarification` ditangani 5A lewat edit kuesioner + re-score (#32).
+
+**Status 5A:** terimplementasi di branch `feat/phase-5a-kuesioner-kualifikasi` (tiket #26, #28–#32); migration 010–012 diverifikasi lewat SQL offline dan DB sementara; Gemini di-mock pada test.
 
 **Kriteria selesai 5A:** Sales mengisi kuesioner saat membuat opportunity; skor BANT dihitung backend (rubrik + gabungan AI max per kriteria); `Need Clarification` bisa diperbaiki dan dinilai ulang; Lead SA bisa override dengan alasan tercatat; teks MoM/RFP tersimpan sebagai Source document.
 

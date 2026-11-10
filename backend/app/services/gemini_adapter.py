@@ -229,6 +229,7 @@ class GeminiAdapter:
                     token_usage=token_usage,
                     latency_ms=latency_ms,
                     provider="gemini",
+                    finish_reason=candidates[0].get("finishReason"),
                 ),
             )
 
@@ -272,7 +273,11 @@ class GeminiAdapter:
         return await self._request_with_retry(payload)
 
     async def parse_document(
-        self, file_content: bytes, mime_type: str, prompt: str
+        self,
+        file_content: bytes,
+        mime_type: str,
+        prompt: str,
+        max_output_tokens: int = 8192,
     ) -> LLMResponse:
         """
         Multimodal document parsing — ekstrak informasi dari file PDF/DOCX.
@@ -284,6 +289,7 @@ class GeminiAdapter:
             file_content: Konten file dalam bytes.
             mime_type: MIME type file (PDF atau DOCX).
             prompt: Instruksi apa yang harus diekstrak dari dokumen.
+            max_output_tokens: Batas token output (default 8192, perilaku lama).
 
         Returns:
             LLMResponse dengan content berupa data terstruktur hasil parsing.
@@ -324,7 +330,7 @@ class GeminiAdapter:
             ],
             "generationConfig": {
                 "temperature": 0.1,
-                "maxOutputTokens": 8192,
+                "maxOutputTokens": max_output_tokens,
             },
         }
 

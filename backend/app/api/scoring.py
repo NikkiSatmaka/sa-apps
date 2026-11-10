@@ -8,35 +8,38 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, require_role
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.response import success_response
-from app.schemas.scoring import ManualBANTInput
-from app.services.scoring_engine import scoring_engine
+from app.schemas.scoring import BANTOverrideInput
+from app.services.scoring_engine import OVERRIDE_ALLOWED_STATUSES, scoring_engine
 
 router = APIRouter(prefix="/projects", tags=["Scoring"])
 
 
 @router.post(
     "/{project_id}/score-manual",
-    summary="Manual BANT Scoring",
-    description="Input skor BANT manual dari Sales (4 kriteria, skala 0-25 per kriteria).",
+    summary="Override Skor BANT (Lead_SA/Admin)",
+    description=(
+        "Override skor BANT oleh Lead_SA/Admin: 4 sub-skor (0-25) + alasan wajib. "
+        "Hanya untuk status Need Clarification / Manual Review Required. "
+        "Gate 60 diterapkan dan perubahan dicatat di audit log."
+    ),
 )
 async def score_manual(
     project_id: str,
-    body: ManualBANTInput,
-    current_user: User = Depends(get_current_user),
+    body: BANTOverrideInput,
+    current_user: User = Depends(require_role("Lead_SA", "Admin")),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Endpoint scoring BANT manual.
+    Override skor BANT.
 
-    Sales mengisi 4 kriteria BANT (Budget, Authority, Need, Timeline)
-    dengan skala 0-25 per kriteria. Total skor = jumlah 4 kriteria (0-100).
-    Threshold: >= 60 → Pending Assignment, < 60 → Need Clarification.
+    Total skor = jumlah 4 sub-skor (0-100) dan menimpa skor final. Threshold:
+    >= 60 → Pending Assignment, < 60 → Need Clarification. Nilai lama/baru,
+    pelaku, dan alasan ditulis ke audit log dalam transaksi yang sama.
     """
-    # Validasi proyek ada
     result = await db.execute(select(Project).where(Project.id_project == project_id))
     project = result.scalar_one_or_none()
 
@@ -46,56 +49,29 @@ async def score_manual(
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
 
-    # Authorization write-set: Sales PIC, assigned SA, atau privileged.
-    # Collaborator TIDAK diizinkan menjalankan scoring manual, jadi kita cek
-    # eksplisit di sini (bukan via ensure_project_access yang mengizinkan collaborator).
-    is_privileged = current_user.role in ("Lead_SA", "Admin")
-    is_sales_pic = project.sales_pic == current_user.id
-    is_assigned_sa = project.assigned_sa == current_user.id
-
-    if not (is_privileged or is_sales_pic or is_assigned_sa):
+    if project.status not in OVERRIDE_ALLOWED_STATUSES:
         raise HTTPException(
-            status_code=403,
-            detail="Anda tidak memiliki akses untuk melakukan scoring manual pada proyek ini.",
+            status_code=400,
+            detail=(
+                f"Override skor hanya untuk status Need Clarification atau "
+                f"Manual Review Required. Status proyek saat ini: '{project.status}'."
+            ),
         )
 
-    # Lakukan scoring manual
-    bant_result = await scoring_engine.score_manual(
+    bant_result = await scoring_engine.override_score(
         project_id=project_id,
         budget=body.budget,
         authority=body.authority,
         need=body.need,
         timeline=body.timeline,
+        reason=body.reason,
+        performed_by=current_user.id,
         db=db,
     )
 
-    # Simpan metadata deskriptif ke bant_detail (jika ada)
-    # Metadata ini ditampilkan di halaman detail proyek
-    metadata = {}
-    if body.budget_detail and body.budget_detail.mrr is not None:
-        metadata["budget_mrr"] = body.budget_detail.mrr
-    if body.authority_detail:
-        if body.authority_detail.name:
-            metadata["pic_name"] = body.authority_detail.name
-        if body.authority_detail.position:
-            metadata["pic_position"] = body.authority_detail.position
-        if body.authority_detail.email:
-            metadata["pic_email"] = body.authority_detail.email
-    if body.need_detail:
-        metadata["need_description"] = body.need_detail
-    if body.timeline_detail:
-        metadata["timeline_target"] = body.timeline_detail
-
-    if metadata:
-        # Merge dengan existing bant_detail (sub-skor numerik)
-        existing_detail = project.bant_detail or {}
-        existing_detail.update(metadata)
-        project.bant_detail = existing_detail
-        await db.commit()
-
     return success_response(
         data=bant_result.model_dump(),
-        message=f"BANT scoring manual berhasil. Total skor: {bant_result.total_score}.",
+        message=f"Override skor BANT berhasil. Total skor: {bant_result.total_score}.",
     )
 
 

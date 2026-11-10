@@ -3,13 +3,19 @@
 import { useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { FileUpload, FileItem } from "@/components/FileUpload";
-import { BANTManualForm, BANTScores, BANTMetadata } from "./bant-manual";
+import { QualificationForm } from "@/components/QualificationForm";
 import {
   createProject,
-  submitManualBANT,
-  BANTResult,
+  extractFieldErrors,
   CreateProjectResponse,
 } from "@/lib/api/projects";
+import {
+  QualificationAnswers,
+  QualificationErrors,
+  toPayload,
+  useQualificationSchema,
+  validateAnswers,
+} from "@/lib/qualification";
 
 /**
  * Halaman Form Request SA
@@ -18,7 +24,8 @@ import {
  * - Input fields: nama proyek, nama customer, target submit, estimasi nilai
  * - File upload drag-and-drop (PDF/DOCX, max 20MB, max 5 file)
  * - Client-side validation
- * - BANT manual form sebagai fallback (jika tanpa file)
+ * - Dua langkah: (1) data dasar + file, (2) Kuesioner kualifikasi; satu kali pengiriman
+ * - Skor BANT dihitung backend dari jawaban kuesioner (tidak ada form BANT manual)
  * - Feedback BANT score dan status perubahan
  *
  * Requirements: 2.1, 2.3, 2.7, 3.6
@@ -40,6 +47,7 @@ interface FormErrors {
   targetSubmit?: string;
   estimatedValue?: string;
   dqNumber?: string;
+  files?: string;
 }
 
 // ==================== Helpers ====================
@@ -88,15 +96,19 @@ export default function NewProjectPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [errors, setErrors] = useState<FormErrors>({});
 
+  // Wizard: langkah 1 = data dasar + file, langkah 2 = kuesioner kualifikasi.
+  // State dimiliki komponen ini sehingga kembali ke langkah 1 tidak menghilangkan isian.
+  const [step, setStep] = useState<1 | 2>(1);
+  const [answers, setAnswers] = useState<QualificationAnswers>({});
+  const [answerErrors, setAnswerErrors] = useState<QualificationErrors>({});
+  const { schema, error: schemaError } = useQualificationSchema();
+
   // Submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Post-submit state
   const [createdProject, setCreatedProject] = useState<CreateProjectResponse | null>(null);
-  const [showBANTManual, setShowBANTManual] = useState(false);
-  const [bantResult, setBantResult] = useState<BANTResult | null>(null);
-  const [isSubmittingBANT, setIsSubmittingBANT] = useState(false);
 
   // Toast notification
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -167,9 +179,14 @@ export default function NewProjectPage() {
       }
     }
 
+    // Tipe Source document (MoM/RFP) wajib dipilih untuk setiap file valid
+    if (validFiles.some((f) => !f.docType)) {
+      newErrors.files = "Pilih tipe (MoM atau RFP) untuk setiap file";
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  }, [form]);
+  }, [form, validFiles]);
 
   // ==================== Handlers ====================
 
@@ -185,125 +202,128 @@ export default function NewProjectPage() {
     [errors]
   );
 
-  // Handle submit form utama
+  // Update jawaban kuesioner
+  const updateAnswer = useCallback(
+    (field: string, value: string) => {
+      setAnswers((prev) => ({ ...prev, [field]: value }));
+      setAnswerErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
+    },
+    []
+  );
+
+  // Pemetaan field backend → field form langkah 1
+  const HEADER_FIELDS: Record<string, keyof FormErrors> = {
+    project_name: "projectName",
+    customer_name: "customerName",
+    target_submit: "targetSubmit",
+    estimasi_nilai: "estimatedValue",
+    dq_number: "dqNumber",
+  };
+
+  // Kirim seluruh data (langkah 1 + 2) dalam satu permintaan
+  const submitAll = useCallback(async () => {
+    setSubmitError(null);
+
+    if (!schema) {
+      setSubmitError("Skema kuesioner belum dimuat. Muat ulang halaman.");
+      return;
+    }
+    const answerValidation = validateAnswers(schema, answers);
+    setAnswerErrors(answerValidation);
+    if (Object.keys(answerValidation).length > 0) return;
+
+    setIsSubmitting(true);
+
+    try {
+      // Buat FormData untuk multipart/form-data
+      const formData = new window.FormData();
+      formData.append("project_name", form.projectName.trim());
+      formData.append("customer_name", form.customerName.trim());
+      formData.append("target_submit", form.targetSubmit);
+      formData.append("estimasi_nilai", parseIDR(form.estimatedValue).toString());
+
+      // DQ Number opsional
+      if (form.dqNumber.trim()) {
+        formData.append("dq_number", form.dqNumber.trim());
+      }
+
+      formData.append("qualification_answers", JSON.stringify(toPayload(schema, answers)));
+
+      // Tambahkan file valid
+      validFiles.forEach((item) => {
+        formData.append("files", item.file);
+        formData.append("file_types", item.docType ?? "");
+      });
+
+      const response = await createProject(formData);
+      setCreatedProject(response);
+
+      if (response.scoring_triggered) {
+        showToast("success", "Proyek berhasil dibuat! File sedang diproses untuk scoring.");
+        // Redirect ke detail proyek setelah 2 detik
+        setTimeout(() => {
+          router.push(`/projects/${response.id_project}`);
+        }, 2000);
+      } else if (response.status === "Pending Assignment") {
+        showToast("success", `BANT Score: ${response.bant_score} — Proyek masuk antrian assignment!`);
+      } else {
+        showToast("error", `BANT Score: ${response.bant_score} — Perlu klarifikasi tambahan.`);
+      }
+    } catch (err) {
+      // Petakan error 422 per field ke form
+      const fieldErrors = extractFieldErrors(err);
+      const headerErrs: FormErrors = {};
+      const answerErrs: QualificationErrors = {};
+      for (const { field, reason } of fieldErrors) {
+        if (field.startsWith("qualification_answers.")) {
+          answerErrs[field.split(".")[1]] = reason;
+        } else if (HEADER_FIELDS[field]) {
+          headerErrs[HEADER_FIELDS[field]] = reason;
+        }
+      }
+      if (Object.keys(headerErrs).length > 0) {
+        setErrors(headerErrs);
+        setStep(1);
+      }
+      if (Object.keys(answerErrs).length > 0) setAnswerErrors(answerErrs);
+
+      const message =
+        err instanceof Error ? err.message : "Terjadi kesalahan saat submit";
+      setSubmitError(message);
+      showToast("error", message);
+    } finally {
+      setIsSubmitting(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, answers, schema, validFiles, router, showToast]);
+
+  // Submit form: langkah 1 → lanjut ke langkah 2; langkah 2 → kirim
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
       setSubmitError(null);
 
-      if (!validateForm()) return;
-
-      setIsSubmitting(true);
-
-      try {
-        // Buat FormData untuk multipart/form-data
-        const formData = new window.FormData();
-        formData.append("project_name", form.projectName.trim());
-        formData.append("customer_name", form.customerName.trim());
-        formData.append("target_submit", form.targetSubmit);
-        formData.append("estimasi_nilai", parseIDR(form.estimatedValue).toString());
-
-        // DQ Number opsional
-        if (form.dqNumber.trim()) {
-          formData.append("dq_number", form.dqNumber.trim());
-        }
-
-        // Tambahkan file valid
-        validFiles.forEach((item) => {
-          formData.append("files", item.file);
-        });
-
-        const response = await createProject(formData);
-        setCreatedProject(response);
-
-        // Jika tidak ada file → tampilkan BANT manual form
-        if (validFiles.length === 0) {
-          setShowBANTManual(true);
-          showToast("success", "Proyek berhasil dibuat. Silakan isi BANT manual.");
-        } else {
-          showToast("success", "Proyek berhasil dibuat! File sedang diproses untuk scoring.");
-          // Redirect ke detail proyek setelah 2 detik
-          setTimeout(() => {
-            router.push(`/projects/${response.id_project}`);
-          }, 2000);
-        }
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Terjadi kesalahan saat submit";
-        setSubmitError(message);
-        showToast("error", message);
-      } finally {
-        setIsSubmitting(false);
+      if (step === 1) {
+        if (validateForm()) setStep(2);
+        return;
       }
+      await submitAll();
     },
-    [form, validFiles, validateForm, router, showToast]
-  );
-
-  // Handle submit BANT manual
-  const handleBANTSubmit = useCallback(
-    async (scores: BANTScores, metadata?: BANTMetadata) => {
-      if (!createdProject) return;
-
-      setIsSubmittingBANT(true);
-
-      try {
-        const result = await submitManualBANT(createdProject.id_project, scores, metadata);
-        setBantResult(result);
-
-        if (result.bant_score >= 60) {
-          showToast("success", `BANT Score: ${result.bant_score} — Proyek masuk antrian assignment!`);
-        } else {
-          showToast("error", `BANT Score: ${result.bant_score} — Perlu klarifikasi tambahan.`);
-        }
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Gagal submit skor BANT";
-        showToast("error", message);
-      } finally {
-        setIsSubmittingBANT(false);
-      }
-    },
-    [createdProject, showToast]
+    [step, validateForm, submitAll]
   );
 
   // ==================== Render ====================
 
-  // Jika sudah submit dan ada hasil BANT → tampilkan feedback
-  if (bantResult && createdProject) {
+  // Jika sudah submit dan skor langsung tersedia (tanpa file) → tampilkan feedback
+  if (createdProject && createdProject.bant_score !== null && createdProject.sub_scores) {
     return (
       <div className="max-w-2xl mx-auto">
         <BANTResultFeedback
-          result={bantResult}
+          result={createdProject}
           projectName={createdProject.project_name}
           onViewProject={() => router.push(`/projects/${createdProject.id_project}`)}
         />
-      </div>
-    );
-  }
-
-  // Jika sudah submit dan perlu BANT manual
-  if (showBANTManual && createdProject) {
-    return (
-      <div className="max-w-2xl mx-auto space-y-6">
-        {/* Info proyek yang dibuat */}
-        <div className="bg-primary-50 border border-primary-200 rounded-lg p-4">
-          <p className="text-sm text-primary-800">
-            <span className="font-semibold">Proyek dibuat:</span>{" "}
-            {createdProject.project_name}
-          </p>
-          <p className="text-xs text-primary-600 mt-1">
-            Karena tidak ada file attachment, silakan isi skor BANT secara manual
-            untuk melanjutkan proses scoring.
-          </p>
-        </div>
-
-        {/* BANT Manual Form */}
-        <div className="bg-white rounded-lg border border-neutral-200 p-6">
-          <BANTManualForm
-            onSubmit={handleBANTSubmit}
-            isSubmitting={isSubmittingBANT}
-          />
-        </div>
+        {toast && <Toast type={toast.type} message={toast.message} />}
       </div>
     );
   }
@@ -317,12 +337,15 @@ export default function NewProjectPage() {
           Request SA
         </h1>
         <p className="text-sm text-neutral-500 mt-1">
-          Ajukan request proyek pre-sales dengan mengisi form berikut
+          Langkah {step} dari 2 —{" "}
+          {step === 1 ? "Data dasar dan file" : "Kuesioner kualifikasi"}
         </p>
       </div>
 
       {/* Form */}
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+        {step === 1 && (
+        <>
         <div className="bg-white rounded-lg border border-neutral-200 p-6 space-y-5">
           {/* Nama Proyek */}
           <div>
@@ -502,20 +525,45 @@ export default function NewProjectPage() {
         <div className="bg-white rounded-lg border border-neutral-200 p-6">
           <div className="mb-4">
             <h2 className="text-sm font-medium text-neutral-700">
-              File Attachment
+              Source document
             </h2>
             <p className="text-xs text-neutral-500 mt-0.5">
-              Upload dokumen referensi (opsional). Jika tidak ada file, Anda bisa
-              mengisi BANT secara manual setelah submit.
+              Upload dokumen referensi (opsional). Penilaian kelayakan berdasarkan
+              Kuesioner kualifikasi di langkah berikutnya.
             </p>
           </div>
 
           <FileUpload
             files={files}
-            onChange={setFiles}
+            onChange={(next) => {
+              setFiles(next);
+              if (errors.files) setErrors((prev) => ({ ...prev, files: undefined }));
+            }}
             disabled={isSubmitting}
           />
+          {errors.files && (
+            <p className="text-xs text-red-600 mt-1" role="alert">
+              {errors.files}
+            </p>
+          )}
         </div>
+        </>
+        )}
+
+        {step === 2 && !schema && (
+          <p className="text-sm text-neutral-500" role="status">
+            {schemaError ? "Gagal memuat kuesioner. Muat ulang halaman." : "Memuat kuesioner..."}
+          </p>
+        )}
+        {step === 2 && schema && (
+          <QualificationForm
+            schema={schema}
+            answers={answers}
+            errors={answerErrors}
+            onChange={updateAnswer}
+            disabled={isSubmitting}
+          />
+        )}
 
         {/* Error message global */}
         {submitError && (
@@ -528,55 +576,38 @@ export default function NewProjectPage() {
           </div>
         )}
 
-        {/* Submit Button */}
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className={`
-            w-full py-3 px-4 rounded-lg font-medium text-white transition-all duration-200
-            ${isSubmitting
-              ? "bg-neutral-400 cursor-not-allowed"
-              : "bg-primary-600 hover:bg-primary-700 active:bg-primary-800"
-            }
-            disabled:opacity-50 disabled:cursor-not-allowed
-            min-h-touch
-          `}
-        >
-          {isSubmitting ? (
-            <span className="flex items-center justify-center gap-2">
-              <svg
-                className="animate-spin w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                />
-              </svg>
-              Mengirim request...
-            </span>
-          ) : (
-            `Submit Request${validFiles.length > 0 ? ` (${validFiles.length} file)` : ""}`
+        {/* Tombol aksi */}
+        <div className="flex gap-3">
+          {step === 2 && (
+            <button
+              type="button"
+              onClick={() => setStep(1)}
+              disabled={isSubmitting}
+              className="py-3 px-4 rounded-lg font-medium text-neutral-700 border border-neutral-300 bg-white hover:bg-neutral-50 disabled:opacity-50 min-h-touch"
+            >
+              Kembali
+            </button>
           )}
-        </button>
-
-        {/* Hint tentang BANT manual */}
-        {validFiles.length === 0 && (
-          <p className="text-xs text-neutral-500 text-center">
-            Tanpa file attachment, Anda akan diminta mengisi skor BANT secara
-            manual setelah submit.
-          </p>
-        )}
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className={`
+              flex-1 py-3 px-4 rounded-lg font-medium text-white transition-all duration-200
+              ${isSubmitting
+                ? "bg-neutral-400 cursor-not-allowed"
+                : "bg-primary-600 hover:bg-primary-700 active:bg-primary-800"
+              }
+              disabled:opacity-50 disabled:cursor-not-allowed
+              min-h-touch
+            `}
+          >
+            {isSubmitting
+              ? "Mengirim request..."
+              : step === 1
+                ? "Lanjut ke Kuesioner"
+                : `Submit Request${validFiles.length > 0 ? ` (${validFiles.length} file)` : ""}`}
+          </button>
+        </div>
       </form>
 
       {/* Toast Notification */}
@@ -628,18 +659,18 @@ function Toast({ type, message }: { type: "success" | "error"; message: string }
 
 /**
  * Komponen feedback hasil BANT scoring
- * Tampil setelah BANT manual disubmit
+ * Tampil setelah proyek dibuat tanpa file (skor langsung dihitung backend)
  */
 function BANTResultFeedback({
   result,
   projectName,
   onViewProject,
 }: {
-  result: BANTResult;
+  result: CreateProjectResponse;
   projectName: string;
   onViewProject: () => void;
 }) {
-  const isPass = result.bant_score >= 60;
+  const isPass = (result.bant_score ?? 0) >= 60;
 
   return (
     <div className="space-y-6">
@@ -686,7 +717,7 @@ function BANTResultFeedback({
             <div key={key} className="bg-white rounded-md p-3 border border-neutral-100">
               <p className="text-xs text-neutral-500 capitalize">{key}</p>
               <p className="text-lg font-semibold text-neutral-800">
-                {result.bant_detail[key]}
+                {result.sub_scores?.[key] ?? 0}
                 <span className="text-xs font-normal text-neutral-400">/25</span>
               </p>
             </div>
@@ -709,21 +740,10 @@ function BANTResultFeedback({
           </span>
         </p>
 
-        {/* Use case tags jika ada */}
-        {result.use_case_tags && result.use_case_tags.length > 0 && (
-          <div className="mt-3">
-            <p className="text-xs text-neutral-500 mb-1">Use Case Tags:</p>
-            <div className="flex flex-wrap gap-1.5">
-              {result.use_case_tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="inline-block px-2 py-0.5 bg-neutral-100 text-neutral-600 rounded text-xs"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          </div>
+        {result.feedback && (
+          <pre className="mt-3 whitespace-pre-wrap text-xs text-neutral-600 font-sans">
+            {result.feedback}
+          </pre>
         )}
       </div>
 

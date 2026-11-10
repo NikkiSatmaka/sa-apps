@@ -41,6 +41,8 @@ class LLMMetadata(BaseModel):
     token_usage: TokenUsage = Field(default_factory=TokenUsage)
     latency_ms: float = 0.0
     provider: str = ""
+    # Alasan berhenti dari provider (mis. "STOP", "MAX_TOKENS"); None bila tidak dilaporkan.
+    finish_reason: str | None = None
 
 
 class LLMResponse(BaseModel):
@@ -94,12 +96,17 @@ class LLMProviderInterface(Protocol):
         ...
 
     async def parse_document(
-        self, file_content: bytes, mime_type: str, prompt: str
+        self,
+        file_content: bytes,
+        mime_type: str,
+        prompt: str,
+        max_output_tokens: int = 8192,
     ) -> LLMResponse:
         """
         Multimodal document parsing — mengekstrak informasi dari file.
 
         Args:
+            max_output_tokens: Batas token output (default 8192; dinaikkan untuk ekstraksi teks).
             file_content: Konten file dalam bentuk bytes.
             mime_type: MIME type file (e.g., "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document").
             prompt: Instruksi untuk LLM tentang apa yang harus diekstrak.

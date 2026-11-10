@@ -3,11 +3,11 @@
  *
  * Fungsi-fungsi untuk komunikasi dengan backend:
  * - createProject: Submit proyek baru (multipart/form-data)
- * - submitManualBANT: Input skor BANT manual
  * - getBANTResult: Ambil hasil scoring BANT
  */
 
-import { ApiError } from "../fetcher";
+import { ApiError, apiRequest } from "../fetcher";
+import { toPayload, type QualificationAnswers, type QualificationSchema } from "../qualification";
 
 // Base URL API backend
 const API_BASE_URL =
@@ -27,29 +27,41 @@ export interface BANTResult {
   feedback?: string | null;
 }
 
-/** Tipe response setelah project dibuat */
-export interface CreateProjectResponse {
-  id_project: string;
-  project_name: string;
-  customer_name: string;
-  status: string;
-  bant_score: number | null;
-}
-
-/** Input untuk BANT manual */
-export interface ManualBANTInput {
+/** Sub-skor BANT per kriteria (0-25) */
+export interface BANTSubScores {
   budget: number;
   authority: number;
   need: number;
   timeline: number;
 }
 
-/** Metadata detail BANT (dikirim bersama skor) */
-export interface BANTMetadataInput {
-  budget_detail?: { mrr: number | null };
-  authority_detail?: { name: string; position: string; email: string };
-  need_detail?: string;
-  timeline_detail?: string;
+/** Tipe response setelah project dibuat (skor dihitung backend dari kuesioner) */
+export interface CreateProjectResponse {
+  id_project: string;
+  project_name: string;
+  customer_name: string;
+  status: string;
+  /** null bila menunggu analisis file */
+  bant_score: number | null;
+  sub_scores: BANTSubScores | null;
+  feedback: string | null;
+  scoring_triggered: boolean;
+}
+
+/** Error validasi per field dari backend (422) */
+export interface FieldError {
+  field: string;
+  reason: string;
+}
+
+/** Ambil daftar error per field dari ApiError 422 (format `{data: [{field, reason}]}`) */
+export function extractFieldErrors(err: unknown): FieldError[] {
+  const data = (err as { data?: { data?: unknown } } | null)?.data?.data;
+  if (!Array.isArray(data)) return [];
+  return data.filter(
+    (e): e is FieldError =>
+      typeof e?.field === "string" && typeof e?.reason === "string"
+  );
 }
 
 /**
@@ -98,62 +110,6 @@ export async function createProject(
 }
 
 /**
- * Submit skor BANT secara manual
- * Digunakan sebagai fallback ketika tidak ada file attachment
- *
- * @param projectId - ID proyek yang akan di-score
- * @param scores - Objek skor per kriteria BANT (masing-masing 0-25)
- * @returns Hasil BANT scoring
- */
-export async function submitManualBANT(
-  projectId: string,
-  scores: ManualBANTInput,
-  metadata?: BANTMetadataInput
-): Promise<BANTResult> {
-  const token = getAuthToken();
-
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  // Kirim skor + metadata (metadata opsional, backend tetap terima budget/authority/need/timeline)
-  const body = metadata ? { ...scores, ...metadata } : scores;
-
-  const response = await fetch(
-    `${API_BASE_URL}/projects/${projectId}/score-manual`,
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    }
-  );
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
-    throw new ApiError(
-      errorData?.message || `Gagal submit skor BANT (status ${response.status})`,
-      response.status,
-      errorData
-    );
-  }
-
-  const json = await response.json();
-  const rawData = json.data ?? json;
-
-  // Map backend response (total_score, sub_scores) ke frontend interface (bant_score, bant_detail)
-  return {
-    bant_score: rawData.total_score ?? rawData.bant_score ?? 0,
-    bant_detail: rawData.sub_scores ?? rawData.bant_detail ?? { budget: 0, authority: 0, need: 0, timeline: 0 },
-    use_case_tags: rawData.use_case_tags ?? [],
-    status: rawData.status ?? "Unknown",
-    feedback: rawData.feedback ?? null,
-  };
-}
-
-/**
  * Ambil hasil BANT scoring untuk proyek tertentu
  *
  * @param projectId - ID proyek
@@ -190,4 +146,24 @@ export async function getBANTResult(
 
   const json = await response.json();
   return json.data ?? json;
+}
+
+/** Hasil simpan jawaban kuesioner: re-score (total_score, status, feedback) atau koreksi (rescored=false). */
+export interface UpdateAnswersResult {
+  total_score: number | null;
+  status: string;
+  feedback?: string | null;
+  rescored?: boolean;
+}
+
+/** Edit jawaban kuesioner (PUT /projects/{id}/qualification-answers); skor dihitung backend. */
+export function updateQualificationAnswers(
+  projectId: string,
+  schema: QualificationSchema,
+  answers: QualificationAnswers
+): Promise<UpdateAnswersResult> {
+  return apiRequest<UpdateAnswersResult>(`/projects/${projectId}/qualification-answers`, {
+    method: "PUT",
+    body: toPayload(schema, answers),
+  });
 }

@@ -8,18 +8,6 @@ from typing import Optional
 from pydantic import BaseModel, Field, field_validator
 
 
-class BudgetDetail(BaseModel):
-    """Detail budget dari input manual Sales."""
-    mrr: Optional[float] = Field(default=None, description="Estimasi Monthly Recurring Revenue")
-
-
-class AuthorityDetail(BaseModel):
-    """Detail PIC (authority) dari input manual Sales."""
-    name: str = Field(default="", description="Nama PIC customer")
-    position: str = Field(default="", description="Jabatan PIC")
-    email: str = Field(default="", description="Email PIC")
-
-
 class BANTSubScores(BaseModel):
     """Detail sub-skor BANT per kriteria."""
 
@@ -42,30 +30,25 @@ class BANTResult(BaseModel):
     )
 
 
-class ManualBANTInput(BaseModel):
+class BANTOverrideInput(BaseModel):
     """
-    Input manual BANT dari Sales.
-    Setiap kriteria bernilai integer 0-25.
-    Termasuk metadata deskriptif (MRR, PIC, kebutuhan, timeline).
+    Input override skor BANT oleh Lead_SA/Admin.
+    Empat sub-skor bernilai integer 0-25, alasan wajib (tidak boleh kosong).
     """
 
     budget: int = Field(ge=0, le=25, description="Skor Budget (0-25)")
     authority: int = Field(ge=0, le=25, description="Skor Authority (0-25)")
     need: int = Field(ge=0, le=25, description="Skor Need (0-25)")
     timeline: int = Field(ge=0, le=25, description="Skor Timeline (0-25)")
+    reason: str = Field(description="Alasan override (wajib, dicatat di audit log)")
 
-    # Metadata deskriptif — disimpan ke bant_detail untuk ditampilkan di detail proyek
-    budget_detail: Optional[BudgetDetail] = Field(default=None, description="Detail budget (MRR)")
-    authority_detail: Optional[AuthorityDetail] = Field(default=None, description="Detail PIC customer")
-    need_detail: Optional[str] = Field(default=None, description="Deskripsi kebutuhan teknis")
-    timeline_detail: Optional[str] = Field(default=None, description="Target tanggal submit (YYYY-MM-DD)")
-
-    @field_validator("budget", "authority", "need", "timeline")
+    @field_validator("reason")
     @classmethod
-    def validate_integer_range(cls, v: int) -> int:
-        """Pastikan setiap sub-skor adalah integer dalam rentang 0-25."""
-        if not isinstance(v, int):
-            raise ValueError("Sub-skor harus berupa integer")
+    def reason_tidak_kosong(cls, v: str) -> str:
+        """Alasan wajib diisi; whitespace saja dianggap kosong."""
+        v = v.strip()
+        if not v:
+            raise ValueError("Alasan override wajib diisi")
         return v
 
 

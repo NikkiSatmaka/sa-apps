@@ -3,6 +3,7 @@ Unit tests untuk API endpoint POST /api/v1/projects.
 Memverifikasi validasi input, file upload, pembuatan record, dan trigger scoring.
 """
 
+import json
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
@@ -14,6 +15,19 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from app.main import app
+
+# Jawaban kuesioner minimal valid (skor rubrik 22 → Need Clarification, tanpa notifikasi)
+QA = json.dumps(
+    {
+        "budget_dialokasikan": "Tidak tahu",
+        "peran_pic": "Tidak tahu",
+        "masalah_bisnis": "Butuh cloud",
+        "jenis_workload": "Lainnya",
+        "lingkungan": "Cloud",
+        "skala": "5 server",
+        "target_go_live": "Tidak tahu",
+    }
+)
 
 # =============================================================================
 # Fixtures & Helpers
@@ -92,6 +106,7 @@ class TestProjectFormValidation:
                 "customer_name": "PT Test",
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "1000000",
+                "qualification_answers": QA,
             },
         )
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
@@ -109,6 +124,7 @@ class TestProjectFormValidation:
                 "customer_name": "PT Test",
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "1000000",
+                "qualification_answers": QA,
             },
         )
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
@@ -124,6 +140,7 @@ class TestProjectFormValidation:
                 "customer_name": "PT Test",
                 "target_submit": str(yesterday),
                 "estimasi_nilai": "1000000",
+                "qualification_answers": QA,
             },
         )
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
@@ -144,6 +161,7 @@ class TestProjectFormValidation:
                 "customer_name": "PT Test",
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "0.001",
+                "qualification_answers": QA,
             },
         )
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
@@ -162,6 +180,7 @@ class TestProjectFormValidation:
                 "customer_name": "PT Test",
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "9999999999999.00",
+                "qualification_answers": QA,
             },
         )
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
@@ -176,12 +195,13 @@ class TestProjectFormValidation:
                 "customer_name": "PT Test",
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "bukan-angka",
+                "qualification_answers": QA,
             },
         )
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
     def test_input_valid_tanpa_file_berhasil(self, mock_auth_and_db):
-        """Input valid tanpa file menghasilkan 201 dengan message BANT manual."""
+        """Input valid tanpa file: skor dihitung backend dari kuesioner (tanpa form BANT manual)."""
         client = TestClient(app)
         response = client.post(
             "/api/v1/projects",
@@ -190,15 +210,16 @@ class TestProjectFormValidation:
                 "customer_name": "PT Customer",
                 "target_submit": str(date.today() + timedelta(days=30)),
                 "estimasi_nilai": "500000000",
+                "qualification_answers": QA,
             },
         )
         assert response.status_code == status.HTTP_201_CREATED
         body = response.json()
         assert body["status"] == "success"
-        assert body["data"]["status"] == "New"
+        assert body["data"]["status"] == "Need Clarification"
+        assert body["data"]["bant_score"] == 22
         assert body["data"]["scoring_triggered"] is False
-        assert body["data"]["message_bant"] is not None
-        assert "BANT Manual" in body["data"]["message_bant"]
+        assert "message_bant" not in body["data"]
 
 
 # =============================================================================
@@ -219,6 +240,8 @@ class TestFileUploadValidation:
                 "customer_name": "PT Test",
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "1000000",
+                "qualification_answers": QA,
+                "file_types": ["MoM"]*1,
             },
             files=[_create_fake_file("proposal.pdf")],
         )
@@ -240,6 +263,8 @@ class TestFileUploadValidation:
                 "customer_name": "PT Test",
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "1000000",
+                "qualification_answers": QA,
+                "file_types": ["MoM"]*1,
             },
             files=[("files", ("document.docx", BytesIO(b"docx content"), mime))],
         )
@@ -259,6 +284,8 @@ class TestFileUploadValidation:
                 "customer_name": "PT Test",
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "1000000",
+                "qualification_answers": QA,
+                "file_types": ["MoM"]*1,
             },
             files=[("files", ("image.png", BytesIO(b"png data"), "image/png"))],
         )
@@ -280,6 +307,8 @@ class TestFileUploadValidation:
                 "customer_name": "PT Test",
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "1000000",
+                "qualification_answers": QA,
+                "file_types": ["MoM"]*3,
             },
             files=[
                 _create_fake_file("valid.pdf"),
@@ -311,6 +340,7 @@ class TestFileUploadValidation:
                 "customer_name": "PT Test",
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "1000000",
+                "qualification_answers": QA,
             },
             files=many_files,
         )
@@ -329,21 +359,24 @@ class TestFileUploadValidation:
 class TestProjectRecordCreation:
     """Test pembuatan record project."""
 
-    def test_project_dibuat_dengan_status_new(self, mock_auth_and_db):
-        """Proyek baru selalu memiliki status 'New'."""
+    def test_project_dengan_file_dibuat_dengan_status_scoring_pending(self, mock_auth_and_db):
+        """Proyek baru dengan file berstatus 'Scoring Pending' sampai scoring AI selesai."""
         client = TestClient(app)
         response = client.post(
             "/api/v1/projects",
+            files=[_create_fake_file("proposal.pdf")],
             data={
+                "file_types": ["MoM"],
                 "project_name": "Proyek Baru",
                 "customer_name": "PT Baru",
                 "target_submit": str(date.today() + timedelta(days=14)),
                 "estimasi_nilai": "250000000",
+                "qualification_answers": QA,
             },
         )
         assert response.status_code == status.HTTP_201_CREATED
         body = response.json()
-        assert body["data"]["status"] == "New"
+        assert body["data"]["status"] == "Scoring Pending"
 
     def test_project_id_format_prj(self, mock_auth_and_db):
         """ID proyek mengikuti format PRJ-{date}-{random}."""
@@ -355,6 +388,7 @@ class TestProjectRecordCreation:
                 "customer_name": "PT ID",
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "100000",
+                "qualification_answers": QA,
             },
         )
         assert response.status_code == status.HTTP_201_CREATED
@@ -378,6 +412,7 @@ class TestProjectRecordCreation:
                 "customer_name": "PT Timestamp",
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "100000",
+                "qualification_answers": QA,
             },
         )
         assert response.status_code == status.HTTP_201_CREATED
@@ -395,6 +430,7 @@ class TestProjectRecordCreation:
                 "customer_name": "PT Sales",
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "100000",
+                "qualification_answers": QA,
             },
         )
         assert response.status_code == status.HTTP_201_CREATED
@@ -420,6 +456,7 @@ class TestResponseFormat:
                 "customer_name": "PT Format",
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "100000",
+                "qualification_answers": QA,
             },
         )
         body = response.json()
@@ -439,6 +476,7 @@ class TestResponseFormat:
                 "customer_name": "PT Test",
                 "target_submit": str(date.today() - timedelta(days=1)),
                 "estimasi_nilai": "abc",
+                "qualification_answers": QA,
             },
         )
         body = response.json()
@@ -472,6 +510,7 @@ class TestEstimasiNilaiPersist:
                 "customer_name": "PT Estimasi",
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "750000000.50",
+                "qualification_answers": QA,
             },
         )
         assert response.status_code == status.HTTP_201_CREATED
@@ -622,12 +661,13 @@ class TestFolderProvisioningStatusInResponse:
         # Urutan execute di get_project_detail:
         # 1) lookup Project, 2) cek collaborator (None),
         # 3) lookup Sales PIC (None), 4) lookup SA assigned (skip: assigned_sa None),
-        # 5) daftar collaborators (kosong).
+        # 5) daftar collaborators (kosong), 6) daftar Source document (kosong).
         mock_session.execute = AsyncMock(
             side_effect=[
                 _make_scalar_result(project),
                 _make_scalar_result(None),
                 _make_scalar_result(None),
+                _make_scalars_result([]),
                 _make_scalars_result([]),
             ]
         )
@@ -669,25 +709,25 @@ class TestUpdateProjectPersist:
         client = TestClient(app)
         response = client.patch(
             "/api/v1/projects/PRJ-20250101-ABC123",
-            json={"bant_detail": {"budget": 8, "authority": 5}},
+            json={"bant_detail": {"budget_mrr": 8, "pic_name": "Budi"}},
         )
         assert response.status_code == status.HTTP_200_OK
         # commit dipanggil
         mock_session.commit.assert_awaited()
         # Readback dari object yang di-commit
-        assert project.bant_detail == {"budget": 8, "authority": 5}
+        assert project.bant_detail == {"budget_mrr": 8, "pic_name": "Budi"}
 
     def test_patch_bant_detail_merge_dengan_existing(self, mock_patch_db):
         """PATCH bant_detail melakukan merge terhadap nilai existing."""
         mock_user, mock_session, project = mock_patch_db
-        project.bant_detail = {"budget": 2}
+        project.bant_detail = {"budget_mrr": 2}
         client = TestClient(app)
         response = client.patch(
             "/api/v1/projects/PRJ-20250101-ABC123",
-            json={"bant_detail": {"authority": 9}},
+            json={"bant_detail": {"pic_name": "Siti"}},
         )
         assert response.status_code == status.HTTP_200_OK
-        assert project.bant_detail == {"budget": 2, "authority": 9}
+        assert project.bant_detail == {"budget_mrr": 2, "pic_name": "Siti"}
 
     def test_patch_estimasi_nilai_valid_tersimpan(self, mock_patch_db):
         """PATCH estimasi_nilai valid ter-set pada object (readback)."""

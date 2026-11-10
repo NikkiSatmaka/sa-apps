@@ -16,3 +16,6 @@ import os
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-untuk-pytest-min-32-chars")
 # Pastikan test berjalan sebagai development (demo mode boleh aktif, tak diblok).
 os.environ.setdefault("ENVIRONMENT", "development")
+# Suite memakai satu TestClient/IP bersama; limiter in-memory (100 req/menit) akan memicu 429
+# palsu bila jumlah request test melebihinya. Longgarkan hanya untuk test.
+os.environ.setdefault("RATE_LIMIT_PER_MINUTE", "100000")

@@ -95,9 +95,15 @@ class ProjectResponse(BaseModel):
         default=False,
         description="True jika scoring engine di-trigger",
     )
-    message_bant: Optional[str] = Field(
+    bant_score: Optional[int] = Field(
         None,
-        description="Pesan jika tidak ada file valid — arahkan ke BANT manual",
+        description="Skor BANT hasil rubrik backend (None bila menunggu analisis file)",
+    )
+    sub_scores: Optional[dict[str, int]] = Field(
+        None, description="Sub-skor BANT per kriteria (budget/authority/need/timeline)"
+    )
+    feedback: Optional[str] = Field(
+        None, description="Penjelasan kriteria lemah bila skor di bawah threshold"
     )
 
     class Config:

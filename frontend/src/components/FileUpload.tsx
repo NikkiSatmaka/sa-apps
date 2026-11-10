@@ -30,9 +30,14 @@ const MAX_FILE_SIZE = 20 * 1024 * 1024;
 /** Maksimal jumlah file */
 const MAX_FILES = 5;
 
+/** Tipe Source document (wajib dipilih per file) */
+export type SourceDocType = "MoM" | "RFP";
+
 /** Status validasi per file */
 export interface FileItem {
   file: File;
+  /** Tipe Source document; kosong = belum dipilih */
+  docType?: SourceDocType | "";
   id: string;
   status: "valid" | "invalid_type" | "invalid_size";
   errorMessage?: string;
@@ -153,6 +158,14 @@ export function FileUpload({ files, onChange, disabled = false }: FileUploadProp
       }
     },
     [handleFiles]
+  );
+
+  // Ubah tipe Source document satu file
+  const setDocType = useCallback(
+    (id: string, docType: SourceDocType | "") => {
+      onChange(files.map((f) => (f.id === id ? { ...f, docType } : f)));
+    },
+    [files, onChange]
   );
 
   // Hapus file dari daftar
@@ -285,6 +298,22 @@ export function FileUpload({ files, onChange, disabled = false }: FileUploadProp
                   </div>
                 </div>
               </div>
+
+              {/* Tipe Source document (wajib) */}
+              {item.status === "valid" && (
+                <select
+                  value={item.docType ?? ""}
+                  onChange={(e) => setDocType(item.id, e.target.value as SourceDocType | "")}
+                  disabled={disabled}
+                  required
+                  aria-label={`Tipe dokumen ${item.file.name}`}
+                  className="flex-shrink-0 ml-2 text-xs border border-neutral-300 rounded-md px-2 py-1.5 bg-white"
+                >
+                  <option value="">Pilih tipe…</option>
+                  <option value="MoM">MoM</option>
+                  <option value="RFP">RFP</option>
+                </select>
+              )}
 
               {/* Tombol hapus */}
               <button

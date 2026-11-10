@@ -13,6 +13,7 @@ import { operationsHandlers } from "./operations";
 import { projectHandlers } from "./projects";
 import { qualificationHandlers } from "./qualification";
 import { requirementHandlers } from "./requirement";
+import { shellHandlers } from "./shell";
 
 export const handlers = [
   ...authHandlers,
@@ -26,4 +27,5 @@ export const handlers = [
   ...opportunityHandlers,
   ...requirementHandlers,
   ...operationsHandlers,
+  ...shellHandlers,
 ];

@@ -64,8 +64,12 @@ _Avoid_: Timeline, log narasi
 ## Dokumen
 
 **Requirement** (dokumen):
-Ringkasan terstruktur kebutuhan customer yang **di-generate AI** dari MoM/RFP + field Sales — konten turunan, bukan file upload customer. Disimpan sebagai `Document` dengan `doc_type="Requirement"`, menjadi baseline perbandingan BoQ.
+Daftar butir kebutuhan customer terstruktur (`kategori` + `butir`) yang **di-generate AI** dari Kuesioner kualifikasi + Source document — konten turunan, bukan file upload customer. Disimpan sebagai `Document` dengan `doc_type="Requirement"`, menjadi baseline perbandingan BoQ. SA yang mengedit menandainya `is_overridden`.
 _Avoid_: Spec customer, dokumen kebutuhan upload
+
+**Source document**:
+File MoM atau RFP yang di-upload Sales saat intake; teks hasil ekstraksinya disimpan sebagai bahan Requirement. Bukan dokumen deliverable proyek.
+_Avoid_: Lampiran, attachment, dokumen referensi
 
 **BoQ** (Bill of Quantity):
 Dokumen daftar item/kuantitas yang dibandingkan terhadap dokumen Requirement untuk analisis gap coverage.

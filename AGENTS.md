@@ -103,7 +103,7 @@ Overhaul MVP yang sedang berjalan dikerjakan **satu fase roadmap per branch** (`
 
 ### Issue tracker
 
-Issue di-track di GitHub Issues pada `apeuta/sa-apps` (via `gh` CLI). Lihat `docs/agents/issue-tracker.md`.
+Issue di-track di GitHub Issues pada `NikkiSatmaka/sa-apps` (via `gh` CLI). Lihat `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

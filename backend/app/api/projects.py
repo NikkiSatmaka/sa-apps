@@ -626,7 +626,7 @@ async def update_project(
         "Dapat diakses oleh role Sales, SA, dan Lead_SA. "
         "Menerima form data + file attachment (PDF/DOCX, max 20MB/file, max 5 files). "
         "Menerima jawaban Kuesioner kualifikasi (qualification_answers, JSON); skor BANT "
-        "dihitung backend. Tanpa file: gate 60 langsung diterapkan. Dengan file: status 'New' "
+        "dihitung backend. Tanpa file: gate 60 langsung diterapkan. Dengan file: status 'Scoring Pending' "
         "dan scoring engine async."
     ),
 )
@@ -673,7 +673,7 @@ async def create_project(
     Flow:
     1. Validasi input form (project_name, customer_name, target_submit, estimasi_nilai)
     2. Validasi file upload (format, ukuran, jumlah)
-    3. Buat record Project dengan status "New"
+    3. Buat record Project dengan status awal sesuai skor rubrik (Scoring Pending bila ada file)
     4. Trigger Scoring_Engine async jika ada file valid
     5. Return 201 dengan data proyek + hasil upload per file
     """
@@ -786,7 +786,10 @@ async def create_project(
     rubric_scores = bant_rubric.compute_rubric_scores(answers, target_submit)
     rubric_total = bant_rubric.total_score(rubric_scores)
     scored_now = not valid_files_data
-    initial_status = bant_rubric.decide_status(rubric_total) if scored_now else "New"
+    # Dengan file: status `Scoring Pending` sampai analisis AI selesai (skor rubrik sudah disimpan).
+    initial_status = (
+        bant_rubric.decide_status(rubric_total) if scored_now else "Scoring Pending"
+    )
     feedback: Optional[str] = None
     if scored_now and rubric_total < bant_rubric.GATE_THRESHOLD:
         feedback = bant_rubric.generate_feedback(rubric_scores)
@@ -802,8 +805,8 @@ async def create_project(
         sales_pic=current_user.id,
         qualification_answers=answers,
         qualification_schema_version=bant_rubric.QUESTIONNAIRE_SCHEMA_VERSION,
-        bant_score=rubric_total if scored_now else None,
-        bant_detail=rubric_scores.model_dump() if scored_now else None,
+        bant_score=rubric_total,
+        bant_detail=rubric_scores.model_dump(),
         created_at=now,
         updated_at=now,
     )

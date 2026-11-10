@@ -262,14 +262,14 @@ def test_error_header_dan_kuesioner_dilaporkan_bersama():
 
 
 # --------------------------------------------------------------------------- dengan file (perilaku file tidak berubah)
-def test_create_dengan_file_status_new_trigger_scoring_dan_jawaban_tersimpan():
+def test_create_dengan_file_status_scoring_pending_trigger_scoring_dan_jawaban_tersimpan():
     pdf = ("files", ("mom.pdf", BytesIO(b"%PDF-1.4 isi"), "application/pdf"))
     with patch("app.api.projects._trigger_scoring_engine", new=AsyncMock()) as trigger:
         with _api() as (client, session):
             resp = client.post(URL, data=_form(jawaban_kuat()), files=[pdf])
     assert resp.status_code == 201
     d = resp.json()["data"]
-    assert d["status"] == "New"
+    assert d["status"] == "Scoring Pending"
     assert d["scoring_triggered"] is True
     trigger.assert_awaited_once()
     proyek = session.of_type(Project)[0]

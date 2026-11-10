@@ -173,7 +173,7 @@ export function CollaboratorSection({
 
       {/* Add form */}
       {showAddForm && (
-        <div className="mb-4 p-3 bg-neutral-50 rounded-lg border border-neutral-200 space-y-3">
+        <div ref={searchRef} className="mb-4 p-3 bg-neutral-50 rounded-lg border border-neutral-200 space-y-3">
           {/* Keterangan batasan role */}
           {addRestrictionNote && (
             <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
@@ -182,7 +182,7 @@ export function CollaboratorSection({
           )}
 
           {/* Search user */}
-          <div ref={searchRef} className="relative">
+          <div className="relative">
             <label className="text-xs font-medium text-neutral-600 mb-1 block">
               Cari user (nama atau email):
             </label>

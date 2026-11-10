@@ -9,6 +9,7 @@ import { libHandlers } from "./lib";
 import { notificationHandlers } from "./notifications";
 import { opportunityHandlers } from "./opportunity";
 import { projectDetailHandlers } from "./project-detail";
+import { operationsHandlers } from "./operations";
 import { projectHandlers } from "./projects";
 import { qualificationHandlers } from "./qualification";
 import { requirementHandlers } from "./requirement";
@@ -24,4 +25,5 @@ export const handlers = [
   ...libHandlers,
   ...opportunityHandlers,
   ...requirementHandlers,
+  ...operationsHandlers,
 ];

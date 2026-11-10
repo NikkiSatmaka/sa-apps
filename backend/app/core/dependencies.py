@@ -46,6 +46,14 @@ async def get_current_user(
             settings.JWT_SECRET_KEY,
             algorithms=[settings.JWT_ALGORITHM],
         )
+        # Hanya access token yang sah sebagai kredensial API; refresh token (TTL lebih
+        # panjang) hanya boleh ditukar di endpoint /auth/refresh.
+        if payload.get("type") != "access":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token tidak valid: bukan access token.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         user_id: str = payload.get("sub")
         if user_id is None:
             raise HTTPException(

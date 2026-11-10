@@ -26,6 +26,11 @@ from app.models.project import Project
 from app.models.user import User
 from app.schemas.response import error_response, success_response
 from app.schemas.workflow import StatusTransitionResponse, StatusUpdateRequest, AuditLogEntry
+from app.services.notification_service import (
+    NotificationEvent,
+    NotificationEventType,
+    notification_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +115,54 @@ def _check_project_access(project: Project, current_user: User) -> None:
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Role Anda tidak memiliki izin untuk operasi ini.",
     )
+
+
+async def _notify_mandatory_hld(project: Project, db: AsyncSession) -> None:
+    """
+    Kirim notifikasi wajib "buat HLD" ke SA saat proyek menjadi Closed-Win.
+
+    Spec Flow 4 langkah 1. Memakai event `status_change` dengan flag
+    `mandatory_hld` di metadata (event_type baru butuh migration CheckConstraint
+    tanpa manfaat tambahan). Kegagalan di sini tidak boleh menggagalkan transisi.
+    """
+    if project.assigned_sa is None:
+        logger.warning(
+            f"Proyek {project.id_project} Closed-Win tapi belum punya SA; "
+            f"notifikasi wajib HLD dilewati."
+        )
+        return
+
+    try:
+        result = await db.execute(select(User).where(User.id == project.assigned_sa))
+        sa_user = result.scalar_one_or_none()
+        if sa_user is None:
+            logger.warning(
+                f"SA {project.assigned_sa} untuk proyek {project.id_project} "
+                f"tidak ditemukan; notifikasi wajib HLD dilewati."
+            )
+            return
+
+        await notification_service.send_notification(
+            NotificationEvent(
+                event_type=NotificationEventType.STATUS_CHANGE,
+                recipient_user_id=sa_user.id,
+                recipient_email=sa_user.email,
+                reference_id=project.id_project,
+                subject="[Portal SA] Wajib: buat HLD untuk proyek Closed-Win",
+                metadata={
+                    "project_name": project.project_name,
+                    "customer_name": project.customer_name,
+                    "new_status": "Closed-Win",
+                    "mandatory_hld": True,
+                    "message": (
+                        f"Proyek '{project.project_name}' berstatus Closed-Win. "
+                        f"Segera buat HLD (High Level Document)."
+                    ),
+                },
+            )
+        )
+    except Exception as e:  # noqa: BLE001 - side-effect tidak boleh menggagalkan transisi
+        logger.error(f"Gagal mengirim notifikasi wajib HLD untuk {project.id_project}: {e}")
 
 
 @router.patch(
@@ -206,6 +259,10 @@ async def update_project_status(
         f"Status proyek {project_id} diubah: '{old_status}' → '{new_status}' "
         f"oleh {current_user.email} (role: {current_user.role})"
     )
+
+    # === 5b. Closed-Win → notifikasi wajib buat HLD ke SA (Flow 4 langkah 1) ===
+    if new_status == "Closed-Win":
+        await _notify_mandatory_hld(project, db)
 
     # === 6. Build response ===
     response_data = StatusTransitionResponse(

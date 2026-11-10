@@ -13,6 +13,7 @@ tidak benar-benar menunggu interval, dan loop dihentikan secara eksplisit.
 """
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -242,3 +243,51 @@ class TestSchedulerWiring:
             mock_process.assert_awaited_once()
         finally:
             app.dependency_overrides.pop(get_current_user, None)
+
+
+class TestSchedulerPembatalan:
+    """Pembatalan (shutdown) di tengah pemrosesan harus diteruskan, bukan ditelan."""
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_dari_proses_menghentikan_loop(self):
+        scheduler = SLAScheduler(interval_seconds=3600)
+
+        with patch(
+            "app.services.sla_scheduler.sla_timer.process_sla_actions",
+            new=AsyncMock(side_effect=asyncio.CancelledError),
+        ), patch("app.services.sla_scheduler.asyncio.sleep", new=AsyncMock()) as tidur:
+            with pytest.raises(asyncio.CancelledError):
+                await scheduler._run_loop()
+
+        tidur.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_start_stop_start_ulang_berjalan_kembali(self):
+        scheduler = SLAScheduler(interval_seconds=3600)
+        proses = AsyncMock()
+
+        async def tidur_selamanya(_detik):
+            await asyncio.Event().wait()
+
+        # Proxy khusus modul scheduler: `asyncio.sleep` global (dipakai test ini) tidak berubah.
+        proxy = SimpleNamespace(
+            sleep=tidur_selamanya,
+            create_task=asyncio.create_task,
+            CancelledError=asyncio.CancelledError,
+            Task=asyncio.Task,
+        )
+        with patch(
+            "app.services.sla_scheduler.sla_timer.process_sla_actions", new=proses
+        ), patch("app.services.sla_scheduler.asyncio", new=proxy):
+            scheduler.start()
+            await asyncio.sleep(0)
+            assert scheduler.is_running
+            await scheduler.stop()
+            assert not scheduler.is_running
+
+            scheduler.start()
+            await asyncio.sleep(0)
+            assert scheduler.is_running
+            await scheduler.stop()
+
+        assert proses.await_count == 2

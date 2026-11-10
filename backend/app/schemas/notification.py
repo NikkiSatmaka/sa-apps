@@ -5,9 +5,8 @@ Validasi input dan format response sesuai requirement 14.x.
 
 from datetime import datetime
 from typing import Optional
-from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 
 class NotificationResponse(BaseModel):
@@ -18,7 +17,13 @@ class NotificationResponse(BaseModel):
     channel: str = Field(..., description="Channel: in-app atau email")
     status: str = Field(..., description="Status: pending, sent, failed, read")
     reference_id: Optional[str] = Field(None, description="ID referensi entitas terkait")
-    metadata: Optional[dict] = Field(None, description="Metadata tambahan notifikasi")
+    # Atribut ORM bernama `notification_metadata` (kolom "metadata"); `metadata` pada kelas ORM
+    # adalah MetaData SQLAlchemy sehingga tidak boleh dibaca dari atribut itu.
+    metadata: Optional[dict] = Field(
+        None,
+        validation_alias=AliasChoices("notification_metadata", "metadata"),
+        description="Metadata tambahan notifikasi",
+    )
     created_at: datetime = Field(..., description="Waktu pembuatan notifikasi")
     read_at: Optional[datetime] = Field(None, description="Waktu notifikasi dibaca")
 

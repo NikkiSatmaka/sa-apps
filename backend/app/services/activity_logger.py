@@ -375,6 +375,7 @@ class ActivityLogger:
         duration_hours: Decimal,
         subtask_category: str,
         raw_notes: str = "",
+        project_phase: str = "Pre-Implementation",
     ) -> ActivityLog:
         """
         Map event Google Calendar ke proyek sebagai activity log (requirement 9.3).
@@ -386,6 +387,8 @@ class ActivityLogger:
             duration_hours: Durasi dari event calendar.
             subtask_category: Kategori subtask.
             raw_notes: Catatan (opsional, default kosong).
+            project_phase: Fase proyek (wajib untuk aktivitas Project; default
+                Pre-Implementation, sama dengan default mayoritas kerja pre-sales).
 
         Returns:
             ActivityLog yang dibuat dari mapping event.
@@ -404,6 +407,7 @@ class ActivityLogger:
         return await self.create_log(
             sa_id=sa_id,
             id_project=id_project,
+            project_phase=project_phase,
             subtask_category=subtask_category,
             duration_hours=duration_hours,
             raw_notes=raw_notes or "[Mapped dari Google Calendar event]",

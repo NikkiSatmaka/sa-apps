@@ -7,6 +7,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Literal
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
@@ -84,6 +85,18 @@ DEMO_USERS = {
         "google_id": "demo-google-id-admin",
     },
 }
+
+
+def _origin(url: str) -> tuple[str, str]:
+    """(scheme, host:port) dari sebuah URL, untuk membandingkan origin."""
+    parsed = urlparse(url)
+    return parsed.scheme.lower(), parsed.netloc.lower()
+
+
+def _frontend_url_diizinkan(url: str) -> bool:
+    """True hanya bila `url` bermuatan origin yang sama dengan FRONTEND_URL."""
+    asal = _origin(url)
+    return bool(asal[0] and asal[1]) and asal == _origin(settings.FRONTEND_URL)
 
 
 class DemoLoginRequest(BaseModel):
@@ -199,6 +212,14 @@ async def callback(
     # State format: "calendar_auth|{frontend_url}"
     if state and state.startswith("calendar_auth|"):
         frontend_url = state.split("|", 1)[1] if "|" in state else "/"
+        # State datang dari client (lewat /auth/login?redirect_url=...). Tanpa pengecekan,
+        # token Google bisa diarahkan ke origin penyerang (open redirect), jadi tolak
+        # sebelum kode OAuth ditukar.
+        if not _frontend_url_diizinkan(frontend_url):
+            raise HTTPException(
+                status_code=400,
+                detail="State tidak valid: URL tujuan harus berada di origin frontend.",
+            )
         try:
             google_tokens = await auth_service._exchange_code(code)
             gcal_token = google_tokens.get("access_token", "")

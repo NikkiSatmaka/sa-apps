@@ -141,7 +141,7 @@ Stage file secara spesifik daripada semuanya sekaligus, agar perubahan yang tida
 
 ## Verification Gate
 
-Belum ada CI otomatis (**CI direncanakan** — lihat daftar lintas-fitur di [`docs/ROADMAP.md`](docs/ROADMAP.md)). Sampai itu ada, verifikasi dilakukan manual dan menjadi tanggung jawab author sebelum meminta review:
+CI backend sudah ada di [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (lihat bagian "CI" di bawah), tetapi **belum memblok merge** (gerbang cakupan menyusul di #70) dan belum mencakup frontend (#71). Verifikasi manual tetap menjadi tanggung jawab author sebelum meminta review:
 
 - **Backend** — test suite lolos dan app bisa di-import/start dengan bersih. Setup test dan dependency ada di `backend/pyproject.toml`; test ada di `backend/tests/`.
 - **Frontend** — proyek lolos type-check dan build tanpa error (`pnpm install`, lalu `pnpm run lint` dan `pnpm run build`). Script ada di `frontend/package.json`.
@@ -149,6 +149,31 @@ Belum ada CI otomatis (**CI direncanakan** — lihat daftar lintas-fitur di [`do
 - **Pengecekan sesuai scope** — verifikasi perubahan terhadap perilaku yang dimaksud, bukan sekadar command keluar tanpa error. Untuk perubahan UI, cek perilakunya di browser; untuk perubahan logika, jalankan code path terkait atau test-nya.
 
 Sebuah perubahan belum "selesai" hanya karena command berjalan tanpa error. Perubahan selesai ketika terbukti memenuhi tujuannya.
+
+
+### CI (backend)
+
+Workflow `CI` berjalan pada pull request, push ke branch selain `main`, dan manual (`workflow_dispatch`). Run lama pada branch yang sama dibatalkan otomatis. Tidak ada secret yang dibutuhkan.
+
+- **Backend — test unit**: `pytest` tanpa DB, dengan cakupan baris+cabang.
+- **Backend — test integrasi (Postgres 18)**: `pytest -m integration` terhadap service container `postgres:18-alpine`.
+- **Backend — ringkasan cakupan gabungan**: menggabungkan cakupan unit + integrasi dan menampilkannya per modul di tab **Summary** run (juga artifact `coverage-xml-gabungan`). Langkah **Gerbang cakupan** di job ini **memblok**: job gagal bila cakupan gabungan baris < 90% atau cabang < 80% (dua ambang terpisah, `backend/scripts/cakupan_gerbang.py`). Jadikan job ini required check di branch protection. Cara membaca kegagalan: [`CONSTRAINTS.md`](CONSTRAINTS.md) bagian 6.
+
+Membaca hasil: buka tab **Checks** di PR (atau **Actions**), lihat status tiap job; log `term-missing` menunjukkan baris yang belum tercakup; tabel cakupan gabungan ada di Summary job ringkasan.
+
+Mereproduksi lokal (detail Postgres sementara ada di [`backend/README.md`](backend/README.md)):
+
+```bash
+cd backend
+uv sync --frozen
+uv run pytest -q -W ignore --cov=app --cov-branch --cov-report=term-missing   # job unit
+export TEST_DATABASE_URL=postgresql+asyncpg://postgres:test@127.0.0.1:55432/postgres
+uv run pytest -q -W ignore -m integration --cov=app --cov-branch              # job integrasi
+```
+
+Untuk gerbang gabungan yang setara CI (`coverage combine` + `scripts/cakupan_gerbang.py`), ikuti bagian "Gerbang cakupan" di [`backend/README.md`](backend/README.md).
+
+Job baru (mis. frontend, #71) ditambahkan sebagai job tersendiri di bawah `jobs:` pada `ci.yml`.
 
 ---
 

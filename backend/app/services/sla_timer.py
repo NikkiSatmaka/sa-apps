@@ -10,14 +10,14 @@ Logic:
 Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8
 """
 
-import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import and_, select
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -26,13 +26,13 @@ from app.models.notification_log import NotificationLog
 from app.models.project import Project
 from app.models.sla_tracking import SLATracking
 from app.models.user import User
-from app.services.notification_service import (
-    NotificationEventType,
-    notification_service,
-)
 from app.services.folder_provisioner import (
     FolderProvisioningError,
     folder_provisioner,
+)
+from app.services.notification_service import (
+    NotificationEventType,
+    notification_service,
 )
 
 logger = logging.getLogger(__name__)
@@ -618,7 +618,18 @@ class SLATimer:
             old_value=old_value,
             new_value=new_value,
         )
-        db.add(audit)
+        # `audit_logs.performed_by` punya FK ke `users`; bila user sistem belum ada di database,
+        # insert gagal. Tulis di SAVEPOINT agar kegagalan audit tidak menggagalkan commit
+        # lock/unlock (dan seluruh siklus cron). Lihat catatan temuan tiket #58.
+        try:
+            async with db.begin_nested():
+                db.add(audit)
+                await db.flush()
+        except IntegrityError as e:
+            logger.error(
+                f"Audit log '{action}' untuk {entity_type} {entity_id} gagal disimpan "
+                f"(user pelaku {system_user_id} tidak ada?): {e.orig}"
+            )
 
 
 # Singleton instance

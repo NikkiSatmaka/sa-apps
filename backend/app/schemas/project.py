@@ -57,8 +57,11 @@ class ProjectCreate(BaseModel):
     @field_validator("project_name", "customer_name")
     @classmethod
     def strip_whitespace(cls, v: str) -> str:
-        """Trim whitespace di awal/akhir."""
-        return v.strip()
+        """Trim whitespace di awal/akhir; nama yang hanya berisi spasi dianggap kosong."""
+        v = v.strip()
+        if not v:
+            raise ValueError("Tidak boleh kosong atau hanya spasi")
+        return v
 
 
 class FileUploadResult(BaseModel):

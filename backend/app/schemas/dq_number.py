@@ -8,7 +8,6 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-
 # Regex format DQ Number: alfanumerik + hyphen, 5-20 karakter
 DQ_NUMBER_PATTERN = r"^[A-Za-z0-9\-]{5,20}$"
 
@@ -30,7 +29,8 @@ class DQNumberInput(BaseModel):
     @classmethod
     def validate_dq_format(cls, v: str) -> str:
         """Validasi format DQ Number sesuai regex requirement."""
-        if not re.match(DQ_NUMBER_PATTERN, v):
+        # fullmatch: `$` pada re.match menerima newline di akhir ('ABC-1\n'), padahal CHECK DB menolaknya.
+        if not re.fullmatch(DQ_NUMBER_PATTERN, v):
             raise ValueError(
                 "Format DQ Number tidak valid. "
                 "Hanya boleh alfanumerik dan tanda hubung, panjang 5-20 karakter."

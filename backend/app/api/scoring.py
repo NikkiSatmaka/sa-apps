@@ -3,7 +3,7 @@ API endpoints untuk BANT Scoring.
 Menyediakan endpoints untuk scoring manual dan mengambil hasil scoring proyek.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,7 @@ from app.models.project import Project
 from app.models.user import User
 from app.schemas.response import success_response
 from app.schemas.scoring import BANTOverrideInput
+from app.services.requirement_generator import generate_pending_requirement
 from app.services.scoring_engine import OVERRIDE_ALLOWED_STATUSES, scoring_engine
 
 router = APIRouter(prefix="/projects", tags=["Scoring"])
@@ -30,6 +31,7 @@ router = APIRouter(prefix="/projects", tags=["Scoring"])
 async def score_manual(
     project_id: str,
     body: BANTOverrideInput,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(require_role("Lead_SA", "Admin")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -68,6 +70,9 @@ async def score_manual(
         performed_by=current_user.id,
         db=db,
     )
+    if project.requirement_generation_status == "pending":
+        # Override membuat proyek lolos gate pertama kali → generate Requirement (#33).
+        background_tasks.add_task(generate_pending_requirement, project_id)
 
     return success_response(
         data=bant_result.model_dump(),

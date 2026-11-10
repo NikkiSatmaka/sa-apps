@@ -374,12 +374,18 @@ class ScoringEngine:
 
         # Fetch dokumen untuk proyek-proyek yang ditemukan
         project_ids = [p.id_project for p, _ in top_projects]
-        docs_result = await db.execute(select(Document).where(Document.id_project.in_(project_ids)))
+        docs_result = await db.execute(select(Document).where(
+                Document.id_project.in_(project_ids),
+                Document.gdrive_link.is_not(None),  # Requirement (tanpa file Drive) tidak direkomendasikan
+            )
+        )
         all_docs = docs_result.scalars().all()
 
         # Group dokumen per proyek
         docs_by_project: dict[str, list[RecommendedDocumentInfo]] = {}
         for doc in all_docs:
+            if not doc.gdrive_link:
+                continue
             if doc.id_project not in docs_by_project:
                 docs_by_project[doc.id_project] = []
             docs_by_project[doc.id_project].append(
@@ -616,6 +622,10 @@ class ScoringEngine:
         if override_scores is not None:
             project.override_sub_scores = override_scores.model_dump()
         project.status = result.status
+        if result.status == "Pending Assignment" and project.requirement_generation_status is None:
+            # Pertama kali lolos gate: tandai agar Requirement di-generate di background (#33).
+            # Atomik dengan commit status; pemanggil yang menjalankan generate-nya.
+            project.requirement_generation_status = "pending"
         project.updated_at = datetime.now(timezone.utc)
         await db.commit()
         logger.info(

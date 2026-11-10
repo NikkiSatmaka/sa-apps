@@ -25,6 +25,7 @@ from app.models.document import Document
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.document import (
+    DocTypeEnum,
     DocumentCreate,
     DocumentResponse,
     DocumentStatusUpdate,
@@ -47,6 +48,28 @@ def _generate_doc_id() -> str:
     date_part = datetime.now(timezone.utc).strftime("%Y%m%d")
     random_part = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
     return f"DOC-{date_part}-{random_part}"
+
+
+def _to_response(doc: Document) -> dict:
+    """Bentuk respons dokumen (JSON-ready), termasuk kolom khusus Requirement."""
+    return DocumentResponse(
+        id_doc=doc.id_doc,
+        id_project=doc.id_project,
+        doc_type=doc.doc_type,
+        status=doc.status,
+        gdrive_link=doc.gdrive_link,
+        folder_type=doc.folder_type,
+        notes=doc.notes,
+        created_by=doc.created_by,
+        updated_by=doc.updated_by,
+        created_at=doc.created_at,
+        updated_at=doc.updated_at,
+        content=doc.content,
+        is_overridden=doc.is_overridden,
+        source_hash=doc.source_hash,
+        generated_at=doc.generated_at,
+        source_truncated=doc.source_truncated,
+    ).model_dump(mode="json")
 
 
 # Definisi transisi yang valid dalam state machine
@@ -182,6 +205,13 @@ async def create_document(
     3. Set status awal "Draft"
     4. Simpan ke database
     """
+    # Requirement hanya dibuat sistem (generate AI), bukan lewat input link.
+    if body.doc_type == DocTypeEnum.Requirement:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Dokumen Requirement dibuat otomatis oleh sistem dan tidak dapat ditambahkan manual.",
+        )
+
     # Validasi proyek ada
     project_result = await db.execute(select(Project).where(Project.id_project == project_id))
     project = project_result.scalar_one_or_none()
@@ -215,19 +245,7 @@ async def create_document(
     await db.refresh(new_document)
 
     # Format response
-    response_data = DocumentResponse(
-        id_doc=new_document.id_doc,
-        id_project=new_document.id_project,
-        doc_type=new_document.doc_type,
-        status=new_document.status,
-        gdrive_link=new_document.gdrive_link,
-        folder_type=new_document.folder_type,
-        notes=new_document.notes,
-        created_by=new_document.created_by,
-        updated_by=new_document.updated_by,
-        created_at=new_document.created_at,
-        updated_at=new_document.updated_at,
-    ).model_dump(mode="json")
+    response_data = _to_response(new_document)
 
     return success_response(
         data=response_data,
@@ -269,19 +287,7 @@ async def list_project_documents(
 
     # Format response
     documents_data = [
-        DocumentResponse(
-            id_doc=doc.id_doc,
-            id_project=doc.id_project,
-            doc_type=doc.doc_type,
-            status=doc.status,
-            gdrive_link=doc.gdrive_link,
-            folder_type=doc.folder_type,
-            notes=doc.notes,
-            created_by=doc.created_by,
-            updated_by=doc.updated_by,
-            created_at=doc.created_at,
-            updated_at=doc.updated_at,
-        ).model_dump(mode="json")
+        _to_response(doc)
         for doc in documents
     ]
 
@@ -389,23 +395,13 @@ async def update_document_status(
 
     # Side-effect doc_ready: HANYA saat transisi ke `Reviewed` dengan DQ terisi.
     # Transisi lain (ke Final, mundur, dll) tidak memicu ini (fix B13 / Fase 2A.3).
-    if new_status == "Reviewed":
+    # Requirement (konten turunan AI, bukan dokumen kerja SA) tidak memicu doc_ready
+    # maupun pembukaan folder Solutions (#33).
+    if new_status == "Reviewed" and document.doc_type != "Requirement":
         await _handle_doc_ready(document, db)
 
     # Format response
-    response_data = DocumentResponse(
-        id_doc=document.id_doc,
-        id_project=document.id_project,
-        doc_type=document.doc_type,
-        status=document.status,
-        gdrive_link=document.gdrive_link,
-        folder_type=document.folder_type,
-        notes=document.notes,
-        created_by=document.created_by,
-        updated_by=document.updated_by,
-        created_at=document.created_at,
-        updated_at=document.updated_at,
-    ).model_dump(mode="json")
+    response_data = _to_response(document)
 
     return success_response(
         data=response_data,

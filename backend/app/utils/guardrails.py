@@ -24,7 +24,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Generic, Literal, Optional, TypeVar, get_args
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
@@ -175,12 +175,18 @@ def _wrap_with_delimiter(text: str) -> str:
 # =============================================================================
 
 
-def sanitize_text_input(text: str, *, filename: Optional[str] = None) -> GuardrailResult[str]:
+def sanitize_text_input(
+    text: str,
+    *,
+    filename: Optional[str] = None,
+    max_chars: Optional[int] = None,
+) -> GuardrailResult[str]:
     """
     Pipeline Input_Guardrail untuk input teks (note polishing & project summary).
 
     Urutan orkestrasi:
-      1. Size clamp ke ``settings.LLM_MAX_INPUT_CHARS`` (Requirement 2).
+      1. Size clamp ke ``max_chars`` bila diberikan, selain itu ke
+         ``settings.LLM_MAX_INPUT_CHARS`` (Requirement 2).
       2. PII detection bila ``GUARDRAIL_PII_DETECTION_ENABLED`` (Requirement 4) —
          flag-and-log, tanpa redaction.
       3. Injection neutralize (Requirement 5.1).
@@ -191,7 +197,9 @@ def sanitize_text_input(text: str, *, filename: Optional[str] = None) -> Guardra
     neutralize/wrap), konsisten dengan Property 1.
     """
     original_size = len(text)
-    max_chars = settings.LLM_MAX_INPUT_CHARS
+    if max_chars is None:
+        max_chars = settings.LLM_MAX_INPUT_CHARS
+    max_chars = max(0, max_chars)
 
     # 1. Size clamp (Requirement 2.1, 2.2, 2.4)
     truncated = original_size > max_chars
@@ -302,6 +310,35 @@ class BANTExtractionResult(BaseModel):
     need: BANTCriterion
     timeline: BANTCriterion
     use_case_tags: list[str] = Field(default_factory=list, max_length=5)
+
+
+RequirementKategori = Literal[
+    "Fungsional", "Teknis", "Kepatuhan", "Integrasi", "Timeline", "Asumsi"
+]
+REQUIREMENT_KATEGORI: tuple[str, ...] = get_args(RequirementKategori)
+REQUIREMENT_MAX_ITEMS = 200
+REQUIREMENT_MAX_BUTIR_CHARS = 1000
+
+
+class RequirementItem(BaseModel):
+    """Satu butir Requirement: kategori dari himpunan tetap + teks butir."""
+
+    kategori: RequirementKategori
+    butir: str = Field(min_length=1, max_length=REQUIREMENT_MAX_BUTIR_CHARS)
+
+    @field_validator("butir", mode="after")
+    @classmethod
+    def _strip_non_kosong(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("butir tidak boleh kosong")
+        return v
+
+
+class RequirementExtractionResult(BaseModel):
+    """Kontrak keluaran LLM untuk generate Requirement: daftar butir (minimal 1)."""
+
+    items: list[RequirementItem] = Field(min_length=1, max_length=REQUIREMENT_MAX_ITEMS)
 
 
 class ActionItem(BaseModel):

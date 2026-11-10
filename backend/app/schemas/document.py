@@ -6,7 +6,7 @@ Digunakan untuk validasi request/response pada fitur CRUD dan state machine doku
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -78,10 +78,22 @@ class DocumentResponse(BaseModel):
     id_project: str = Field(..., description="ID proyek pemilik dokumen")
     doc_type: str = Field(..., description="Tipe dokumen")
     status: str = Field(..., description="Status dokumen saat ini")
-    gdrive_link: str = Field(..., description="Link Google Drive")
+    gdrive_link: Optional[str] = Field(
+        None, description="Link Google Drive (kosong hanya untuk Requirement)"
+    )
     folder_type: str = Field(..., description="Tipe folder penyimpanan")
     notes: Optional[str] = Field(None, description="Catatan tambahan")
-    created_by: uuid.UUID = Field(..., description="User yang membuat dokumen")
+    created_by: Optional[uuid.UUID] = Field(
+        None, description="User yang membuat dokumen (kosong untuk Requirement hasil sistem)"
+    )
     updated_by: Optional[uuid.UUID] = Field(None, description="User yang terakhir update")
     created_at: datetime = Field(..., description="Waktu pembuatan")
     updated_at: datetime = Field(..., description="Waktu update terakhir")
+    # Khusus Requirement (konten turunan AI); default untuk dokumen jenis lain
+    content: Optional[list[dict[str, Any]]] = Field(
+        None, description="Daftar butir Requirement [{id, kategori, butir}]"
+    )
+    is_overridden: bool = Field(False, description="True bila konten diedit manual")
+    source_hash: Optional[str] = Field(None, description="Hash sumber saat generate")
+    generated_at: Optional[datetime] = Field(None, description="Waktu generate AI terakhir")
+    source_truncated: bool = Field(False, description="True bila teks sumber terpotong")

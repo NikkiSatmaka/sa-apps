@@ -266,7 +266,7 @@ def test_create_dengan_file_status_scoring_pending_trigger_scoring_dan_jawaban_t
     pdf = ("files", ("mom.pdf", BytesIO(b"%PDF-1.4 isi"), "application/pdf"))
     with patch("app.api.projects._trigger_scoring_engine", new=AsyncMock()) as trigger:
         with _api() as (client, session):
-            resp = client.post(URL, data=_form(jawaban_kuat()), files=[pdf])
+            resp = client.post(URL, data=_form(jawaban_kuat(), file_types=["MoM"]), files=[pdf])
     assert resp.status_code == 201
     d = resp.json()["data"]
     assert d["status"] == "Scoring Pending"
@@ -331,7 +331,7 @@ def _jalankan_create_dengan_file_dan_scoring_ai(status_saat_hasil_tiba, bant_det
         "app.services.scoring_engine.llm_factory.get_provider", return_value=provider
     ):
         with _api() as (client, _):
-            resp = client.post(URL, data=_form(jawaban_kuat()), files=[pdf])
+            resp = client.post(URL, data=_form(jawaban_kuat(), file_types=["MoM"]), files=[pdf])
     assert resp.status_code == 201
     return proyek, bg
 

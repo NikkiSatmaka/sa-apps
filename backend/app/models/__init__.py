@@ -10,6 +10,7 @@ from app.models.notification_log import NotificationLog
 from app.models.project import Project
 from app.models.project_collaborator import ProjectCollaborator
 from app.models.sla_tracking import SLATracking
+from app.models.source_document import SourceDocument
 from app.models.subtask import Subtask
 from app.models.user import User
 
@@ -23,4 +24,5 @@ __all__ = [
     "NotificationLog",
     "AuditLog",
     "SLATracking",
+    "SourceDocument",
 ]

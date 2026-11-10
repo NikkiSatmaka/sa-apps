@@ -5,6 +5,7 @@ Menangani submission request baru oleh Sales termasuk file upload.
 
 import logging
 import random
+import uuid
 import string
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -30,12 +31,14 @@ from app.core.dependencies import ensure_project_access, get_current_user
 from app.models.project import Project
 from app.models.project_collaborator import ProjectCollaborator
 from app.models.sla_tracking import SLATracking
+from app.models.source_document import DOC_TYPES, SourceDocument
 from app.models.user import User
 from app.schemas.project import FileUploadResult, ProjectResponse
 from app.schemas.qualification import parse_answers
 from app.schemas.response import error_response, success_response
 from app.services import bant_rubric
 from app.services.qualification_view import build_qualification_view
+from app.services.source_document_extractor import extract_source_documents
 
 logger = logging.getLogger(__name__)
 
@@ -424,6 +427,27 @@ async def get_project_detail(
             }
         )
 
+    # Daftar Source document (tanpa teks penuh; hanya panjang teks)
+    source_docs_result = await db.execute(
+        select(SourceDocument)
+        .where(SourceDocument.id_project == project_id)
+        .order_by(SourceDocument.created_at.asc())
+    )
+    source_documents = [
+        {
+            "id": str(d.id),
+            "filename": d.filename,
+            "doc_type": d.doc_type,
+            "size_bytes": d.size_bytes,
+            "extraction_status": d.extraction_status,
+            "truncated": bool(d.truncated),
+            "text_length": len(d.extracted_text) if d.extracted_text else 0,
+            "created_at": d.created_at.isoformat() if d.created_at else None,
+            "updated_at": d.updated_at.isoformat() if d.updated_at else None,
+        }
+        for d in source_docs_result.scalars().all()
+    ]
+
     data = {
         "id_project": project.id_project,
         "project_name": project.project_name,
@@ -451,6 +475,7 @@ async def get_project_detail(
         if project.assigned_sa
         else None,
         "collaborators": collab_list,
+        "source_documents": source_documents,
         "gdrive_folder_id": project.gdrive_folder_id,
         "folder_provisioning_status": project.folder_provisioning_status,
         "created_at": project.created_at.isoformat() if project.created_at else None,
@@ -666,6 +691,10 @@ async def create_project(
         default=[],
         description="File attachment (PDF/DOCX, max 20MB/file, max 5 files)",
     ),
+    file_types: list[str] = Form(
+        default=[],
+        description="Tipe Source document per file (MoM/RFP), paralel dengan `files` (indeks sama)",
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -758,6 +787,17 @@ async def create_project(
             }
         )
 
+    # Tipe Source document wajib dipilih per file (error per file, indeks sama dengan `files`)
+    for idx in range(len(files)):
+        tipe = file_types[idx].strip() if idx < len(file_types) else ""
+        if tipe not in DOC_TYPES:
+            validation_errors.append(
+                {
+                    "field": f"files[{idx}].type",
+                    "reason": "Tipe file wajib dipilih: MoM atau RFP.",
+                }
+            )
+
     # Return 422 jika ada error validasi
     if validation_errors:
         return JSONResponse(
@@ -771,13 +811,15 @@ async def create_project(
     # === Proses file upload (partial failure handling) ===
     file_results: list[FileUploadResult] = []
     valid_files_data: list[tuple[str, bytes, str]] = []  # (filename, content, mime_type)
+    valid_file_types: list[str] = []  # tipe Source document, paralel dengan valid_files_data
 
-    for file in files:
+    for idx, file in enumerate(files):
         result, content = await _process_file_upload(file)
         file_results.append(result)
         if result.success and content is not None:
             mime_type = file.content_type or "application/octet-stream"
             valid_files_data.append((file.filename or "unknown", content, mime_type))
+            valid_file_types.append(file_types[idx].strip())
 
     # === Buat record Project ===
     project_id = _generate_project_id()
@@ -814,6 +856,22 @@ async def create_project(
     )
 
     db.add(new_project)
+
+    # Source document: baris `pending` per file valid (hanya teks hasil ekstraksi yang disimpan)
+    extraction_items = []
+    for (fname, content, mime_type), tipe in zip(valid_files_data, valid_file_types):
+        source_doc = SourceDocument(
+            id=uuid.uuid4(),
+            id_project=project_id,
+            filename=fname,
+            doc_type=tipe,
+            size_bytes=len(content),
+            extraction_status="pending",
+            truncated=False,
+        )
+        db.add(source_doc)
+        extraction_items.append((source_doc.id, fname, content, mime_type))
+
     await db.commit()
     await db.refresh(new_project)
 
@@ -833,6 +891,8 @@ async def create_project(
             valid_files_data,
         )
         scoring_triggered = True
+        # Ekstraksi teks Source document: panggilan Gemini terpisah, tidak menahan respons/scoring
+        background_tasks.add_task(extract_source_documents, project_id, extraction_items)
     elif initial_status == "Pending Assignment":
         from app.services.scoring_engine import scoring_engine
 

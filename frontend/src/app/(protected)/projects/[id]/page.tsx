@@ -14,6 +14,7 @@ import { SubtaskSection } from "@/components/SubtaskSection";
 import { QualificationSection } from "@/components/QualificationSection";
 import type { QualificationView } from "@/lib/qualification";
 import { BANTOverride } from "@/components/BANTOverride";
+import { SourceDocumentSection, type SourceDocumentItem } from "@/components/SourceDocumentSection";
 import type { HandoverStatus } from "@/lib/api/handover";
 
 /**
@@ -60,6 +61,7 @@ interface ProjectDetail {
     added_by_name: string;
     created_at: string;
   }[];
+  source_documents?: SourceDocumentItem[];
   gdrive_folder_id: string | null;
   folder_provisioning_status: "pending" | "provisioned" | "failed" | null;
   created_at: string;
@@ -306,6 +308,8 @@ export default function ProjectDetailPage() {
             qualification={project.qualification}
             targetSubmit={project.target_submit}
           />
+
+          <SourceDocumentSection documents={project.source_documents ?? []} />
 
           {/* Section: Activity Log Proyek */}
           <ProjectActivitySection projectId={projectId} />

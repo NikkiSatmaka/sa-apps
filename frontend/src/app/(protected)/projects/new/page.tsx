@@ -47,6 +47,7 @@ interface FormErrors {
   targetSubmit?: string;
   estimatedValue?: string;
   dqNumber?: string;
+  files?: string;
 }
 
 // ==================== Helpers ====================
@@ -177,9 +178,14 @@ export default function NewProjectPage() {
       }
     }
 
+    // Tipe Source document (MoM/RFP) wajib dipilih untuk setiap file valid
+    if (validFiles.some((f) => !f.docType)) {
+      newErrors.files = "Pilih tipe (MoM atau RFP) untuk setiap file";
+    }
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  }, [form]);
+  }, [form, validFiles]);
 
   // ==================== Handlers ====================
 
@@ -241,6 +247,7 @@ export default function NewProjectPage() {
       // Tambahkan file valid
       validFiles.forEach((item) => {
         formData.append("files", item.file);
+        formData.append("file_types", item.docType ?? "");
       });
 
       const response = await createProject(formData);
@@ -523,9 +530,17 @@ export default function NewProjectPage() {
 
           <FileUpload
             files={files}
-            onChange={setFiles}
+            onChange={(next) => {
+              setFiles(next);
+              if (errors.files) setErrors((prev) => ({ ...prev, files: undefined }));
+            }}
             disabled={isSubmitting}
           />
+          {errors.files && (
+            <p className="text-xs text-red-600 mt-1" role="alert">
+              {errors.files}
+            </p>
+          )}
         </div>
         </>
         )}

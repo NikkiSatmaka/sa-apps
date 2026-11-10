@@ -40,7 +40,10 @@ from app.schemas.response import error_response, success_response
 from app.services import bant_rubric
 from app.services.scoring_engine import SCORING_MUTABLE_STATUSES, scoring_engine
 from app.services.qualification_view import build_qualification_view
-from app.services.requirement_generator import generate_pending_requirement
+from app.services.requirement_generator import (
+    generate_pending_requirement,
+    resummarize_if_source_changed,
+)
 from app.services.source_document_extractor import extract_source_documents
 
 logger = logging.getLogger(__name__)
@@ -647,6 +650,8 @@ async def update_qualification_answers(
     project.qualification_answers = answers
     project.updated_at = datetime.now(timezone.utc)
     await db.commit()
+    # Jawaban berubah → Requirement yang belum di-override diperbarui bila hash berbeda.
+    background_tasks.add_task(resummarize_if_source_changed, project.id_project)
     return success_response(
         data={
             "total_score": project.bant_score,

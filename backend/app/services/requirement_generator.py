@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -169,28 +170,11 @@ def _new_doc_id() -> str:
     return _generate_doc_id()
 
 
-async def _generate(db: Any, project_id: str) -> None:
-    result = await db.execute(select(Project).where(Project.id_project == project_id))
-    project = result.scalar_one_or_none()
-    if project is None or project.requirement_generation_status != "pending":
-        return
-
-    # Idempoten: Requirement sudah ada (mis. balapan dua trigger) → cukup tandai ready.
-    existing = await db.execute(
-        select(Document).where(
-            Document.id_project == project_id, Document.doc_type == REQUIREMENT_DOC_TYPE
-        )
-    )
-    if existing.scalar_one_or_none() is not None:
-        project.requirement_generation_status = "ready"
-        await db.commit()
-        return
-
-    # Sumber: hanya Source document `extracted` yang ada saat ini (yang masih pending
-    # diperbarui otomatis oleh tiket #35, bukan di sini).
+async def _collect_sources(db: Any, project: Project) -> tuple[list[SourceDocument], str]:
+    """Source document `extracted` saat ini + `source_hash`-nya (bersama jawaban kuesioner)."""
     src_result = await db.execute(
         select(SourceDocument).where(
-            SourceDocument.id_project == project_id,
+            SourceDocument.id_project == project.id_project,
             SourceDocument.extraction_status == "extracted",
         )
     )
@@ -200,8 +184,15 @@ async def _generate(db: Any, project_id: str) -> None:
         if s.extraction_status == "extracted" and (s.extracted_text or "").strip()
     ]
     source_pairs = [(s.doc_type, s.extracted_text) for s in sources]
+    return sources, compute_source_hash(project.qualification_answers, source_pairs)
+
+
+async def _summarize(
+    project: Project, sources: list[SourceDocument]
+) -> tuple[RequirementExtractionResult, bool]:
+    """Susun prompt dari kuesioner + sumber, panggil LLM; return (hasil, terpotong)."""
+    project_id = project.id_project
     answers = project.qualification_answers
-    source_hash = compute_source_hash(answers, source_pairs)
 
     # Anggaran karakter dibagi merata antar sumber (kuesioner = satu sumber).
     questionnaire = build_questionnaire_text(answers)
@@ -233,6 +224,28 @@ async def _generate(db: Any, project_id: str) -> None:
     extraction = await _call_llm_with_retry(prompt, project_id)
     if extraction is None:
         raise RuntimeError("Keluaran LLM tidak valid setelah semua percobaan.")
+    return extraction, truncated
+
+
+async def _generate(db: Any, project_id: str) -> None:
+    result = await db.execute(select(Project).where(Project.id_project == project_id))
+    project = result.scalar_one_or_none()
+    if project is None or project.requirement_generation_status != "pending":
+        return
+
+    # Idempoten: Requirement sudah ada (mis. balapan dua trigger) → cukup tandai ready.
+    existing = await db.execute(
+        select(Document).where(
+            Document.id_project == project_id, Document.doc_type == REQUIREMENT_DOC_TYPE
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        project.requirement_generation_status = "ready"
+        await db.commit()
+        return
+
+    sources, source_hash = await _collect_sources(db, project)
+    extraction, truncated = await _summarize(project, sources)
 
     now = datetime.now(timezone.utc)
     db.add(
@@ -266,6 +279,19 @@ async def _generate(db: Any, project_id: str) -> None:
     )
 
 
+# Serialisasi generate/re-summarize per proyek (dalam satu proses): dua pemicu berurutan
+# tidak menjalankan LLM bersamaan, dan pemicu kedua melihat hash hasil pemicu pertama.
+# Kunci per (event loop, proyek): Lock asyncio terikat ke loop saat ada kontensi.
+_project_locks: dict[tuple[int, str], asyncio.Lock] = {}
+
+
+@asynccontextmanager
+async def _project_lock(project_id: str):
+    key = (id(asyncio.get_running_loop()), project_id)
+    async with _project_locks.setdefault(key, asyncio.Lock()):
+        yield
+
+
 async def _mark_failed(project_id: str) -> None:
     from app.core.database import AsyncSessionLocal
 
@@ -288,7 +314,7 @@ async def generate_pending_requirement(project_id: str) -> None:
     from app.core.database import AsyncSessionLocal
 
     try:
-        async with AsyncSessionLocal() as db:
+        async with _project_lock(project_id), AsyncSessionLocal() as db:
             try:
                 await _generate(db, project_id)
             except IntegrityError:
@@ -305,3 +331,65 @@ async def generate_pending_requirement(project_id: str) -> None:
             await _mark_failed(project_id)
         except Exception as inner:  # noqa: BLE001
             logger.error("[Requirement] %s: gagal menandai failed: %s", project_id, inner)
+
+
+# --------------------------------------------------------------------------- re-summarize (#35)
+TERMINAL_PROJECT_STATUSES = ("Closed-Win", "Lost", "Handover Complete")
+
+
+async def _resummarize(db: Any, project_id: str) -> None:
+    result = await db.execute(select(Project).where(Project.id_project == project_id))
+    project = result.scalar_one_or_none()
+    if project is None or project.status in TERMINAL_PROJECT_STATUSES:
+        return
+
+    req_result = await db.execute(
+        select(Document).where(
+            Document.id_project == project_id, Document.doc_type == REQUIREMENT_DOC_TYPE
+        )
+    )
+    requirement = req_result.scalar_one_or_none()
+    # Belum ada (belum lolos gate / generate awal belum jalan): tidak ada yang diperbarui.
+    if requirement is None or requirement.is_overridden or requirement.status == "Final":
+        return
+
+    sources, source_hash = await _collect_sources(db, project)
+    if source_hash == requirement.source_hash:
+        return
+
+    extraction, truncated = await _summarize(project, sources)
+    now = datetime.now(timezone.utc)
+    requirement.content = [
+        {"id": uuid.uuid4().hex[:8], "kategori": item.kategori, "butir": item.butir}
+        for item in extraction.items
+    ]
+    requirement.source_hash = source_hash
+    requirement.generated_at = now
+    requirement.source_truncated = truncated
+    requirement.updated_at = now
+    await db.commit()
+    logger.info("[Requirement] %s: di-resummarize (%d butir).", project_id, len(extraction.items))
+
+
+async def resummarize_if_source_changed(project_id: str) -> None:
+    """
+    Background task: re-summarize Requirement bila sumbernya berubah (#35).
+
+    Dipicu setelah jawaban kuesioner diedit atau ekstraksi Source document selesai.
+    Bandingkan `source_hash` saat ini dengan yang tersimpan; beda DAN belum di-override
+    DAN dokumen bukan `Final` DAN proyek bukan status terminal → generate ulang dan simpan
+    hash baru. Selain itu no-op (banner/notifikasi = tiket #37). Gagal: Requirement lama
+    dan hash lama dipertahankan (pemicu berikutnya mencoba lagi); tidak pernah melempar.
+    Diserialkan per proyek bersama `generate_pending_requirement`.
+    """
+    from app.core.database import AsyncSessionLocal
+
+    try:
+        async with _project_lock(project_id), AsyncSessionLocal() as db:
+            try:
+                await _resummarize(db, project_id)
+            except Exception:
+                await db.rollback()
+                raise
+    except Exception as e:  # noqa: BLE001 - tidak boleh mengganggu alur lain
+        logger.error("[Requirement] %s: re-summarize gagal: %s", project_id, e)

@@ -12,6 +12,7 @@ from typing import Any
 
 from app.models.source_document import SourceDocument
 from app.services.llm_provider import llm_factory
+from app.services.requirement_generator import resummarize_if_source_changed
 from app.utils.guardrails import check_document_size
 
 logger = logging.getLogger(__name__)
@@ -80,3 +81,6 @@ async def extract_source_documents(project_id: str, items: list[ExtractionItem])
                     logger.error("[SourceDoc] Proyek %s, file %s: %s", project_id, item[1], e)
     except Exception as e:
         logger.error("[SourceDoc] Ekstraksi proyek %s gagal: %s", project_id, e)
+
+    # Ekstraksi selesai: Requirement yang dibuat lebih dulu diperbarui bila hash sumber berubah.
+    await resummarize_if_source_changed(project_id)

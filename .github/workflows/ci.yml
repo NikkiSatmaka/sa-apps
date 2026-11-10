@@ -1,0 +1,185 @@
+# CI Portal SA — backend (unit + integrasi) dengan laporan cakupan.
+#
+# Spec induk #49, tiket #57. Workflow ini SENGAJA TIDAK MEMBLOK: laporan cakupan
+# hanya informatif. Gerbang cakupan (baris >= 90%, cabang >= 80%, lihat CONSTRAINTS.md)
+# dipasang di tiket B12 (#70). Job frontend ditambahkan di tiket #71 sebagai job baru
+# di bawah `jobs:` (pola sama: checkout -> setup -> install -> test), lalu masuk ke
+# `needs:` job `cakupan-gabungan`/gerbang bila perlu.
+name: CI
+
+on:
+  pull_request:
+  push:
+    # Semua branch kecuali main (main hanya menerima merge lewat PR).
+    branches-ignore:
+      - main
+  workflow_dispatch:
+
+# Izin minimal; tidak ada secret yang dibutuhkan.
+permissions:
+  contents: read
+
+# Batalkan run lama pada branch/PR yang sama saat ada push baru.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1" # seluruh `uv run`/`uv sync` memakai uv.lock apa adanya
+
+jobs:
+  backend-unit:
+    name: Backend — test unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      COVERAGE_FILE: coverage-unit.data
+    steps:
+      - uses: actions/checkout@v6
+
+      # Versi uv selaras mise.toml (0.13). Interpreter Python diunduh uv sesuai
+      # backend/.python-version saat `uv sync`.
+      - name: Pasang uv (dengan cache dependensi)
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.13"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Pasang dependensi
+        run: uv sync --frozen
+
+      - name: Jalankan test unit + cakupan
+        run: >-
+          uv run pytest -q -W ignore
+          --cov=app --cov-branch
+          --cov-report=term-missing --cov-report=xml:coverage-unit.xml
+
+      - name: Unggah data cakupan unit
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: cakupan-unit
+          path: |
+            backend/coverage-unit.data
+            backend/coverage-unit.xml
+          if-no-files-found: warn
+
+  backend-integration:
+    name: Backend — test integrasi (Postgres 18)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          # Kredensial throwaway untuk service container CI, bukan secret.
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # URL menunjuk SERVER; fixture membuat database sementara sa_test_<hex>.
+      TEST_DATABASE_URL: postgresql+asyncpg://postgres:test@localhost:5432/postgres
+      TEST_DATABASE_ALLOW_REMOTE: "1"
+      COVERAGE_FILE: coverage-integration.data
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Pasang uv (dengan cache dependensi)
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.13"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Pasang dependensi
+        run: uv sync --frozen
+
+      - name: Jalankan test integrasi + cakupan
+        run: >-
+          uv run pytest -q -W ignore -m integration
+          --cov=app --cov-branch
+          --cov-report=term-missing --cov-report=xml:coverage-integration.xml
+
+      - name: Unggah data cakupan integrasi
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: cakupan-integrasi
+          path: |
+            backend/coverage-integration.data
+            backend/coverage-integration.xml
+          if-no-files-found: warn
+
+  cakupan-gabungan:
+    name: Backend — ringkasan cakupan gabungan
+    runs-on: ubuntu-latest
+    needs: [backend-unit, backend-integration]
+    # Tetap jalan walau salah satu job gagal, agar cakupan terlihat. Tidak memblok.
+    if: ${{ !cancelled() }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Pasang uv (dengan cache dependensi)
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.13"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Pasang dependensi
+        run: uv sync --frozen
+
+      - name: Unduh data cakupan
+        uses: actions/download-artifact@v8
+        with:
+          pattern: cakupan-*
+          path: backend/cov-in
+          merge-multiple: true
+
+      - name: Gabungkan cakupan unit + integrasi
+        run: |
+          shopt -s nullglob
+          files=(cov-in/*.data)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "Tidak ada data cakupan (job unit/integrasi gagal sebelum menghasilkan data)." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          export COVERAGE_FILE=coverage-gabungan.data
+          uv run coverage combine --keep "${files[@]}"
+          uv run coverage xml -o coverage.xml
+          {
+            echo "## Cakupan backend (unit + integrasi)"
+            echo
+            echo "Informatif, tidak memblok. Gerbang (baris >= 90%, cabang >= 80%) dipasang di tiket #70."
+            echo
+            uv run coverage report --format=markdown --skip-empty
+          } >> "$GITHUB_STEP_SUMMARY"
+          uv run coverage report --skip-empty
+
+      # TODO(#70): pasang gerbang cakupan di sini — tambahkan
+      # `uv run coverage report --fail-under=...`/pemeriksaan per modul sesuai
+      # CONSTRAINTS.md, lalu jadikan job ini required check di branch protection.
+      # Jangan menambahkan gerbang di tiket lain.
+
+      - name: Unggah coverage.xml gabungan
+        if: ${{ hashFiles('backend/coverage.xml') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-xml-gabungan
+          path: backend/coverage.xml

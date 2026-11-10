@@ -14,8 +14,9 @@ Retry strategy:
 - Semua retry gagal → gate memakai skor rubrik saja; "Manual Review Required"
   hanya bila skor rubrik tidak dapat dihitung (proyek tanpa jawaban kuesioner)
 
-Skor akhir per kriteria = max(rubrik, AI) (ADR 0010). Hasil AI disimpan terpisah
-di `projects.ai_scoring_result`.
+Skor akhir per kriteria = max(rubrik, AI, override) (ADR 0010; override Lead SA = batas bawah,
+#41). Hasil AI disimpan terpisah di `projects.ai_scoring_result`, override di
+`projects.override_sub_scores`.
 """
 
 from __future__ import annotations
@@ -197,8 +198,10 @@ class ScoringEngine:
         # Agregasi hasil dari semua file — ambil skor tertinggi per kriteria
         ai_sub_scores = self._aggregate_scores(all_extractions)
         use_case_tags = self._aggregate_tags(all_extractions)
-        # Skor akhir per kriteria = max(rubrik, AI); tanpa rubrik, AI saja
-        sub_scores = self._merge_max(rubric, ai_sub_scores) if rubric else ai_sub_scores
+        # Muat ulang proyek: override bisa berubah selama LLM berjalan (hasil AI terlambat)
+        project = await self._refresh_project(db, project_id, project)
+        # Skor akhir per kriteria = max(rubrik, AI, override); komponen None dilewati
+        sub_scores = self._merge_max(rubric, ai_sub_scores, self._stored_override(project))
         total_score = bant_rubric.total_score(sub_scores)
         ai_result = {
             "sub_scores": ai_sub_scores.model_dump(),
@@ -234,33 +237,27 @@ class ScoringEngine:
         """
         Override skor BANT oleh Lead_SA/Admin (#30).
 
-        Menimpa skor final, menerapkan gate 60 lewat jalur tulis yang sama dengan
-        scoring lain (dengan guard status override), dan menulis audit log
-        (nilai lama/baru, pelaku, alasan) dalam commit yang sama dengan perubahan skor.
+        Override disimpan terpisah (`override_sub_scores`) sebagai batas bawah; gate 60
+        lewat jalur tulis yang sama dengan scoring lain (dengan guard status override),
+        dan audit log (nilai lama/baru, pelaku, alasan) ditulis dalam commit yang sama.
         """
-        sub_scores = BANTSubScores(
+        override = BANTSubScores(
             budget=budget, authority=authority, need=need, timeline=timeline
         )
-        total_score = bant_rubric.total_score(sub_scores)
-        # Override tidak membawa hasil AI baru: pertahankan use_case_tags yang sudah ada.
         project = await self._load_project(db, project_id)
-        result = BANTResult(
-            total_score=total_score,
-            sub_scores=sub_scores,
-            use_case_tags=list((project.use_case_tags if project else None) or []),
-            status=bant_rubric.decide_status(total_score),
-            feedback=(
-                bant_rubric.generate_feedback(sub_scores)
-                if total_score < bant_rubric.GATE_THRESHOLD
-                else None
-            ),
+        # Override = batas bawah: skor akhir = max(rubrik, AI tersimpan, override baru).
+        # Override baru menggantikan override lama (bukan di-max dengannya).
+        sub_scores = self._merge_max(
+            self._rubric_scores(project), self._stored_ai(project), override
         )
+        result = self._build_result(sub_scores, project)
         return await self._apply_scoring_result(
             db,
             project_id,
             result,
             mutable_statuses=OVERRIDE_ALLOWED_STATUSES,
             audit={"action": "bant_override", "performed_by": performed_by, "reason": reason},
+            override_scores=override,
         )
 
     async def rescore_from_answers(
@@ -273,31 +270,12 @@ class ScoringEngine:
         Re-score setelah jawaban kuesioner diedit (#32).
 
         Skor per kriteria = max(rubrik dari jawaban baru, hasil AI tersimpan di
-        `ai_scoring_result`), lalu gate 60 lewat jalur tulis dengan guard status.
+        `ai_scoring_result`, override di `override_sub_scores`), lalu gate 60 lewat jalur tulis dengan guard status.
         Jawaban baru disimpan dalam commit yang sama dengan skor. Hasil AI tidak ditimpa.
         """
         rubric = bant_rubric.compute_rubric_scores(answers, project.target_submit)
-        sub_scores = rubric
-        ai_scores = (project.ai_scoring_result or {}).get("sub_scores")
-        if isinstance(ai_scores, dict):
-            try:
-                sub_scores = self._merge_max(rubric, BANTSubScores(**ai_scores))
-            except (TypeError, ValueError):
-                logger.warning(
-                    f"Project {project.id_project}: ai_scoring_result tidak valid, diabaikan."
-                )
-        total = bant_rubric.total_score(sub_scores)
-        result = BANTResult(
-            total_score=total,
-            sub_scores=sub_scores,
-            use_case_tags=list(project.use_case_tags or []),
-            status=bant_rubric.decide_status(total),
-            feedback=(
-                bant_rubric.generate_feedback(sub_scores)
-                if total < bant_rubric.GATE_THRESHOLD
-                else None
-            ),
-        )
+        sub_scores = self._merge_max(rubric, self._stored_ai(project), self._stored_override(project))
+        result = self._build_result(sub_scores, project)
         project.qualification_answers = answers
         return await self._apply_scoring_result(db, project.id_project, result)
 
@@ -310,6 +288,7 @@ class ScoringEngine:
         *,
         mutable_statuses: frozenset[str] = SCORING_MUTABLE_STATUSES,
         audit: Optional[dict[str, Any]] = None,
+        override_scores: Optional[BANTSubScores] = None,
     ) -> BANTResult:
         """
         Simpan hasil scoring + terapkan gate 60, dengan guard status.
@@ -326,6 +305,7 @@ class ScoringEngine:
             ai_result=ai_result,
             mutable_statuses=mutable_statuses,
             audit=audit,
+            override_scores=override_scores,
         )
         if applied and result.status == "Pending Assignment":
             await self._notify_lead_sa(db, project_id, result.total_score)
@@ -572,6 +552,7 @@ class ScoringEngine:
         *,
         mutable_statuses: frozenset[str] = SCORING_MUTABLE_STATUSES,
         audit: Optional[dict[str, Any]] = None,
+        override_scores: Optional[BANTSubScores] = None,
     ) -> tuple[bool, Optional[str]]:
         """
         Update record proyek dengan hasil scoring BANT (guard status).
@@ -602,11 +583,15 @@ class ScoringEngine:
                 "bant_score": project.bant_score,
                 "sub_scores": {k: old_detail.get(k) for k in result.sub_scores.model_dump()},
                 "status": project.status,
+                "override_sub_scores": self._plain_override(project),
             }
             new_value = {
                 "bant_score": result.total_score,
                 "sub_scores": result.sub_scores.model_dump(),
                 "status": result.status,
+                "override_sub_scores": (
+                    override_scores.model_dump() if override_scores is not None else None
+                ),
                 "reason": audit["reason"],
             }
             db.add(
@@ -628,6 +613,8 @@ class ScoringEngine:
         project.use_case_tags = result.use_case_tags
         if ai_result is not None:
             project.ai_scoring_result = ai_result
+        if override_scores is not None:
+            project.override_sub_scores = override_scores.model_dump()
         project.status = result.status
         project.updated_at = datetime.now(timezone.utc)
         await db.commit()
@@ -650,11 +637,65 @@ class ScoringEngine:
             project.qualification_answers, project.target_submit
         )
 
+    async def _refresh_project(
+        self, db: AsyncSession, project_id: str, project: Optional[Project]
+    ) -> Optional[Project]:
+        """Segarkan state proyek dari DB (override/AI bisa berubah selama LLM berjalan)."""
+        if project is None:
+            return None
+        try:
+            await db.refresh(project)
+        except Exception:  # noqa: BLE001 - segar-ulang best effort; pakai state yang ada
+            logger.warning(f"Project {project_id}: gagal refresh, memakai state sebelumnya.")
+        return project
+
     @staticmethod
-    def _merge_max(rubric: BANTSubScores, ai: BANTSubScores) -> BANTSubScores:
-        """Skor akhir per kriteria = nilai tertinggi antara rubrik dan AI."""
+    def _as_sub_scores(raw: Any) -> Optional[BANTSubScores]:
+        """Validasi dict sub-skor tersimpan; None bila tidak ada/tidak valid."""
+        if not isinstance(raw, dict):
+            return None
+        try:
+            return BANTSubScores(**{k: raw[k] for k in bant_rubric.SUB_SCORE_KEYS})
+        except (KeyError, TypeError, ValueError):
+            logger.warning("Sub-skor tersimpan tidak valid, diabaikan.")
+            return None
+
+    def _stored_ai(self, project: Optional[Project]) -> Optional[BANTSubScores]:
+        """Sub-skor AI tersimpan (`ai_scoring_result.sub_scores`)."""
+        ai = getattr(project, "ai_scoring_result", None)
+        return self._as_sub_scores(ai.get("sub_scores")) if isinstance(ai, dict) else None
+
+    def _stored_override(self, project: Optional[Project]) -> Optional[BANTSubScores]:
+        """Sub-skor override Lead SA tersimpan (`override_sub_scores`)."""
+        return self._as_sub_scores(getattr(project, "override_sub_scores", None))
+
+    def _plain_override(self, project: Project) -> Optional[dict[str, Any]]:
+        """Override tersimpan sebagai dict polos (untuk audit log)."""
+        stored = self._stored_override(project)
+        return stored.model_dump() if stored is not None else None
+
+    @staticmethod
+    def _merge_max(*components: Optional[BANTSubScores]) -> BANTSubScores:
+        """Skor akhir per kriteria = nilai tertinggi antar komponen (rubrik/AI/override)."""
+        present = [c for c in components if c is not None]
         return BANTSubScores(
-            **{k: max(getattr(rubric, k), getattr(ai, k)) for k in bant_rubric.SUB_SCORE_KEYS}
+            **{k: max(getattr(c, k) for c in present) for k in bant_rubric.SUB_SCORE_KEYS}
+        )
+
+    @staticmethod
+    def _build_result(sub_scores: BANTSubScores, project: Optional[Project]) -> BANTResult:
+        """Bangun hasil scoring (total, status gate, feedback) dari sub-skor akhir."""
+        total = bant_rubric.total_score(sub_scores)
+        return BANTResult(
+            total_score=total,
+            sub_scores=sub_scores,
+            use_case_tags=list((project.use_case_tags if project else None) or []),
+            status=bant_rubric.decide_status(total),
+            feedback=(
+                bant_rubric.generate_feedback(sub_scores)
+                if total < bant_rubric.GATE_THRESHOLD
+                else None
+            ),
         )
 
     async def _fallback_to_rubric(
@@ -664,20 +705,13 @@ class ScoringEngine:
         project: Optional[Project],
         rubric: BANTSubScores,
     ) -> BANTResult:
-        """AI tidak menghasilkan skor: terapkan gate 60 dengan skor rubrik saja."""
-        total = bant_rubric.total_score(rubric)
-        result = BANTResult(
-            total_score=total,
-            sub_scores=rubric,
-            use_case_tags=list((project.use_case_tags if project else None) or []),
-            status=bant_rubric.decide_status(total),
-            feedback=(
-                bant_rubric.generate_feedback(rubric)
-                if total < bant_rubric.GATE_THRESHOLD
-                else None
-            ),
+        """AI tidak menghasilkan skor: gate 60 dengan max(rubrik, AI tersimpan, override)."""
+        sub_scores = self._merge_max(
+            rubric, self._stored_ai(project), self._stored_override(project)
         )
-        return await self._apply_scoring_result(db, project_id, result)
+        return await self._apply_scoring_result(
+            db, project_id, self._build_result(sub_scores, project)
+        )
 
     async def fallback_after_failure(self, db: AsyncSession, project_id: str) -> None:
         """

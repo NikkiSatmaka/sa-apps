@@ -3,6 +3,7 @@
  * (mis. `handlers/assignment.ts`) dan mendaftarkannya di sini — hindari mengedit berkas grup lain.
  */
 import { authHandlers } from "./auth";
+import { authPagesHandlers } from "./auth-pages";
 import { documentHandlers } from "./documents";
 import { libHandlers } from "./lib";
 import { notificationHandlers } from "./notifications";
@@ -11,6 +12,7 @@ import { qualificationHandlers } from "./qualification";
 
 export const handlers = [
   ...authHandlers,
+  ...authPagesHandlers,
   ...projectHandlers,
   ...documentHandlers,
   ...qualificationHandlers,

@@ -14,7 +14,9 @@ Portal ini menggabungkan manajemen proyek (request Sales ke SA) dan manajemen ut
 ## 2. Alur Kerja Aplikasi (Workflows)
 
 ### Flow 1: Pre-Sales Request & AI Scoring
-1. **Input Sales:** Sales masuk ke portal, mengisi form data customer, estimasi awal, dan mengunggah dokumen referensi (MoM / RFP).
+1. **Input Sales:** Sales masuk ke portal, mengisi form data customer, estimasi awal, mengisi *Kuesioner kualifikasi*, dan mengunggah dokumen referensi (MoM / RFP).
+
+   > **Catatan kuesioner (keputusan grill 2026-11-10):** *Kuesioner kualifikasi* adalah kumpulan pertanyaan faktual terstruktur (set tetap, bertanda `schema_version`) yang menjadi evidence skor BANT. Skor dihitung oleh backend (rubrik deterministik), bukan dinilai sendiri oleh Sales; jika ada dokumen, skor AI digabung per kriteria dengan nilai tertinggi. Lihat [`docs/adr/0010-bant-score-computed-in-backend.md`](../docs/adr/0010-bant-score-computed-in-backend.md).
 2. **AI Processing:** File dianalisis oleh Gemini AI (Multimodal) untuk mengekstrak spesifikasi, memvalidasi matriks BANT (Budget, Authority, Need, Timeline), menentukan *Priority*, *Use Case Tagging*, serta menyusun *Pre-filled OLA/Mandays* internal untuk SA.
 
    > **Catatan scope (keputusan grill 2026-10-21):** penyusunan *Pre-filled OLA/Mandays* **ditunda keluar dari MVP** (backlog pasca-MVP). Deskripsi fitur ini sengaja dipertahankan di spec sebagai *intent*; implementasinya di luar scope MVP.
@@ -67,10 +69,12 @@ Portal ini menggabungkan manajemen proyek (request Sales ke SA) dan manajemen ut
 | :--- | :--- | :--- |
 | `id_doc` | String | PK |
 | `id_project` | String | FK ke tabel `Projects` |
-| `doc_type` | Enum | MoM, RFP, PropTek, BOQ, Mandays, HLD |
+| `doc_type` | Enum | MoM, RFP, PropTek, BOQ, Mandays, HLD, Requirement |
 | `status` | Enum | Draft, Reviewed, Final |
 | `gdrive_link` | String | URL Google Drive / File ID |
 | `folder_type` | Enum | Inventory, Diagram, Solutions |
+
+> **Catatan `Requirement` (keputusan grill 2026-11-10):** dokumen `Requirement` adalah konten turunan AI (daftar butir terstruktur dari kuesioner + teks MoM/RFP), bukan file Drive. Hanya tipe ini yang boleh memiliki `gdrive_link` kosong, dan `folder_type`-nya `Inventory`. Lihat [`docs/adr/0004-requirement-override-blocks-silent-resummarize.md`](../docs/adr/0004-requirement-override-blocks-silent-resummarize.md).
 
 ### C. Tabel `ActivityLogs` (Project Story & Mapping)
 | Field Name | Type | Description |

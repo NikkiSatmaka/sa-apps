@@ -32,7 +32,9 @@ from app.models.project_collaborator import ProjectCollaborator
 from app.models.sla_tracking import SLATracking
 from app.models.user import User
 from app.schemas.project import FileUploadResult, ProjectResponse
+from app.schemas.qualification import parse_answers
 from app.schemas.response import error_response, success_response
+from app.services import bant_rubric
 
 logger = logging.getLogger(__name__)
 
@@ -579,8 +581,31 @@ async def update_project(
         # Merge dengan existing bant_detail.
         # Kolom di-map dengan MutableDict sehingga mutasi in-place terdeteksi
         # oleh SQLAlchemy dan ikut ter-commit.
+        # Kunci sub-skor numerik dimiliki backend (rubrik/AI/override): tidak boleh ditimpa
+        # lewat endpoint ini, hanya metadata deskriptif legacy yang boleh di-merge.
+        incoming = body["bant_detail"]
+        if not isinstance(incoming, dict):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="bant_detail harus berupa objek.",
+            )
+        protected = [k for k in bant_rubric.SUB_SCORE_KEYS if k in incoming]
+        if protected:
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content=error_response(
+                    message="Sub-skor BANT tidak dapat diubah lewat endpoint ini.",
+                    data=[
+                        {
+                            "field": f"bant_detail.{k}",
+                            "reason": "Sub-skor dihitung backend dan tidak boleh diubah di sini.",
+                        }
+                        for k in protected
+                    ],
+                ),
+            )
         existing = project.bant_detail or {}
-        existing.update(body["bant_detail"])
+        existing.update(incoming)
         project.bant_detail = existing
 
     project.updated_at = datetime.now(timezone.utc)
@@ -600,7 +625,9 @@ async def update_project(
         "Endpoint untuk mengajukan Request SA (proyek pre-sales baru). "
         "Dapat diakses oleh role Sales, SA, dan Lead_SA. "
         "Menerima form data + file attachment (PDF/DOCX, max 20MB/file, max 5 files). "
-        "Membuat record project dengan status 'New' dan trigger scoring engine async."
+        "Menerima jawaban Kuesioner kualifikasi (qualification_answers, JSON); skor BANT "
+        "dihitung backend. Tanpa file: gate 60 langsung diterapkan. Dengan file: status 'New' "
+        "dan scoring engine async."
     ),
 )
 async def create_project(
@@ -628,6 +655,10 @@ async def create_project(
     dq_number: Optional[str] = Form(
         default=None,
         description="DQ Number opsional (alfanumerik + hyphen, 5-20 karakter)",
+    ),
+    qualification_answers: Optional[str] = Form(
+        default=None,
+        description="Jawaban Kuesioner kualifikasi v1 (string JSON, wajib)",
     ),
     files: list[UploadFile] = File(
         default=[],
@@ -712,6 +743,10 @@ async def create_project(
         else:
             validated_dq = dq_clean
 
+    # Validasi Kuesioner kualifikasi (skor dihitung backend dari jawaban ini)
+    answers, answer_errors = parse_answers(qualification_answers)
+    validation_errors.extend(answer_errors)
+
     # Validasi jumlah file
     if len(files) > MAX_FILES:
         validation_errors.append(
@@ -746,6 +781,16 @@ async def create_project(
     project_id = _generate_project_id()
     now = datetime.now(timezone.utc)
 
+    # Tanpa file valid: rubrik dihitung sinkron dan gate 60 langsung diterapkan.
+    # Dengan file: perilaku scoring file tidak berubah (status New + background task).
+    rubric_scores = bant_rubric.compute_rubric_scores(answers, target_submit)
+    rubric_total = bant_rubric.total_score(rubric_scores)
+    scored_now = not valid_files_data
+    initial_status = bant_rubric.decide_status(rubric_total) if scored_now else "New"
+    feedback: Optional[str] = None
+    if scored_now and rubric_total < bant_rubric.GATE_THRESHOLD:
+        feedback = bant_rubric.generate_feedback(rubric_scores)
+
     new_project = Project(
         id_project=project_id,
         project_name=project_name,
@@ -753,8 +798,12 @@ async def create_project(
         target_submit=target_submit,
         estimasi_nilai=estimasi_decimal,
         dq_number=validated_dq,
-        status="New",
+        status=initial_status,
         sales_pic=current_user.id,
+        qualification_answers=answers,
+        qualification_schema_version=bant_rubric.QUESTIONNAIRE_SCHEMA_VERSION,
+        bant_score=rubric_total if scored_now else None,
+        bant_detail=rubric_scores.model_dump() if scored_now else None,
         created_at=now,
         updated_at=now,
     )
@@ -768,9 +817,8 @@ async def create_project(
         f"({len(valid_files_data)} file valid dari {len(files)} total)"
     )
 
-    # === Trigger Scoring Engine async (< 5 detik setelah record tersimpan) ===
+    # === Notifikasi Lead_SA (proyek langsung lolos gate) / trigger scoring file ===
     scoring_triggered = False
-    message_bant: Optional[str] = None
 
     if valid_files_data:
         # Ada file valid — trigger scoring engine di background
@@ -780,12 +828,13 @@ async def create_project(
             valid_files_data,
         )
         scoring_triggered = True
-    else:
-        # Tidak ada file valid — arahkan ke BANT manual (requirement 2.7)
-        message_bant = (
-            "Tidak ada file attachment valid. "
-            "Silakan gunakan opsi 'Isi BANT Manual' untuk melanjutkan scoring."
-        )
+    elif initial_status == "Pending Assignment":
+        from app.services.scoring_engine import scoring_engine
+
+        try:
+            await scoring_engine.notify_new_opportunity(db, project_id, rubric_total)
+        except Exception as e:  # proyek sudah tersimpan; kegagalan notifikasi tidak boleh 500
+            logger.error(f"Gagal mengirim notifikasi New Opportunity {project_id}: {e}")
 
     # === Build response ===
     response_data = ProjectResponse(
@@ -794,12 +843,14 @@ async def create_project(
         customer_name=customer_name,
         target_submit=target_submit,
         estimasi_nilai=estimasi_decimal,
-        status="New",
+        status=initial_status,
         sales_pic=current_user.id,
         created_at=now,
         files=file_results,
         scoring_triggered=scoring_triggered,
-        message_bant=message_bant,
+        bant_score=rubric_total if scored_now else None,
+        sub_scores=rubric_scores.model_dump() if scored_now else None,
+        feedback=feedback,
     )
 
     return success_response(

@@ -95,6 +95,16 @@ class Project(Base):
         nullable=True,
         comment="Detail breakdown skor BANT per kriteria",
     )
+    qualification_answers: Mapped[Optional[dict]] = mapped_column(
+        MutableDict.as_mutable(JSONB),
+        nullable=True,
+        comment="Jawaban Kuesioner kualifikasi (NULL = proyek lama / legacy)",
+    )
+    qualification_schema_version: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Versi skema kuesioner pada saat jawaban disimpan",
+    )
     estimasi_nilai: Mapped[Optional[Decimal]] = mapped_column(
         Numeric(14, 2),
         nullable=True,

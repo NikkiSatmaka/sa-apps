@@ -36,6 +36,7 @@ from app.schemas.scoring import (
     RecommendedDocumentInfo,
     SimilarProjectResult,
 )
+from app.services import bant_rubric
 from app.services.llm_provider import LLMResponse, llm_factory
 from app.utils.guardrails import (
     BANTExtractionResult,
@@ -69,6 +70,10 @@ Also identify up to 5 use case tags that describe the project's technical needs.
 
 Return ONLY valid JSON (no markdown, no code fences):
 {"budget": {"score": <0-25>, "evidence": "<brief evidence>"}, "authority": {"score": <0-25>, "evidence": "<brief evidence>"}, "need": {"score": <0-25>, "evidence": "<brief evidence>"}, "timeline": {"score": <0-25>, "evidence": "<brief evidence>"}, "use_case_tags": ["tag1", "tag2"]}"""
+
+# Hasil scoring hanya boleh mengubah status proyek dari status-status ini.
+# Status Assigned dan sesudahnya tidak pernah ditimpa (mis. hasil AI yang selesai terlambat).
+SCORING_MUTABLE_STATUSES = frozenset({"New", "Scoring Pending", "Need Clarification"})
 
 # Interval retry dalam detik
 RETRY_INTERVAL_SECONDS = 10
@@ -127,7 +132,7 @@ class ScoringEngine:
                 use_case_tags=[],
                 status="Need Clarification",
                 feedback="Tidak ada file valid (PDF/DOCX) untuk dianalisis. "
-                "Silakan gunakan opsi 'Isi BANT Manual'.",
+                "Lengkapi dokumen atau jawaban kuesioner kualifikasi.",
             )
             await self._update_project_scoring(db, project_id, result)
             return result
@@ -166,26 +171,19 @@ class ScoringEngine:
             sub_scores.budget + sub_scores.authority + sub_scores.need + sub_scores.timeline
         )
 
-        # Terapkan threshold gating
-        status = await self.apply_threshold(project_id, total_score, db)
-
-        # Buat feedback jika skor < 60
+        # Terapkan threshold gating (dengan guard status) dan simpan hasil
         feedback = None
-        if total_score < 60:
+        if total_score < bant_rubric.GATE_THRESHOLD:
             feedback = self._generate_feedback(sub_scores, all_extractions)
 
         result = BANTResult(
             total_score=total_score,
             sub_scores=sub_scores,
             use_case_tags=use_case_tags,
-            status=status,
+            status=bant_rubric.decide_status(total_score),
             feedback=feedback,
         )
-
-        # Update record proyek di database
-        await self._update_project_scoring(db, project_id, result)
-
-        return result
+        return await self._apply_scoring_result(db, project_id, result)
 
     async def score_manual(
         self,
@@ -228,63 +226,39 @@ class ScoringEngine:
             timeline=timeline,
         )
 
-        # Terapkan threshold gating
-        status = await self.apply_threshold(project_id, total_score, db)
-
-        # Buat feedback jika skor < 60
         feedback = None
-        if total_score < 60:
+        if total_score < bant_rubric.GATE_THRESHOLD:
             feedback = self._generate_feedback(sub_scores)
 
         result = BANTResult(
             total_score=total_score,
             sub_scores=sub_scores,
             use_case_tags=[],
-            status=status,
+            status=bant_rubric.decide_status(total_score),
             feedback=feedback,
         )
+        return await self._apply_scoring_result(db, project_id, result)
 
-        # Update record proyek di database
-        await self._update_project_scoring(db, project_id, result)
-
-        return result
-
-    async def apply_threshold(
+    async def _apply_scoring_result(
         self,
-        project_id: str,
-        score: int,
         db: AsyncSession,
-    ) -> str:
+        project_id: str,
+        result: BANTResult,
+    ) -> BANTResult:
         """
-        Terapkan threshold gating berdasarkan BANT score.
+        Simpan hasil scoring + terapkan gate 60, dengan guard status.
 
-        - Score >= 60: status "Pending Assignment", trigger notifikasi ke Lead_SA
-        - Score < 60: status "Need Clarification", feedback ke Sales
-
-        Args:
-            project_id: ID proyek.
-            score: Total BANT score (0-100).
-            db: Database session.
-
-        Returns:
-            Status baru proyek.
+        Hanya proyek berstatus New / Scoring Pending / Need Clarification yang berubah.
+        Selain itu (mis. Assigned) skor, status, dan notifikasi tidak disentuh, dan
+        `status` pada hasil yang dikembalikan mencerminkan status proyek sebenarnya.
+        Notifikasi Lead_SA dikirim hanya bila proyek benar-benar menjadi Pending Assignment.
         """
-        if score >= 60:
-            new_status = "Pending Assignment"
-            # Trigger notifikasi ke Lead_SA
-            await self._notify_lead_sa(db, project_id, score)
-        else:
-            new_status = "Need Clarification"
-
-        # Update status proyek
-        result = await db.execute(select(Project).where(Project.id_project == project_id))
-        project = result.scalar_one_or_none()
-        if project:
-            project.status = new_status
-            project.updated_at = datetime.now(timezone.utc)
-            await db.commit()
-
-        return new_status
+        applied, effective_status = await self._update_project_scoring(db, project_id, result)
+        if applied and result.status == "Pending Assignment":
+            await self._notify_lead_sa(db, project_id, result.total_score)
+        if effective_status is not None and effective_status != result.status:
+            result = result.model_copy(update={"status": effective_status})
+        return result
 
     async def search_similar_projects(
         self,
@@ -525,48 +499,49 @@ class ScoringEngine:
         Generate feedback untuk Sales ketika skor < 60.
         Identifikasi kriteria dengan sub-skor < 15.
         """
-        weak_criteria: list[str] = []
-        criteria_names = {
-            "budget": ("Budget", sub_scores.budget),
-            "authority": ("Authority", sub_scores.authority),
-            "need": ("Need", sub_scores.need),
-            "timeline": ("Timeline", sub_scores.timeline),
-        }
-
-        for key, (name, score) in criteria_names.items():
-            if score < 15:
-                weak_criteria.append(f"- {name} (skor: {score}/25): informasi kurang jelas")
-
-        if not weak_criteria:
-            return "Skor total belum mencapai threshold 60. Lengkapi informasi proyek."
-
-        feedback = "Kriteria berikut perlu dilengkapi:\n" + "\n".join(weak_criteria)
-        return feedback
+        return bant_rubric.generate_feedback(sub_scores)
 
     async def _update_project_scoring(
         self,
         db: AsyncSession,
         project_id: str,
         result: BANTResult,
-    ) -> None:
-        """Update record proyek dengan hasil scoring BANT."""
+    ) -> tuple[bool, Optional[str]]:
+        """
+        Update record proyek dengan hasil scoring BANT (guard status).
+
+        Return (diterapkan, status efektif): status baru bila diterapkan, status saat ini
+        bila di-guard, None bila proyek tidak ditemukan.
+        Sub-skor di-merge ke bant_detail agar metadata legacy tidak terhapus.
+        """
         stmt = select(Project).where(Project.id_project == project_id)
         query_result = await db.execute(stmt)
         project = query_result.scalar_one_or_none()
 
-        if project:
-            project.bant_score = result.total_score
-            project.bant_detail = result.sub_scores.model_dump()
-            project.use_case_tags = result.use_case_tags
-            project.status = result.status
-            project.updated_at = datetime.now(timezone.utc)
-            await db.commit()
-            logger.info(
-                f"Project {project_id}: Updated — "
-                f"bant_score={result.total_score}, status={result.status}"
-            )
-        else:
+        if not project:
             logger.error(f"Project {project_id} tidak ditemukan di database.")
+            return False, None
+
+        if project.status not in SCORING_MUTABLE_STATUSES:
+            logger.warning(
+                f"Project {project_id}: hasil scoring diabaikan — "
+                f"status '{project.status}' tidak boleh ditimpa."
+            )
+            return False, project.status
+
+        detail = dict(project.bant_detail or {})
+        detail.update(result.sub_scores.model_dump())
+        project.bant_score = result.total_score
+        project.bant_detail = detail
+        project.use_case_tags = result.use_case_tags
+        project.status = result.status
+        project.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+        logger.info(
+            f"Project {project_id}: Updated — "
+            f"bant_score={result.total_score}, status={result.status}"
+        )
+        return True, result.status
 
     async def _mark_manual_review_required(
         self,
@@ -578,13 +553,21 @@ class ScoringEngine:
         result = await db.execute(stmt)
         project = result.scalar_one_or_none()
 
-        if project:
-            project.status = "Manual Review Required"
-            project.updated_at = datetime.now(timezone.utc)
-            await db.commit()
+        if not project or project.status not in SCORING_MUTABLE_STATUSES:
+            return
+
+        project.status = "Manual Review Required"
+        project.updated_at = datetime.now(timezone.utc)
+        await db.commit()
 
         # Kirim notifikasi ke Lead_SA
         await self._notify_lead_sa(db, project_id, score=0, manual_review=True)
+
+    async def notify_new_opportunity(
+        self, db: AsyncSession, project_id: str, score: int
+    ) -> None:
+        """Notifikasi 'New Opportunity' ke Lead_SA untuk proyek yang baru lolos gate."""
+        await self._notify_lead_sa(db, project_id, score)
 
     async def _notify_lead_sa(
         self,

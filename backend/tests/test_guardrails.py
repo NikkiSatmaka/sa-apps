@@ -276,7 +276,8 @@ def test_property_5_log_pii_tanpa_nilai_mentah(k, email_local, domain):
         flags = detect_pii(text)
     # Tidak ada nilai mentah di PiiFlag maupun di record log.
     for f in flags:
-        assert email_local not in str(f)
+        # Substring local-part acak pendek (mis. "typ") menabrak nama field repr PiiFlag;
+        # yang dijaga adalah email utuh tidak bocor.
         assert email not in str(f)
     for message in handler.messages:
         # Email utuh tidak boleh pernah bocor ke log.

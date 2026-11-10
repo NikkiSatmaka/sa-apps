@@ -61,6 +61,8 @@ export interface Document {
   source_hash: string | null;
   generated_at: string | null;
   source_truncated: boolean;
+  /** Requirement di-override/Final dan sumbernya berubah → tampilkan banner (#37) */
+  source_changed?: boolean;
 }
 
 /** Input untuk membuat dokumen baru */
@@ -408,4 +410,22 @@ export function deleteRequirementItem(
   itemId: string
 ): Promise<Document> {
   return requirementItemRequest("DELETE", projectId, itemId);
+}
+
+/** "Pertahankan versi saya": perbarui hash sumber tanpa mengubah konten Requirement (#37) */
+export async function keepRequirementVersion(projectId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/projects/${projectId}/requirement/keep-version`,
+    { method: "POST", headers: authHeaders() }
+  );
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new ApiError(
+      errorData?.detail ||
+        errorData?.message ||
+        `Gagal mempertahankan versi Requirement (status ${response.status})`,
+      response.status,
+      errorData
+    );
+  }
 }

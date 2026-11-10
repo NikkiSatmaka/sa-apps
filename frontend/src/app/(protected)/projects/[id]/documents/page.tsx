@@ -9,6 +9,7 @@ import { DocumentForm } from "@/components/DocumentForm";
 import { DQNumberInput } from "@/components/DQNumberInput";
 import { RAGPanel } from "@/components/RAGPanel";
 import { RequirementItemsView } from "@/components/RequirementItemsView";
+import { RequirementSourceChangedBanner } from "@/components/RequirementSourceChangedBanner";
 import { RequirementRegenerateSection } from "@/components/RequirementRegenerateSection";
 import { RequirementItemsEditor } from "@/components/RequirementItemsEditor";
 import {
@@ -374,6 +375,12 @@ export default function DocumentsPage() {
                     {doc.doc_type === "Requirement" && (
                       <tr className="border-b border-neutral-50 bg-neutral-50/50">
                         <td colSpan={5} className="px-4 py-3">
+                          {doc.source_changed && canEditRequirement && (
+                            <RequirementSourceChangedBanner
+                              projectId={projectId}
+                              onChanged={() => mutateDocuments()}
+                            />
+                          )}
                           {canEditRequirement && doc.status !== "Final" ? (
                             <RequirementItemsEditor
                               projectId={projectId}

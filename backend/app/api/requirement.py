@@ -15,9 +15,12 @@ from app.core.dependencies import get_current_user
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.response import success_response
+from app.models.document import Document
 from app.services.requirement_generator import (
+    _collect_sources,
     can_regenerate_requirement,
     generate_pending_requirement,
+    is_protected_requirement,
 )
 
 router = APIRouter(tags=["Requirement"])
@@ -70,4 +73,65 @@ async def regenerate_requirement(
     return success_response(
         data={"requirement_generation_status": "pending"},
         message="Generate ulang Requirement dimulai.",
+    )
+
+
+@router.post(
+    "/projects/{project_id}/requirement/keep-version",
+    summary="Pertahankan versi Requirement saya (SA ditugaskan, Lead_SA, Admin)",
+    description=(
+        "Memperbarui hash sumber tersimpan ke hash saat ini tanpa mengubah konten, sehingga "
+        "banner 'sumber berubah' hilang. Hanya untuk Requirement yang di-override atau Final."
+    ),
+)
+async def keep_requirement_version(
+    project_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # Import lokal: menghindari impor siklik antara router dokumen dan router ini.
+    from app.api.documents import _to_response
+
+    project = (
+        await db.execute(select(Project).where(Project.id_project == project_id))
+    ).scalar_one_or_none()
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
+        )
+    if not can_regenerate_requirement(project, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hanya SA yang ditugaskan, Lead SA, atau Admin yang dapat mempertahankan versi Requirement.",
+        )
+
+    document = (
+        await db.execute(
+            select(Document)
+            .where(Document.id_project == project_id, Document.doc_type == "Requirement")
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Requirement untuk proyek ini belum tersedia.",
+        )
+    # Requirement biasa diperbarui otomatis; memajukan hash-nya akan membuat perubahan sumber
+    # terlewat tanpa re-summarize.
+    if not is_protected_requirement(document):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Requirement belum di-override dan belum Final; tidak ada versi yang dipertahankan.",
+        )
+
+    _, current_hash = await _collect_sources(db, project)
+    document.source_hash = current_hash
+    document.updated_by = current_user.id
+    await db.commit()
+
+    return success_response(
+        data=_to_response(document, source_changed=False),
+        message="Versi Requirement Anda dipertahankan.",
     )

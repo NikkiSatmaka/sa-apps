@@ -101,6 +101,12 @@ class Document(Base):
         comment="True bila teks sumber terpotong saat generate",
     )
 
+    source_changed_notified_hash: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Hash sumber basi terakhir yang sudah diberitahukan (notifikasi sekali per hash)",
+    )
+
     # Timestamp (timezone-aware)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

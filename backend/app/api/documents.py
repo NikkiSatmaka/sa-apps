@@ -32,7 +32,12 @@ from app.schemas.document import (
     DocumentStatusUpdate,
 )
 from app.schemas.response import success_response
-from app.services.requirement_generator import can_regenerate_requirement
+from app.services.requirement_generator import (
+    _collect_sources,
+    can_regenerate_requirement,
+    is_protected_requirement,
+    is_source_changed,
+)
 from app.utils.guardrails import RequirementItem
 from app.services.folder_provisioner import folder_provisioner
 from app.services.notification_service import (
@@ -53,7 +58,7 @@ def _generate_doc_id() -> str:
     return f"DOC-{date_part}-{random_part}"
 
 
-def _to_response(doc: Document) -> dict:
+def _to_response(doc: Document, source_changed: bool = False) -> dict:
     """Bentuk respons dokumen (JSON-ready), termasuk kolom khusus Requirement."""
     return DocumentResponse(
         id_doc=doc.id_doc,
@@ -72,6 +77,7 @@ def _to_response(doc: Document) -> dict:
         source_hash=doc.source_hash,
         generated_at=doc.generated_at,
         source_truncated=doc.source_truncated,
+        source_changed=source_changed,
     ).model_dump(mode="json")
 
 
@@ -288,11 +294,14 @@ async def list_project_documents(
     )
     documents = result.scalars().all()
 
-    # Format response
-    documents_data = [
-        _to_response(doc)
-        for doc in documents
-    ]
+    # Banner "sumber berubah" (#37): hanya Requirement yang di-override/Final perlu hash saat ini.
+    documents_data = []
+    for doc in documents:
+        changed = False
+        if doc.doc_type == "Requirement" and is_protected_requirement(doc):
+            _, current_hash = await _collect_sources(db, project)
+            changed = is_source_changed(doc, current_hash)
+        documents_data.append(_to_response(doc, source_changed=changed))
 
     return success_response(
         data={

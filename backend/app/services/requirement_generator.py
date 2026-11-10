@@ -30,7 +30,13 @@ from app.models.document import Document
 from app.models.project import Project
 from app.models.source_document import SourceDocument
 from app.schemas.qualification_definition import answer_questions, question_labels
+from app.models.user import User
 from app.services.llm_provider import llm_factory
+from app.services.notification_service import (
+    NotificationEvent,
+    NotificationEventType,
+    notification_service,
+)
 from app.utils.guardrails import (
     REQUIREMENT_KATEGORI,
     RequirementExtractionResult,
@@ -259,6 +265,7 @@ async def _generate(db: Any, project_id: str, replace: bool = False) -> None:
         existing_doc.content = new_content
         existing_doc.is_overridden = False
         existing_doc.source_hash = source_hash
+        existing_doc.source_changed_notified_hash = None
         existing_doc.generated_at = now
         existing_doc.source_truncated = truncated
         existing_doc.updated_at = now
@@ -359,6 +366,80 @@ def can_regenerate_requirement(project: Project, user: Any) -> bool:
     return user.role == "SA" and project.assigned_sa is not None and project.assigned_sa == user.id
 
 
+# --------------------------------------------------------------------------- sumber berubah (#37)
+def is_protected_requirement(requirement: Document) -> bool:
+    """Requirement yang tidak boleh ditimpa otomatis: di-override atau berstatus `Final`."""
+    return bool(requirement.is_overridden) or requirement.status == "Final"
+
+
+def is_source_changed(requirement: Document, current_hash: str) -> bool:
+    """
+    Banner "sumber berubah": hash sumber saat ini berbeda dari yang tersimpan DAN
+    Requirement dilindungi (override/Final). Requirement biasa diperbarui otomatis (#35).
+    """
+    return is_protected_requirement(requirement) and current_hash != requirement.source_hash
+
+
+async def _notify_source_changed(
+    db: Any, project: Project, requirement: Document, source_hash: str
+) -> None:
+    """
+    Beri tahu SA yang ditugaskan (atau semua Lead_SA bila belum ada SA) bahwa sumber
+    Requirement berubah. Sekali per hash basi: hash yang sudah diberitahukan disimpan di
+    `source_changed_notified_hash`. Memakai event `status_change` + flag metadata
+    `requirement_source_changed` (tanpa migration constraint event_type). Kegagalan kirim
+    tidak melempar; hash belum ditandai sehingga pemicu berikutnya mencoba lagi.
+    """
+    if requirement.source_changed_notified_hash == source_hash:
+        return
+
+    recipients: list[User] = []
+    if project.assigned_sa is not None:
+        sa = (
+            await db.execute(select(User).where(User.id == project.assigned_sa))
+        ).scalar_one_or_none()
+        if sa is not None:
+            recipients.append(sa)
+    if not recipients:
+        leads = await db.execute(select(User).where(User.role == "Lead_SA"))
+        recipients = list(leads.scalars().all())
+    if not recipients:
+        logger.warning(
+            "[Requirement] %s: sumber berubah tetapi tidak ada penerima notifikasi.",
+            project.id_project,
+        )
+        return
+
+    message = (
+        f"Sumber Requirement proyek '{project.project_name}' berubah (jawaban kuesioner atau "
+        f"Source document). Requirement tidak diperbarui otomatis karena sudah diedit atau "
+        f"berstatus Final. Buka tab Dokumen untuk generate ulang atau mempertahankan versi Anda."
+    )
+    try:
+        for user in recipients:
+            await notification_service.send_notification(
+                NotificationEvent(
+                    event_type=NotificationEventType.STATUS_CHANGE,
+                    recipient_user_id=user.id,
+                    recipient_email=user.email,
+                    reference_id=project.id_project,
+                    subject="[Portal SA] Sumber Requirement berubah — perlu keputusan",
+                    metadata={
+                        "project_name": project.project_name,
+                        "customer_name": project.customer_name,
+                        "requirement_source_changed": True,
+                        "message": message,
+                    },
+                )
+            )
+    except Exception as e:  # noqa: BLE001 - notifikasi tidak boleh mengganggu alur lain
+        logger.error("[Requirement] %s: gagal mengirim notifikasi: %s", project.id_project, e)
+        return
+
+    requirement.source_changed_notified_hash = source_hash
+    await db.commit()
+
+
 # --------------------------------------------------------------------------- re-summarize (#35)
 TERMINAL_PROJECT_STATUSES = ("Closed-Win", "Lost", "Handover Complete")
 
@@ -376,10 +457,16 @@ async def _resummarize(db: Any, project_id: str) -> None:
     )
     requirement = req_result.scalar_one_or_none()
     # Belum ada (belum lolos gate / generate awal belum jalan): tidak ada yang diperbarui.
-    if requirement is None or requirement.is_overridden or requirement.status == "Final":
+    if requirement is None:
         return
 
     sources, source_hash = await _collect_sources(db, project)
+    # Di-override atau Final: konten tidak disentuh (ADR 0004); hanya beri tahu SA (#37).
+    if is_protected_requirement(requirement):
+        if is_source_changed(requirement, source_hash):
+            await _notify_source_changed(db, project, requirement, source_hash)
+        return
+
     if source_hash == requirement.source_hash:
         return
 
@@ -404,7 +491,7 @@ async def resummarize_if_source_changed(project_id: str) -> None:
     Dipicu setelah jawaban kuesioner diedit atau ekstraksi Source document selesai.
     Bandingkan `source_hash` saat ini dengan yang tersimpan; beda DAN belum di-override
     DAN dokumen bukan `Final` DAN proyek bukan status terminal → generate ulang dan simpan
-    hash baru. Selain itu no-op (banner/notifikasi = tiket #37). Gagal: Requirement lama
+    hash baru. Selain itu no-op (notifikasi sekali per hash basi, #37). Gagal: Requirement lama
     dan hash lama dipertahankan (pemicu berikutnya mencoba lagi); tidak pernah melempar.
     Diserialkan per proyek bersama `generate_pending_requirement`.
     """

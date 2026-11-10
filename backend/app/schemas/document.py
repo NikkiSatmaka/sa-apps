@@ -97,3 +97,10 @@ class DocumentResponse(BaseModel):
     source_hash: Optional[str] = Field(None, description="Hash sumber saat generate")
     generated_at: Optional[datetime] = Field(None, description="Waktu generate AI terakhir")
     source_truncated: bool = Field(False, description="True bila teks sumber terpotong")
+    source_changed: bool = Field(
+        False,
+        description=(
+            "True bila Requirement yang di-override/Final punya sumber yang sudah berubah "
+            "(hash sumber saat ini berbeda dari tersimpan); UI menampilkan banner"
+        ),
+    )

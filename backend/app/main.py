@@ -20,6 +20,7 @@ from app.api.dq_number import router as dq_number_router
 from app.api.handover import router as handover_router
 from app.api.notifications import router as notifications_router
 from app.api.projects import router as projects_router
+from app.api.qualification import router as qualification_router
 from app.api.scoring import router as scoring_router
 from app.api.sla import router as sla_router
 from app.api.subtasks import router as subtasks_router
@@ -84,6 +85,7 @@ app.include_router(dq_number_router, prefix="/api/v1")
 app.include_router(activity_logs_router, prefix="/api/v1")
 app.include_router(calendar_router, prefix="/api/v1")
 app.include_router(sla_router, prefix="/api/v1")
+app.include_router(qualification_router, prefix="/api/v1")
 app.include_router(notifications_router, prefix="/api/v1")
 app.include_router(handover_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")

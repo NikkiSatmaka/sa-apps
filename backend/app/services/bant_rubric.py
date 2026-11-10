@@ -14,9 +14,19 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Mapping, Optional
 
+from app.schemas.qualification_definition import (  # noqa: F401  (re-export)
+    BELUM,
+    GO_LIVE_3_BULAN,
+    GO_LIVE_6_BULAN,
+    GO_LIVE_LEBIH_6_BULAN,
+    PERAN_PENGAMBIL_KEPUTUSAN,
+    PERAN_PERANTARA,
+    QUESTIONNAIRE_SCHEMA_VERSION,
+    TIDAK_TAHU,
+    YA,
+    get_choices,
+)
 from app.schemas.scoring import BANTSubScores
-
-QUESTIONNAIRE_SCHEMA_VERSION = 1
 
 # Kunci sub-skor numerik di projects.bant_detail (dimiliki backend).
 SUB_SCORE_KEYS = ("budget", "authority", "need", "timeline")
@@ -26,25 +36,12 @@ GATE_THRESHOLD = 60
 # Kriteria dengan sub-skor di bawah angka ini dianggap lemah di feedback.
 WEAK_CRITERION_THRESHOLD = 15
 
-# --- Pilihan jawaban (nilai persis yang dikirim klien) ---
-YA, BELUM, TIDAK_TAHU = "Ya", "Belum", "Tidak tahu"
-BUDGET_DIALOKASIKAN_CHOICES = (YA, BELUM, TIDAK_TAHU)
-
-PERAN_PENGAMBIL_KEPUTUSAN, PERAN_PERANTARA = "Pengambil keputusan", "Perantara"
-PERAN_PIC_CHOICES = (PERAN_PENGAMBIL_KEPUTUSAN, PERAN_PERANTARA, TIDAK_TAHU)
-
-JENIS_WORKLOAD_CHOICES = (
-    "Migrasi ke cloud",
-    "Data warehouse/analytics",
-    "Disaster recovery/backup",
-    "Aplikasi baru/modernisasi",
-    "Keamanan",
-    "Lainnya",
-)
-LINGKUNGAN_CHOICES = ("On-prem", "Cloud", "Hybrid")
-
-GO_LIVE_3_BULAN, GO_LIVE_6_BULAN, GO_LIVE_LEBIH_6_BULAN = "≤ 3 bulan", "≤ 6 bulan", "> 6 bulan"
-TARGET_GO_LIVE_CHOICES = (GO_LIVE_3_BULAN, GO_LIVE_6_BULAN, GO_LIVE_LEBIH_6_BULAN, TIDAK_TAHU)
+# --- Pilihan jawaban: sumbernya definisi kuesioner (app.schemas.qualification_definition) ---
+BUDGET_DIALOKASIKAN_CHOICES = get_choices("budget_dialokasikan")
+PERAN_PIC_CHOICES = get_choices("peran_pic")
+JENIS_WORKLOAD_CHOICES = get_choices("jenis_workload")
+LINGKUNGAN_CHOICES = get_choices("lingkungan")
+TARGET_GO_LIVE_CHOICES = get_choices("target_go_live")
 
 # --- Poin rubrik (maksimum 25 per kriteria) ---
 # Budget: 10 + 15

@@ -13,45 +13,16 @@ import math
 import re
 from typing import Any, Optional
 
-from app.services.bant_rubric import (
-    BUDGET_DIALOKASIKAN_CHOICES,
-    JENIS_WORKLOAD_CHOICES,
-    LINGKUNGAN_CHOICES,
-    PERAN_PIC_CHOICES,
-    TARGET_GO_LIVE_CHOICES,
+from app.schemas.qualification_definition import (
+    EMAIL_PATTERN,
+    answer_questions,
 )
 
 FIELD_PREFIX = "qualification_answers"
-MAX_MRR = 999_999_999_999
-MAX_TEXT_LENGTH = 2000
-MAX_SHORT_LENGTH = 200
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_EMAIL_RE = re.compile(EMAIL_PATTERN)
 
-# (nama field, wajib, tipe)  — tipe: "choice:<tuple>", "text", "short", "number"
-_SPEC: tuple[tuple[str, bool, str], ...] = (
-    ("mrr", False, "number"),
-    ("budget_dialokasikan", True, "choice"),
-    ("pic_nama", False, "short"),
-    ("pic_jabatan", False, "short"),
-    ("pic_email", False, "email"),
-    ("peran_pic", True, "choice"),
-    ("stakeholder_lain", False, "text"),
-    ("masalah_bisnis", True, "text"),
-    ("jenis_workload", True, "choice"),
-    ("lingkungan", True, "choice"),
-    ("skala", True, "short"),
-    ("persyaratan_khusus", False, "text"),
-    ("kompetitor", False, "text"),
-    ("target_go_live", True, "choice"),
-)
-_CHOICES = {
-    "budget_dialokasikan": BUDGET_DIALOKASIKAN_CHOICES,
-    "peran_pic": PERAN_PIC_CHOICES,
-    "jenis_workload": JENIS_WORKLOAD_CHOICES,
-    "lingkungan": LINGKUNGAN_CHOICES,
-    "target_go_live": TARGET_GO_LIVE_CHOICES,
-}
-QUESTIONNAIRE_FIELDS = tuple(name for name, _, _ in _SPEC)
+# Semua aturan (wajib, tipe, pilihan, batas) dibaca dari definisi kuesioner.
+QUESTIONNAIRE_FIELDS = tuple(q.name for q in answer_questions())
 
 
 def _err(field: str, reason: str) -> dict[str, str]:
@@ -73,7 +44,8 @@ def validate_answers(raw: Any) -> tuple[Optional[dict[str, Any]], list[dict[str,
         if key not in QUESTIONNAIRE_FIELDS:
             errors.append(_err(str(key), "Field tidak dikenal pada kuesioner."))
 
-    for name, required, kind in _SPEC:
+    for q in answer_questions():
+        name, required, kind = q.name, q.required, q.type
         value = raw.get(name)
         if isinstance(value, str):
             value = value.strip()
@@ -84,8 +56,8 @@ def validate_answers(raw: Any) -> tuple[Optional[dict[str, Any]], list[dict[str,
             continue
 
         if kind == "choice":
-            if value not in _CHOICES[name]:
-                errors.append(_err(name, f"Pilihan tidak valid. Pilih salah satu: {', '.join(_CHOICES[name])}."))
+            if value not in q.choices:
+                errors.append(_err(name, f"Pilihan tidak valid. Pilih salah satu: {', '.join(q.choices)}."))
                 continue
         elif kind == "number":
             if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -94,16 +66,15 @@ def validate_answers(raw: Any) -> tuple[Optional[dict[str, Any]], list[dict[str,
             if isinstance(value, float) and not math.isfinite(value):
                 errors.append(_err(name, "Harus berupa angka."))
                 continue
-            if value < 0 or value > MAX_MRR:
-                errors.append(_err(name, f"Harus antara 0 dan {MAX_MRR:,}."))
+            if value < q.min_value or value > q.max_value:
+                errors.append(_err(name, f"Harus antara {q.min_value:,.0f} dan {q.max_value:,.0f}."))
                 continue
         else:
             if not isinstance(value, str):
                 errors.append(_err(name, "Harus berupa teks."))
                 continue
-            limit = MAX_TEXT_LENGTH if kind == "text" else MAX_SHORT_LENGTH
-            if len(value) > limit:
-                errors.append(_err(name, f"Maksimal {limit} karakter."))
+            if len(value) > q.max_length:
+                errors.append(_err(name, f"Maksimal {q.max_length} karakter."))
                 continue
             if kind == "email" and not _EMAIL_RE.match(value):
                 errors.append(_err(name, "Format email tidak valid."))

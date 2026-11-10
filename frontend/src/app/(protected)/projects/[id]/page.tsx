@@ -11,6 +11,7 @@ import { AssignmentModal } from "@/components/AssignmentModal";
 import { ReassignModal } from "@/components/ReassignModal";
 import { CollaboratorSection } from "@/components/CollaboratorSection";
 import { SubtaskSection } from "@/components/SubtaskSection";
+import { SourceDocumentSection, type SourceDocumentItem } from "@/components/SourceDocumentSection";
 import type { HandoverStatus } from "@/lib/api/handover";
 
 /**
@@ -56,6 +57,7 @@ interface ProjectDetail {
     added_by_name: string;
     created_at: string;
   }[];
+  source_documents?: SourceDocumentItem[];
   gdrive_folder_id: string | null;
   folder_provisioning_status: "pending" | "provisioned" | "failed" | null;
   created_at: string;
@@ -340,6 +342,8 @@ export default function ProjectDetailPage() {
               </div>
             </div>
           )}
+
+          <SourceDocumentSection documents={project.source_documents ?? []} />
 
           {/* Section: Activity Log Proyek */}
           <ProjectActivitySection projectId={projectId} />

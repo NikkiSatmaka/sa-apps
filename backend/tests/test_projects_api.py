@@ -241,6 +241,7 @@ class TestFileUploadValidation:
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "1000000",
                 "qualification_answers": QA,
+                "file_types": ["MoM"]*1,
             },
             files=[_create_fake_file("proposal.pdf")],
         )
@@ -263,6 +264,7 @@ class TestFileUploadValidation:
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "1000000",
                 "qualification_answers": QA,
+                "file_types": ["MoM"]*1,
             },
             files=[("files", ("document.docx", BytesIO(b"docx content"), mime))],
         )
@@ -283,6 +285,7 @@ class TestFileUploadValidation:
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "1000000",
                 "qualification_answers": QA,
+                "file_types": ["MoM"]*1,
             },
             files=[("files", ("image.png", BytesIO(b"png data"), "image/png"))],
         )
@@ -305,6 +308,7 @@ class TestFileUploadValidation:
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "1000000",
                 "qualification_answers": QA,
+                "file_types": ["MoM"]*3,
             },
             files=[
                 _create_fake_file("valid.pdf"),
@@ -362,6 +366,7 @@ class TestProjectRecordCreation:
             "/api/v1/projects",
             files=[_create_fake_file("proposal.pdf")],
             data={
+                "file_types": ["MoM"],
                 "project_name": "Proyek Baru",
                 "customer_name": "PT Baru",
                 "target_submit": str(date.today() + timedelta(days=14)),
@@ -656,12 +661,13 @@ class TestFolderProvisioningStatusInResponse:
         # Urutan execute di get_project_detail:
         # 1) lookup Project, 2) cek collaborator (None),
         # 3) lookup Sales PIC (None), 4) lookup SA assigned (skip: assigned_sa None),
-        # 5) daftar collaborators (kosong).
+        # 5) daftar collaborators (kosong), 6) daftar Source document (kosong).
         mock_session.execute = AsyncMock(
             side_effect=[
                 _make_scalar_result(project),
                 _make_scalar_result(None),
                 _make_scalar_result(None),
+                _make_scalars_result([]),
                 _make_scalars_result([]),
             ]
         )

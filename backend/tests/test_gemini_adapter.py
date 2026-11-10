@@ -251,6 +251,47 @@ class TestParseDocument:
         assert parts[1]["inline_data"]["data"] == expected_b64
 
 
+class TestParseDocumentBatasOutput:
+    """Batas output parse_document: default tidak berubah, bisa dinaikkan, finishReason dibaca."""
+
+    async def _kirim(self, adapter, body=None, **kwargs):
+        captured = {}
+
+        async def capture_post(url, json=None, headers=None):
+            captured.update(json)
+            return httpx.Response(200, json=body or mock_gemini_response("ok"))
+
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = mock_client_cls.return_value.__aenter__.return_value
+            mock_client.post.side_effect = capture_post
+            result = await adapter.parse_document(
+                file_content=b"x", mime_type="application/pdf", prompt="p", **kwargs
+            )
+        return captured, result
+
+    @pytest.mark.asyncio
+    async def test_default_tetap_8192(self, mock_settings):
+        payload, _ = await self._kirim(GeminiAdapter())
+        assert payload["generationConfig"]["maxOutputTokens"] == 8192
+
+    @pytest.mark.asyncio
+    async def test_batas_output_bisa_dinaikkan(self, mock_settings):
+        payload, _ = await self._kirim(GeminiAdapter(), max_output_tokens=32768)
+        assert payload["generationConfig"]["maxOutputTokens"] == 32768
+
+    @pytest.mark.asyncio
+    async def test_finish_reason_dibawa_ke_metadata(self, mock_settings):
+        body = mock_gemini_response("terpotong")
+        body["candidates"][0]["finishReason"] = "MAX_TOKENS"
+        _, result = await self._kirim(GeminiAdapter(), body=body)
+        assert result.metadata.finish_reason == "MAX_TOKENS"
+
+    @pytest.mark.asyncio
+    async def test_finish_reason_kosong_bila_tidak_ada(self, mock_settings):
+        _, result = await self._kirim(GeminiAdapter())
+        assert result.metadata.finish_reason is None
+
+
 # =============================================================================
 # Test: structure_text
 # =============================================================================

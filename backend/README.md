@@ -86,6 +86,34 @@ Cara kerja fixture (`tests/integration/conftest.py`):
 - Keamanan: `TEST_DATABASE_URL` wajib driver `postgresql+asyncpg` dan host lokal (`127.0.0.1`/`localhost`).
   Untuk server uji non-lokal (mis. service CI) set `TEST_DATABASE_ALLOW_REMOTE=1`.
 
+### Fake boundary (Gemini, Drive, Gmail, Calendar)
+
+Fake di `tests/integration/fakes/` menggantikan layanan eksternal pada test integrasi. Fixture
+(`fake_llm`, `fake_drive`, `fake_gmail`, `fake_calendar`) terdaftar otomatis di `tests/integration/`,
+dibuat baru per test, dan dipulihkan oleh `monkeypatch` (tanpa state sisa). Tidak ada perubahan
+kode produksi: semua dipasang pada singleton/registry yang sudah ada.
+
+| Fixture | Dipasang di | Pemrograman | Perekaman |
+|---|---|---|---|
+| `fake_llm` | `llm_factory` (adapter `fake`, `LLM_PROVIDER=fake`) | `sukses/malformed/error(tipe)/terpotong(jenis, ...)`, `program(jenis, *respons, tetap=)` | `panggilan`, `jumlah(jenis)`, `panggilan_jenis(jenis)` |
+| `fake_drive` | method publik `folder_provisioner` | `fail_next(operasi, times=)`, `fail_always(operasi)` | `panggilan`, `folder`, `izin`, `peran(folder, email)` |
+| `fake_gmail` | `notification_service.send_email` | `fail_next(times=)`, `fail_always()`, `terkonfigurasi`, `tahan_email()/lepaskan_email()` | `percobaan`, `terkirim`, `gagal`, `await tunggu_percobaan(n)` |
+| `fake_calendar` | `calendar_service.fetch_events` | `set_events(*item)`, `fail_next("timeout"/"api")`, `fail_always()` | `access_token_diterima` |
+
+Catatan:
+
+- `fake_llm` jenis panggilan: `complete_text`, `parse_document`, `structure_text`. Panggilan yang belum
+  diprogram gagal keras (`AssertionError`). Mode: sukses, `malformed` (structure_text → error
+  `invalid_response`; lainnya → teks JSON rusak), `error` (`timeout`/`auth_error`/`invalid_response`/`unknown`),
+  `terpotong` (`finish_reason="MAX_TOKENS"`).
+- `fake_gmail.send_email` meniru kontrak produksi: gagal = `False`, tidak raise; `EMAIL_RETRY_INTERVAL`
+  dinolkan. Email dikirim di background task bersesi sendiri; pada harness satu koneksi, panggil
+  `tahan_email()` sebelum request dan `lepaskan_email()` sesudahnya agar tidak bertabrakan dengan sesi request.
+- `fake_calendar` menerima item mentah gaya Google (`event_berjadwal`, `event_seharian`) dan memakai
+  `_parse_event` asli.
+- Contoh: `tests/integration/test_fake_boundary_contoh.py` (lewat API + Postgres) dan
+  `tests/test_fakes_boundary.py` (unit perilaku fake).
+
 ## Migration
 
 Setiap perubahan model SQLAlchemy wajib disertai migration Alembic di `alembic/versions/` dalam PR yang sama.

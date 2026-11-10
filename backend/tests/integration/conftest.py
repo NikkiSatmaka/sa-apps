@@ -298,3 +298,12 @@ async def api(
             yield KlienApi(client=client, generate_requirement=gen_requirement)
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+
+# Fixture fake boundary (tiket B3): fake_llm, fake_drive, fake_gmail, fake_calendar.
+from tests.integration.fakes.fixtures import (  # noqa: E402,F401
+    fake_calendar,
+    fake_drive,
+    fake_gmail,
+    fake_llm,
+)

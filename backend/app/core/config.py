@@ -77,7 +77,7 @@ class Settings(BaseSettings):
 
     # LLM Provider — Abstraction layer untuk multi-provider AI
     LLM_PROVIDER: str = "gemini"  # Provider aktif: gemini, openai, anthropic
-    LLM_MODEL_NAME: str = "gemini-1.5-flash"  # Model default yang digunakan
+    LLM_MODEL_NAME: str = "gemini-3.8-flash"  # Model default yang digunakan
     LLM_API_ENDPOINT: str = "https://generativelanguage.googleapis.com/v1"
     LLM_TIMEOUT_SECONDS: int = 30  # Timeout per request ke LLM
     LLM_MAX_RETRIES: int = 3  # Jumlah retry saat gagal

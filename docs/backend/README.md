@@ -26,7 +26,7 @@ Untuk konteks kontribusi, lihat [`CONTRIBUTING.md`](../../CONTRIBUTING.md); untu
 | Package manager | uv (uv_build backend) | — |
 | Dev tools | pytest, pytest-asyncio, ruff, hypothesis | — |
 
-LLM: abstraction layer multi-provider (`llm_provider.py`) dengan adapter aktif `GeminiAdapter` (default model `gemini-1.5-flash`), didaftarkan saat startup di `main.py`.
+LLM: abstraction layer multi-provider (`llm_provider.py`) dengan adapter aktif `GeminiAdapter` (default model `gemini-3.8-flash`), didaftarkan saat startup di `main.py`.
 
 ## Project Layout
 
@@ -95,7 +95,7 @@ Dibaca via `pydantic-settings` di `core/config.py` (file `.env`, `case_sensitive
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | `""` | Kredensial Google OAuth. |
 | `GOOGLE_REDIRECT_URI` | `http://localhost:8000/api/v1/auth/callback` | Callback OAuth. |
 | `LLM_PROVIDER` | `gemini` | Provider LLM aktif. |
-| `LLM_MODEL_NAME` | `gemini-1.5-flash` | Model default. |
+| `LLM_MODEL_NAME` | `gemini-3.8-flash` | Model default. |
 | `LLM_API_ENDPOINT` | `https://generativelanguage.googleapis.com/v1` | Endpoint LLM. |
 | `LLM_TIMEOUT_SECONDS` / `LLM_MAX_RETRIES` | `30` / `3` | Timeout + retry LLM. |
 | `LLM_MAX_INPUT_CHARS` | `20000` | Guardrail batas karakter input teks. |

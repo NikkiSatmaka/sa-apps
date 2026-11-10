@@ -72,6 +72,7 @@ services:
       # JSON email/wildcard -> role. Kosong = semua user baru jadi SA (tanpa Admin).
       ROLE_MAPPING: ${ROLE_MAPPING:-}
       LLM_PROVIDER: ${LLM_PROVIDER}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-gemini-3.8-flash}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}

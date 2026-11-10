@@ -119,8 +119,17 @@ export function QualificationForm({ schema, answers, errors, onChange, disabled 
         const rows = layoutRows(schema, g.key);
         if (rows.length === 0) return null;
         return (
-          <fieldset key={g.key} className="bg-white rounded-lg border border-neutral-200 p-6 space-y-5">
-            <legend className="text-sm font-semibold text-neutral-800 px-1">{g.title}</legend>
+          // Bukan <fieldset>/<legend>: browser menggambar legend tepat di garis border sehingga
+          // judul terlihat keluar dari kotak. Section + heading menjaga judul di dalam kotak
+          // dan tetap diumumkan ke pembaca layar lewat aria-labelledby.
+          <section
+            key={g.key}
+            aria-labelledby={`qualification-group-${g.key}`}
+            className="bg-white rounded-lg border border-neutral-200 p-6 space-y-5"
+          >
+            <h3 id={`qualification-group-${g.key}`} className="text-sm font-semibold text-neutral-800">
+              {g.title}
+            </h3>
             {rows.map((row) => {
               const first = row.questions[0].name;
               const cols = GRID_COLS[row.questions.length];
@@ -131,7 +140,7 @@ export function QualificationForm({ schema, answers, errors, onChange, disabled 
                 </div>
               );
             })}
-          </fieldset>
+          </section>
         );
       })}
     </div>

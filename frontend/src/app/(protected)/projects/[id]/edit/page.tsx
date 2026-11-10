@@ -3,7 +3,19 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
+import { useSWRConfig } from "swr";
 import { fetcher, apiRequest } from "@/lib/fetcher";
+import { useAuthStore } from "@/store/auth";
+import { QualificationForm } from "@/components/QualificationForm";
+import { extractFieldErrors, updateQualificationAnswers } from "@/lib/api/projects";
+import {
+  answerEditMode,
+  answersFromView,
+  validateAnswers,
+  type QualificationAnswers,
+  type QualificationErrors,
+  type QualificationView,
+} from "@/lib/qualification";
 
 /**
  * Halaman Edit Proyek — memungkinkan update informasi proyek
@@ -17,6 +29,8 @@ interface ProjectDetail {
   dq_number: string | null;
   target_submit: string | null;
   bant_detail: Record<string, unknown> | null;
+  sales_pic?: { id: string | null };
+  qualification?: QualificationView;
 }
 
 export default function EditProjectPage() {
@@ -31,6 +45,11 @@ export default function EditProjectPage() {
 
   const [form, setForm] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const { user } = useAuthStore();
+  const { mutate } = useSWRConfig();
+  const [answers, setAnswers] = useState<QualificationAnswers | null>(null);
+  const [answerErrors, setAnswerErrors] = useState<QualificationErrors>({});
+  const [isSavingAnswers, setIsSavingAnswers] = useState(false);
   const [toast, setToast] = useState<{ type: "success" | "error"; msg: string } | null>(null);
 
   // Inisialisasi form dari data proyek
@@ -58,13 +77,18 @@ export default function EditProjectPage() {
           customer_name: form.customer_name,
           dq_number: form.dq_number || null,
           target_submit: form.target_submit || null,
-          bant_detail: {
-            budget_mrr: form.budget_mrr ? Number(form.budget_mrr) : null,
-            pic_name: form.pic_name || null,
-            pic_position: form.pic_position || null,
-            pic_email: form.pic_email || null,
-            need_description: form.need_description || null,
-          },
+          // Proyek baru: jawaban kuesioner diedit lewat endpoint khusus, bukan bant_detail.
+          ...(project?.qualification?.legacy !== false
+            ? {
+                bant_detail: {
+                  budget_mrr: form.budget_mrr ? Number(form.budget_mrr) : null,
+                  pic_name: form.pic_name || null,
+                  pic_position: form.pic_position || null,
+                  pic_email: form.pic_email || null,
+                  need_description: form.need_description || null,
+                },
+              }
+            : {}),
         },
       });
       setToast({ type: "success", msg: "Proyek berhasil diupdate." });
@@ -73,6 +97,37 @@ export default function EditProjectPage() {
       setToast({ type: "error", msg: err instanceof Error ? err.message : "Gagal menyimpan." });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSaveAnswers = async () => {
+    if (!answers) return;
+    const clientErrors = validateAnswers(answers);
+    setAnswerErrors(clientErrors);
+    if (Object.keys(clientErrors).length > 0) return;
+    setIsSavingAnswers(true);
+    try {
+      const res = await updateQualificationAnswers(projectId, answers);
+      await mutate(`/projects/${projectId}`);
+      setToast({
+        type: "success",
+        msg: res.rescored === false
+          ? "Jawaban dikoreksi (skor tidak dihitung ulang)."
+          : res.status === "Pending Assignment"
+            ? `Skor ${res.total_score} — proyek lolos dan masuk antrian assignment.`
+            : `Skor ${res.total_score} — masih perlu klarifikasi tambahan.`,
+      });
+    } catch (err) {
+      const errs: QualificationErrors = {};
+      for (const { field, reason } of extractFieldErrors(err)) {
+        if (field.startsWith("qualification_answers.")) {
+          errs[field.split(".")[1] as keyof QualificationAnswers] = reason;
+        }
+      }
+      setAnswerErrors(errs);
+      setToast({ type: "error", msg: err instanceof Error ? err.message : "Gagal menyimpan jawaban." });
+    } finally {
+      setIsSavingAnswers(false);
     }
   };
 
@@ -91,6 +146,14 @@ export default function EditProjectPage() {
         <p className="text-sm text-red-700">Gagal memuat data proyek.</p>
       </div>
     );
+  }
+
+  const isLegacy = project.qualification?.legacy !== false;
+  const editMode = isLegacy
+    ? "none"
+    : answerEditMode(user?.role, user?.id, project.sales_pic?.id, project.status);
+  if (!isLegacy && answers === null && project.qualification) {
+    setAnswers(answersFromView(project.qualification.answers));
   }
 
   const updateField = (key: string, value: string) => {
@@ -145,6 +208,8 @@ export default function EditProjectPage() {
           </div>
         </div>
 
+        {isLegacy && (
+          <>
         <hr className="border-neutral-100" />
         <h3 className="text-sm font-semibold text-neutral-700">Detail BANT</h3>
 
@@ -175,6 +240,8 @@ export default function EditProjectPage() {
           <textarea value={form.need_description || ""} onChange={(e) => updateField("need_description", e.target.value)} rows={3}
             className="w-full px-3 py-2.5 border border-neutral-300 rounded-lg text-sm resize-y focus:outline-none focus:ring-2 focus:ring-primary-500" />
         </div>
+          </>
+        )}
       </div>
 
       {/* Save button */}
@@ -185,6 +252,44 @@ export default function EditProjectPage() {
       >
         {isSaving ? "Menyimpan..." : "Simpan Perubahan"}
       </button>
+
+      {/* Kuesioner kualifikasi (proyek baru). Kontrol edit hanya sesuai role/status. */}
+      {!isLegacy && answers && (
+        <div className="bg-white border border-neutral-200 rounded-lg p-6 space-y-4">
+          <h2 className="text-base font-semibold text-neutral-800">Kuesioner Kualifikasi</h2>
+          {editMode === "none" ? (
+            <p className="text-sm text-neutral-600">
+              Jawaban kuesioner hanya dapat diubah saat status Need Clarification
+              (Sales PIC) atau oleh Lead SA/Admin setelah lolos gate.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm text-neutral-600">
+                {editMode === "rescore"
+                  ? "Menyimpan akan menghitung ulang skor BANT. Jika skor mencapai 60, proyek masuk antrian assignment."
+                  : "Koreksi jawaban tidak menghitung ulang skor dan tidak mengubah status."}
+              </p>
+              <QualificationForm
+                answers={answers}
+                errors={answerErrors}
+                onChange={(field, value) => setAnswers((prev) => (prev ? { ...prev, [field]: value } : prev))}
+                disabled={isSavingAnswers}
+              />
+              <button
+                onClick={handleSaveAnswers}
+                disabled={isSavingAnswers}
+                className="w-full py-3 px-4 rounded-lg font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+              >
+                {isSavingAnswers
+                  ? "Menyimpan..."
+                  : editMode === "rescore"
+                    ? "Simpan Jawaban & Hitung Ulang Skor"
+                    : "Simpan Koreksi Jawaban"}
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

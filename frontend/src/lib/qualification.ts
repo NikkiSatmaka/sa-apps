@@ -125,3 +125,43 @@ export interface QualificationView {
     timeline_target?: string | null;
   } | null;
 }
+
+/** Status ketika jawaban kuesioner boleh diedit Sales PIC (dan memicu re-score). */
+export const EDITABLE_STATUS = "Need Clarification";
+/** Status sebelum/di luar gate yang menolak edit jawaban (menunggu scoring/review). */
+const LOCKED_STATUSES = ["New", "Scoring Pending", "Manual Review Required"];
+
+export type AnswerEditMode = "rescore" | "correct" | "none";
+
+/**
+ * Mode edit jawaban kuesioner (mencerminkan aturan backend; backend tetap penentu):
+ * - "rescore": Need Clarification untuk Sales PIC, Lead_SA, atau Admin → skor dihitung ulang.
+ * - "correct": Lead_SA/Admin setelah lolos gate → koreksi tanpa re-score.
+ * - "none": selain itu (kontrol edit tidak ditampilkan).
+ */
+export function answerEditMode(
+  role: string | undefined,
+  userId: string | undefined,
+  salesPicId: string | null | undefined,
+  status: string
+): AnswerEditMode {
+  const privileged = role === "Lead_SA" || role === "Admin";
+  const isPic = role === "Sales" && !!userId && userId === salesPicId;
+  if (!privileged && !isPic) return "none";
+  if (status === EDITABLE_STATUS) return "rescore";
+  if (privileged && !LOCKED_STATUSES.includes(status)) return "correct";
+  return "none";
+}
+
+/** Ubah jawaban dari backend (string | number | null) menjadi state form. */
+export function answersFromView(
+  answers: Record<string, string | number | null> | null
+): QualificationAnswers {
+  const out: QualificationAnswers = { ...EMPTY_ANSWERS };
+  if (!answers) return out;
+  for (const key of Object.keys(EMPTY_ANSWERS) as (keyof QualificationAnswers)[]) {
+    const v = answers[key];
+    out[key] = v === null || v === undefined ? "" : String(v);
+  }
+  return out;
+}

@@ -6,7 +6,8 @@
  * - getBANTResult: Ambil hasil scoring BANT
  */
 
-import { ApiError } from "../fetcher";
+import { ApiError, apiRequest } from "../fetcher";
+import { toPayload, type QualificationAnswers } from "../qualification";
 
 // Base URL API backend
 const API_BASE_URL =
@@ -145,4 +146,23 @@ export async function getBANTResult(
 
   const json = await response.json();
   return json.data ?? json;
+}
+
+/** Hasil simpan jawaban kuesioner: re-score (total_score, status, feedback) atau koreksi (rescored=false). */
+export interface UpdateAnswersResult {
+  total_score: number | null;
+  status: string;
+  feedback?: string | null;
+  rescored?: boolean;
+}
+
+/** Edit jawaban kuesioner (PUT /projects/{id}/qualification-answers); skor dihitung backend. */
+export function updateQualificationAnswers(
+  projectId: string,
+  answers: QualificationAnswers
+): Promise<UpdateAnswersResult> {
+  return apiRequest<UpdateAnswersResult>(`/projects/${projectId}/qualification-answers`, {
+    method: "PUT",
+    body: toPayload(answers),
+  });
 }

@@ -14,6 +14,7 @@ from typing import Optional
 from fastapi import (
     APIRouter,
     BackgroundTasks,
+    Body,
     Depends,
     File,
     Form,
@@ -34,9 +35,10 @@ from app.models.sla_tracking import SLATracking
 from app.models.source_document import DOC_TYPES, SourceDocument
 from app.models.user import User
 from app.schemas.project import FileUploadResult, ProjectResponse
-from app.schemas.qualification import parse_answers
+from app.schemas.qualification import parse_answers, validate_answers
 from app.schemas.response import error_response, success_response
 from app.services import bant_rubric
+from app.services.scoring_engine import SCORING_MUTABLE_STATUSES, scoring_engine
 from app.services.qualification_view import build_qualification_view
 from app.services.source_document_extractor import extract_source_documents
 
@@ -542,6 +544,91 @@ async def delete_project(
     return success_response(
         data={"id_project": project_id},
         message=f"Proyek '{project_id}' berhasil dihapus.",
+    )
+
+
+@router.put(
+    "/{project_id}/qualification-answers",
+    summary="Edit jawaban Kuesioner kualifikasi",
+    description=(
+        "Sales PIC mengubah jawaban hanya saat status Need Clarification (re-score + gate 60). "
+        "Lead_SA/Admin diperlakukan sama saat Need Clarification; setelah lolos gate mereka "
+        "dapat mengoreksi tanpa re-score. Proyek legacy (tanpa jawaban) ditolak."
+    ),
+)
+async def update_qualification_answers(
+    project_id: str,
+    body: dict = Body(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Edit jawaban kuesioner; skor dihitung backend (ADR 0010), bukan dari klien."""
+    result = await db.execute(select(Project).where(Project.id_project == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
+
+    is_privileged = current_user.role in ("Lead_SA", "Admin")
+    is_sales_pic = current_user.role == "Sales" and project.sales_pic == current_user.id
+    if not (is_privileged or is_sales_pic):
+        raise HTTPException(
+            status_code=403,
+            detail="Anda tidak memiliki akses untuk mengubah jawaban kuesioner proyek ini.",
+        )
+
+    if project.qualification_answers is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Proyek ini dibuat sebelum kuesioner kualifikasi (legacy) dan tidak punya "
+                "jawaban kuesioner. Gunakan bagian data legacy untuk mengubah datanya."
+            ),
+        )
+
+    needs_clarification = project.status == "Need Clarification"
+    if not needs_clarification:
+        if not is_privileged:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Jawaban kuesioner hanya dapat diubah Sales saat status Need Clarification."
+                ),
+            )
+        if project.status in SCORING_MUTABLE_STATUSES or project.status == "Manual Review Required":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Jawaban kuesioner belum dapat diedit pada status '{project.status}'."
+                ),
+            )
+
+    answers, errors = validate_answers(body)
+    if errors:
+        return JSONResponse(
+            status_code=422,
+            content=error_response(
+                message="Validasi gagal. Periksa data yang dikirim.", data=errors
+            ),
+        )
+
+    if needs_clarification:
+        bant_result = await scoring_engine.rescore_from_answers(db, project, answers)
+        return success_response(
+            data=bant_result.model_dump(),
+            message=f"Jawaban disimpan dan skor dihitung ulang. Total skor: {bant_result.total_score}.",
+        )
+
+    # Koreksi Lead_SA/Admin setelah lolos gate: skor dan status tidak berubah.
+    project.qualification_answers = answers
+    project.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return success_response(
+        data={
+            "total_score": project.bant_score,
+            "status": project.status,
+            "rescored": False,
+        },
+        message="Jawaban dikoreksi tanpa menghitung ulang skor.",
     )
 
 

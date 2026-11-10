@@ -316,6 +316,44 @@ class ScoringEngine:
             audit={"action": "bant_override", "performed_by": performed_by, "reason": reason},
         )
 
+    async def rescore_from_answers(
+        self,
+        db: AsyncSession,
+        project: Project,
+        answers: dict[str, Any],
+    ) -> BANTResult:
+        """
+        Re-score setelah jawaban kuesioner diedit (#32).
+
+        Skor per kriteria = max(rubrik dari jawaban baru, hasil AI tersimpan di
+        `ai_scoring_result`), lalu gate 60 lewat jalur tulis dengan guard status.
+        Jawaban baru disimpan dalam commit yang sama dengan skor. Hasil AI tidak ditimpa.
+        """
+        rubric = bant_rubric.compute_rubric_scores(answers, project.target_submit)
+        sub_scores = rubric
+        ai_scores = (project.ai_scoring_result or {}).get("sub_scores")
+        if isinstance(ai_scores, dict):
+            try:
+                sub_scores = self._merge_max(rubric, BANTSubScores(**ai_scores))
+            except (TypeError, ValueError):
+                logger.warning(
+                    f"Project {project.id_project}: ai_scoring_result tidak valid, diabaikan."
+                )
+        total = bant_rubric.total_score(sub_scores)
+        result = BANTResult(
+            total_score=total,
+            sub_scores=sub_scores,
+            use_case_tags=list(project.use_case_tags or []),
+            status=bant_rubric.decide_status(total),
+            feedback=(
+                bant_rubric.generate_feedback(sub_scores)
+                if total < bant_rubric.GATE_THRESHOLD
+                else None
+            ),
+        )
+        project.qualification_answers = answers
+        return await self._apply_scoring_result(db, project.id_project, result)
+
     async def _apply_scoring_result(
         self,
         db: AsyncSession,

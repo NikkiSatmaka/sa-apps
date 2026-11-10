@@ -5,12 +5,14 @@
 import { authHandlers } from "./auth";
 import { documentHandlers } from "./documents";
 import { notificationHandlers } from "./notifications";
+import { projectDetailHandlers } from "./project-detail";
 import { projectHandlers } from "./projects";
 import { qualificationHandlers } from "./qualification";
 
 export const handlers = [
   ...authHandlers,
   ...projectHandlers,
+  ...projectDetailHandlers,
   ...documentHandlers,
   ...qualificationHandlers,
   ...notificationHandlers,

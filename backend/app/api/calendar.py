@@ -262,16 +262,22 @@ async def map_event_to_project(
             existing_log = existing.scalar_one_or_none()
 
             if existing_log:
-                # Cari nama proyek yang sudah di-map
-                proj_result = await db.execute(
-                    select(Project).where(
-                        Project.id_project == existing_log.id_project
+                # Cari nama proyek yang sudah di-map. Event Non-Project tidak punya
+                # proyek (id_project None), jadi pakai label "Non-Project".
+                if existing_log.id_project is None:
+                    project_name = "Non-Project"
+                else:
+                    proj_result = await db.execute(
+                        select(Project).where(
+                            Project.id_project == existing_log.id_project
+                        )
                     )
-                )
-                existing_project = proj_result.scalar_one_or_none()
-                project_name = (
-                    existing_project.project_name if existing_project else existing_log.id_project
-                )
+                    existing_project = proj_result.scalar_one_or_none()
+                    project_name = (
+                        existing_project.project_name
+                        if existing_project
+                        else existing_log.id_project
+                    )
 
                 return JSONResponse(
                     status_code=status.HTTP_409_CONFLICT,

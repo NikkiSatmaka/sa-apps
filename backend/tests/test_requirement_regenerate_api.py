@@ -71,11 +71,25 @@ def _cleanup():
     app.dependency_overrides.clear()
 
 
-def _call(user, project, llm=None, existing=None, sources=None):
-    """POST regenerate; background dijalankan. Return (resp, project, bg, provider)."""
+def _call(user, project, llm=None, existing=None, sources=None, race_lost=False):
+    """
+    POST regenerate; background dijalankan. Return (resp, project, bg, provider).
+
+    Endpoint menandai `pending` lewat UPDATE bersyarat atomik; mock mensimulasikannya:
+    menang (rowcount 1, status proyek jadi pending) atau kalah (`race_lost`, rowcount 0).
+    """
     req_session = AsyncMock()
     req_session.add = MagicMock()
-    req_session.execute = AsyncMock(return_value=_result(one=project))
+
+    async def _execute(stmt, *args, **kwargs):
+        if getattr(stmt, "is_update", False):
+            if race_lost:
+                return MagicMock(rowcount=0)
+            project.requirement_generation_status = "pending"
+            return MagicMock(rowcount=1)
+        return _result(one=project)
+
+    req_session.execute = AsyncMock(side_effect=_execute)
 
     async def _db():
         yield req_session
@@ -149,6 +163,36 @@ def test_generate_sedang_berjalan_ditolak_409():
     resp, _, _, provider = _call(_user("Admin"), _project(status="pending"))
     assert resp.status_code == 409
     provider.complete_text.assert_not_called()
+
+
+def test_dua_request_bersamaan_yang_kalah_balapan_dapat_409_tanpa_generate():
+    # Status terbaca "ready" saat SELECT, tetapi UPDATE bersyarat sudah didahului request lain.
+    resp, _, _, provider = _call(_user("Admin"), _project(status="ready"), race_lost=True)
+    assert resp.status_code == 409
+    provider.complete_text.assert_not_called()
+
+
+def test_regenerate_menandai_pending_lewat_update_bersyarat_atomik():
+    sql = {}
+
+    async def _execute(stmt, *a, **k):
+        if getattr(stmt, "is_update", False):
+            sql["text"] = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+            return MagicMock(rowcount=0)
+        return _result(one=_project(status="failed"))
+
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=_execute)
+
+    async def _db():
+        yield session
+
+    app.dependency_overrides[get_db] = _db
+    app.dependency_overrides[get_current_user] = lambda: _user("Admin")
+    TestClient(app).post(URL)
+    flat = sql["text"].replace("\n", " ")
+    assert "UPDATE projects" in flat
+    assert "requirement_generation_status IN ('ready', 'failed')" in flat
 
 
 # --------------------------------------------------------------------------- hasil

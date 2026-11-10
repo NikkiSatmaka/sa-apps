@@ -7,7 +7,7 @@ generate di background (jalur yang sama dengan trigger otomatis). Dipakai juga s
 """
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -66,8 +66,23 @@ async def regenerate_requirement(
             detail="Requirement sedang dibuat. Tunggu hingga selesai.",
         )
 
-    project.requirement_generation_status = "pending"
+    # Atomik: hanya satu request yang berhasil memindahkan ready/failed -> pending. Cek di atas
+    # hanya untuk pesan galat spesifik; pemenang ditentukan UPDATE bersyarat ini sehingga dua
+    # request bersamaan tidak menjalankan dua generate.
+    claimed = await db.execute(
+        update(Project)
+        .where(
+            Project.id_project == project_id,
+            Project.requirement_generation_status.in_(("ready", "failed")),
+        )
+        .values(requirement_generation_status="pending")
+    )
     await db.commit()
+    if claimed.rowcount == 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Requirement sedang dibuat. Tunggu hingga selesai.",
+        )
     background_tasks.add_task(generate_pending_requirement, project_id, True)
 
     return success_response(

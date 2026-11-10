@@ -11,6 +11,7 @@ import { AssignmentModal } from "@/components/AssignmentModal";
 import { ReassignModal } from "@/components/ReassignModal";
 import { CollaboratorSection } from "@/components/CollaboratorSection";
 import { SubtaskSection } from "@/components/SubtaskSection";
+import { BANTOverride } from "@/components/BANTOverride";
 import type { HandoverStatus } from "@/lib/api/handover";
 
 /**
@@ -155,6 +156,13 @@ export default function ProjectDetailPage() {
                   Assign SA
                 </button>
               )}
+              {/* Override skor BANT — hanya Lead_SA/Admin pada status relevan (#30) */}
+              <BANTOverride
+                projectId={project.id_project}
+                status={project.status}
+                role={user?.role}
+                currentScores={project.bant_detail}
+              />
               {/* Tombol Reassign SA — hanya Lead_SA/Admin dan proyek sudah punya SA */}
               {project.assigned_sa &&
                 ["Assigned", "Ready", "Pending Assignment"].includes(project.status) &&

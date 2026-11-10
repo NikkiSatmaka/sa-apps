@@ -344,3 +344,68 @@ export async function regenerateRequirement(projectId: string): Promise<void> {
     );
   }
 }
+
+/** Isi butir yang dikirim saat menambah/mengubah butir Requirement */
+export interface RequirementItemInput {
+  kategori: RequirementKategori;
+  butir: string;
+}
+
+/** Request ke endpoint override butir Requirement (#36); mengembalikan dokumen terbaru */
+async function requirementItemRequest(
+  method: "POST" | "PUT" | "DELETE",
+  projectId: string,
+  itemId: string | null,
+  body?: RequirementItemInput
+): Promise<Document> {
+  const token = getAuthToken();
+  const headers: HeadersInit = { "Content-Type": "application/json" };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const suffix = itemId ? `/${itemId}` : "";
+  const response = await fetch(
+    `${API_BASE_URL}/projects/${projectId}/requirement/items${suffix}`,
+    { method, headers, body: body ? JSON.stringify(body) : undefined }
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    throw new ApiError(
+      errorData?.message ||
+        errorData?.detail?.toString() ||
+        `Gagal menyimpan butir Requirement (status ${response.status})`,
+      response.status,
+      errorData
+    );
+  }
+
+  const json = await response.json();
+  return json.data ?? json;
+}
+
+/** Tambah butir Requirement (menyetel is_overridden) */
+export function addRequirementItem(
+  projectId: string,
+  input: RequirementItemInput
+): Promise<Document> {
+  return requirementItemRequest("POST", projectId, null, input);
+}
+
+/** Ubah kategori/teks satu butir Requirement */
+export function updateRequirementItem(
+  projectId: string,
+  itemId: string,
+  input: RequirementItemInput
+): Promise<Document> {
+  return requirementItemRequest("PUT", projectId, itemId, input);
+}
+
+/** Hapus satu butir Requirement */
+export function deleteRequirementItem(
+  projectId: string,
+  itemId: string
+): Promise<Document> {
+  return requirementItemRequest("DELETE", projectId, itemId);
+}

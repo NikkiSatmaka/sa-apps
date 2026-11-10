@@ -13,6 +13,7 @@ State Machine:
 import logging
 import random
 import string
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -32,6 +33,7 @@ from app.schemas.document import (
 )
 from app.schemas.response import success_response
 from app.services.requirement_generator import can_regenerate_requirement
+from app.utils.guardrails import RequirementItem
 from app.services.folder_provisioner import folder_provisioner
 from app.services.notification_service import (
     NotificationEvent,
@@ -416,3 +418,129 @@ async def update_document_status(
             f"Status dokumen '{doc_id}' berhasil diubah: '{current_status}' → '{new_status}'."
         ),
     )
+
+
+# --------------------------------------------------------------------------- override Requirement (5B-4)
+async def _load_requirement_for_edit(
+    project_id: str, current_user: User, db: AsyncSession
+) -> Document:
+    """
+    Ambil dokumen Requirement proyek (dikunci FOR UPDATE) untuk diedit.
+
+    Edit hanya untuk Lead_SA, Admin, dan SA yang ditugaskan pada proyek; peran lain
+    (Sales, SA tidak ditugaskan, collaborator) read-only -> 403. Requirement `Final`
+    terkunci (409) kecuali Lead_SA menurunkan statusnya lebih dulu.
+    """
+    project = (
+        await db.execute(select(Project).where(Project.id_project == project_id))
+    ).scalar_one_or_none()
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
+        )
+
+    is_privileged = current_user.role in ("Lead_SA", "Admin")
+    is_assigned_sa = current_user.role == "SA" and project.assigned_sa == current_user.id
+    if not (is_privileged or is_assigned_sa):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hanya SA yang ditugaskan, Lead_SA, atau Admin yang dapat mengedit Requirement.",
+        )
+
+    document = (
+        await db.execute(
+            select(Document)
+            .where(Document.id_project == project_id, Document.doc_type == "Requirement")
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Requirement untuk proyek ini belum tersedia.",
+        )
+    if document.status == "Final":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Requirement berstatus Final tidak dapat diedit.",
+        )
+    return document
+
+
+async def _save_requirement_items(
+    document: Document, items: list[dict], current_user: User, db: AsyncSession
+) -> None:
+    """Simpan daftar butir hasil edit manual; `source_hash` sengaja tidak disentuh."""
+    document.content = items  # assign list baru agar perubahan JSONB terdeteksi
+    document.is_overridden = True
+    document.updated_by = current_user.id
+    document.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+
+def _find_item(items: list[dict], item_id: str) -> int:
+    for idx, item in enumerate(items):
+        if item.get("id") == item_id:
+            return idx
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Butir Requirement '{item_id}' tidak ditemukan.",
+    )
+
+
+@router.post(
+    "/projects/{project_id}/requirement/items",
+    status_code=status.HTTP_201_CREATED,
+    summary="Tambah butir Requirement",
+)
+async def add_requirement_item(
+    project_id: str,
+    body: RequirementItem,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Tambah butir baru (id 8 hex); menyetel `is_overridden`."""
+    document = await _load_requirement_for_edit(project_id, current_user, db)
+    items = list(document.content or [])
+    items.append({"id": uuid.uuid4().hex[:8], "kategori": body.kategori, "butir": body.butir})
+    await _save_requirement_items(document, items, current_user, db)
+    return success_response(data=_to_response(document), message="Butir Requirement ditambahkan.")
+
+
+@router.put(
+    "/projects/{project_id}/requirement/items/{item_id}",
+    summary="Ubah butir Requirement",
+)
+async def update_requirement_item(
+    project_id: str,
+    item_id: str,
+    body: RequirementItem,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ganti kategori/teks satu butir; `id` butir dipertahankan."""
+    document = await _load_requirement_for_edit(project_id, current_user, db)
+    items = [dict(i) for i in (document.content or [])]
+    idx = _find_item(items, item_id)
+    items[idx] = {"id": item_id, "kategori": body.kategori, "butir": body.butir}
+    await _save_requirement_items(document, items, current_user, db)
+    return success_response(data=_to_response(document), message="Butir Requirement diperbarui.")
+
+
+@router.delete(
+    "/projects/{project_id}/requirement/items/{item_id}",
+    summary="Hapus butir Requirement",
+)
+async def delete_requirement_item(
+    project_id: str,
+    item_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Hapus satu butir (boleh sampai kosong)."""
+    document = await _load_requirement_for_edit(project_id, current_user, db)
+    items = [dict(i) for i in (document.content or [])]
+    del items[_find_item(items, item_id)]
+    await _save_requirement_items(document, items, current_user, db)
+    return success_response(data=_to_response(document), message="Butir Requirement dihapus.")

@@ -10,6 +10,7 @@ import { DQNumberInput } from "@/components/DQNumberInput";
 import { RAGPanel } from "@/components/RAGPanel";
 import { RequirementItemsView } from "@/components/RequirementItemsView";
 import { RequirementRegenerateSection } from "@/components/RequirementRegenerateSection";
+import { RequirementItemsEditor } from "@/components/RequirementItemsEditor";
 import {
   createDocument,
   getProjectDocuments,
@@ -70,6 +71,7 @@ interface ProjectDetail {
   status: string;
   dq_number: string | null;
   use_case_tags?: string[];
+  assigned_sa?: { id: string | null } | null;
 }
 
 export default function DocumentsPage() {
@@ -100,6 +102,12 @@ export default function DocumentsPage() {
     error: projError,
     mutate: mutateProject,
   } = useSWR<ProjectDetail>(`/projects/${projectId}`, fetcher);
+
+  // Edit butir Requirement: Lead_SA, Admin, atau SA yang ditugaskan (backend yang menegakkan)
+  const canEditRequirement =
+    user?.role === "Lead_SA" ||
+    user?.role === "Admin" ||
+    (user?.role === "SA" && !!user.id && project?.assigned_sa?.id === user.id);
 
   // Toast helper
   const showToast = useCallback((type: "success" | "error", message: string) => {
@@ -366,7 +374,16 @@ export default function DocumentsPage() {
                     {doc.doc_type === "Requirement" && (
                       <tr className="border-b border-neutral-50 bg-neutral-50/50">
                         <td colSpan={5} className="px-4 py-3">
-                          <RequirementItemsView doc={doc} />
+                          {canEditRequirement && doc.status !== "Final" ? (
+                            <RequirementItemsEditor
+                              projectId={projectId}
+                              doc={doc}
+                              onChanged={() => mutateDocuments()}
+                              onError={(msg) => showToast("error", msg)}
+                            />
+                          ) : (
+                            <RequirementItemsView doc={doc} />
+                          )}
                         </td>
                       </tr>
                     )}

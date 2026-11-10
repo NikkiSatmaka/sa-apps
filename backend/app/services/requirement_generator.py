@@ -358,6 +358,7 @@ def can_regenerate_requirement(project: Project, user: Any) -> bool:
         return True
     return user.role == "SA" and project.assigned_sa is not None and project.assigned_sa == user.id
 
+
 # --------------------------------------------------------------------------- re-summarize (#35)
 TERMINAL_PROJECT_STATUSES = ("Closed-Win", "Lost", "Handover Complete")
 

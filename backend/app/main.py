@@ -33,6 +33,7 @@ from app.core.rate_limiter import RateLimiterMiddleware
 from app.schemas.response import error_response, success_response
 from app.services.gemini_adapter import GeminiAdapter
 from app.services.llm_provider import llm_factory
+from app.services.requirement_generator import sweep_stale_pending_requirements
 from app.services.sla_scheduler import SLAScheduler
 
 logger = logging.getLogger(__name__)
@@ -118,6 +119,13 @@ async def startup_register_adapters():
         logger.info("GeminiAdapter registered in LLM factory.")
     except Exception as e:
         logger.error(f"Failed to register GeminiAdapter: {e}", exc_info=True)
+
+    # Generate Requirement yang `pending` saat proses sebelumnya mati sudah basi (single-instance,
+    # ADR 0003) -> tandai `failed` agar tombol coba lagi tersedia. Gagal hanya di-log.
+    try:
+        await sweep_stale_pending_requirements()
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Sweep Requirement pending gagal: {e}", exc_info=True)
 
     # Jalankan background scheduler SLA (Flow 2). Toggle lewat SLA_SCHEDULER_ENABLED
     # agar bisa dimatikan di tooling/test. Lihat ADR 0003 + catatan multi-instance

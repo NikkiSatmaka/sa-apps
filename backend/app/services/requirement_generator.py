@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
@@ -324,6 +324,34 @@ async def _mark_failed(project_id: str) -> None:
         if project is not None and project.requirement_generation_status == "pending":
             project.requirement_generation_status = "failed"
             await db.commit()
+
+
+async def sweep_stale_pending_requirements() -> int:
+    """
+    Sweep startup: ubah semua `requirement_generation_status='pending'` menjadi `failed`.
+
+    Generate berjalan di background proses ini; bila proses mati di tengah jalan, status
+    `pending` menggantung dan tombol coba lagi (#34) tak muncul. Karena backend single-instance
+    (ADR 0003), saat startup tidak ada generate yang sah berjalan, jadi semua `pending` basi.
+    Tidak pernah melempar; return jumlah proyek yang diperbaiki (0 bila gagal).
+    """
+    from app.core.database import AsyncSessionLocal
+
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                update(Project)
+                .where(Project.requirement_generation_status == "pending")
+                .values(requirement_generation_status="failed")
+            )
+            await db.commit()
+            count = result.rowcount or 0
+        if count:
+            logger.warning("[Requirement] sweep startup: %d status pending diubah ke failed.", count)
+        return count
+    except Exception as e:  # noqa: BLE001 - kegagalan sweep tidak boleh menggagalkan startup
+        logger.error("[Requirement] sweep startup gagal: %s", e)
+        return 0
 
 
 async def generate_pending_requirement(project_id: str, replace: bool = False) -> None:

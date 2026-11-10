@@ -88,3 +88,57 @@ def test_daftar_dokumen_boleh_untuk_sa_ditugaskan():
 def test_daftar_dokumen_boleh_untuk_collaborator_baca():
     resp = _list(_make_user("SA"), _project_a(assigned_sa=uuid.uuid4()), collaborator=True)
     assert resp.status_code == 200
+
+
+# --------------------------------------------------------------------------- B: sweep startup
+class _Ctx:
+    def __init__(self, session):
+        self.session = session
+
+    async def __aenter__(self):
+        return self.session
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+@pytest.mark.asyncio
+async def test_sweep_mengubah_pending_menjadi_failed():
+    from app.services.requirement_generator import sweep_stale_pending_requirements
+
+    session = AsyncMock()
+    session.execute = AsyncMock(return_value=MagicMock(rowcount=2))
+    with patch("app.core.database.AsyncSessionLocal", new=lambda: _Ctx(session)):
+        count = await sweep_stale_pending_requirements()
+
+    assert count == 2
+    session.commit.assert_awaited_once()
+    sql = str(
+        session.execute.await_args.args[0].compile(compile_kwargs={"literal_binds": True})
+    )
+    assert "UPDATE projects" in sql
+    assert "requirement_generation_status='failed'" in sql.replace(" ", "")
+    assert "requirement_generation_status='pending'" in sql.replace(" ", "")
+
+
+@pytest.mark.asyncio
+async def test_sweep_gagal_tidak_melempar():
+    from app.services.requirement_generator import sweep_stale_pending_requirements
+
+    session = AsyncMock()
+    session.execute = AsyncMock(side_effect=RuntimeError("db mati"))
+    with patch("app.core.database.AsyncSessionLocal", new=lambda: _Ctx(session)):
+        assert await sweep_stale_pending_requirements() == 0
+
+
+@pytest.mark.asyncio
+async def test_startup_menjalankan_sweep_dan_tahan_kegagalan():
+    import app.main as main
+
+    for sweep in (AsyncMock(return_value=1), AsyncMock(side_effect=RuntimeError("x"))):
+        with (
+            patch.object(main, "sweep_stale_pending_requirements", new=sweep),
+            patch.object(main.settings, "SLA_SCHEDULER_ENABLED", False),
+        ):
+            await main.startup_register_adapters()
+        sweep.assert_awaited_once()

@@ -142,3 +142,46 @@ async def test_startup_menjalankan_sweep_dan_tahan_kegagalan():
         ):
             await main.startup_register_adapters()
         sweep.assert_awaited_once()
+
+
+# --------------------------------------------------------------------------- D: lock per proyek tidak bocor
+@pytest.mark.asyncio
+async def test_lock_proyek_dibersihkan_setelah_dipakai():
+    from app.services import requirement_generator as rg
+
+    rg._project_locks.clear()
+    async with rg._project_lock("PRJ-A"):
+        assert len(rg._project_locks) == 1
+    assert rg._project_locks == {}
+
+
+@pytest.mark.asyncio
+async def test_lock_proyek_tetap_serial_dan_bersih_setelah_kontensi():
+    from app.services import requirement_generator as rg
+
+    rg._project_locks.clear()
+    order = []
+
+    async def worker(name):
+        async with rg._project_lock("PRJ-A"):
+            order.append(f"{name}-masuk")
+            await asyncio.sleep(0.01)
+            order.append(f"{name}-keluar")
+
+    await asyncio.gather(worker("a"), worker("b"))
+    assert order in (
+        ["a-masuk", "a-keluar", "b-masuk", "b-keluar"],
+        ["b-masuk", "b-keluar", "a-masuk", "a-keluar"],
+    )
+    assert rg._project_locks == {}
+
+
+@pytest.mark.asyncio
+async def test_lock_proyek_dibersihkan_walau_blok_melempar():
+    from app.services import requirement_generator as rg
+
+    rg._project_locks.clear()
+    with pytest.raises(RuntimeError):
+        async with rg._project_lock("PRJ-A"):
+            raise RuntimeError("x")
+    assert rg._project_locks == {}

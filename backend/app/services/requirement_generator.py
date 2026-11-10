@@ -302,17 +302,27 @@ async def _generate(db: Any, project_id: str, replace: bool = False) -> None:
     )
 
 
-# Serialisasi generate/re-summarize per proyek (dalam satu proses): dua pemicu berurutan
-# tidak menjalankan LLM bersamaan, dan pemicu kedua melihat hash hasil pemicu pertama.
-# Kunci per (event loop, proyek): Lock asyncio terikat ke loop saat ada kontensi.
-_project_locks: dict[tuple[int, str], asyncio.Lock] = {}
+# Serialisasi generate/re-summarize per proyek HANYA dalam satu proses (asyncio.Lock): dua
+# pemicu berurutan tidak menjalankan LLM bersamaan, dan pemicu kedua melihat hash hasil pemicu
+# pertama. Perlindungan lintas-proses adalah unique index Requirement per proyek + penanganan
+# IntegrityError di generate_pending_requirement, bukan lock ini. Kunci per (event loop,
+# proyek) karena Lock asyncio terikat ke loop saat ada kontensi. Entri berisi
+# [lock, jumlah pemakai] dan dihapus saat pemakai terakhir selesai, sehingga dict tidak tumbuh.
+_project_locks: dict[tuple[int, str], list[Any]] = {}
 
 
 @asynccontextmanager
 async def _project_lock(project_id: str):
     key = (id(asyncio.get_running_loop()), project_id)
-    async with _project_locks.setdefault(key, asyncio.Lock()):
-        yield
+    entry = _project_locks.setdefault(key, [asyncio.Lock(), 0])
+    entry[1] += 1
+    try:
+        async with entry[0]:
+            yield
+    finally:
+        entry[1] -= 1
+        if entry[1] == 0:
+            _project_locks.pop(key, None)
 
 
 async def _mark_failed(project_id: str) -> None:

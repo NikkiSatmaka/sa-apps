@@ -114,6 +114,30 @@ Catatan:
 - Contoh: `tests/integration/test_fake_boundary_contoh.py` (lewat API + Postgres) dan
   `tests/test_fakes_boundary.py` (unit perilaku fake).
 
+## Gerbang cakupan (setara CI)
+
+CI memblok bila cakupan **gabungan unit + integrasi** punya baris < 90% atau cabang < 80%
+(CONSTRAINTS.md). Cara menjalankan hal yang sama secara lokal (Postgres sementara dari bagian
+di atas harus hidup, `TEST_DATABASE_URL` di-set):
+
+```bash
+cd backend
+export COVERAGE_FILE=cov-unit.data
+uv run pytest -q -W ignore --cov=app --cov-branch --cov-report=
+export COVERAGE_FILE=cov-integrasi.data
+uv run pytest -q -W ignore -m integration --cov=app --cov-branch --cov-report=
+
+export COVERAGE_FILE=cov-gabungan.data
+uv run coverage combine --keep cov-unit.data cov-integrasi.data
+uv run coverage report --skip-empty                 # tabel per modul + kolom Missing
+uv run coverage json -o coverage.json
+uv run python scripts/cakupan_gerbang.py coverage.json   # exit 0 = lolos, 1 = gagal
+```
+
+Berkas `cov-*.data`/`coverage.json` adalah artefak lokal; jangan di-commit. Cara membaca
+kegagalan: CONSTRAINTS.md bagian 6. Skrip gerbang punya test unit
+(`tests/test_cakupan_gerbang.py`).
+
 ## Migration
 
 Setiap perubahan model SQLAlchemy wajib disertai migration Alembic di `alembic/versions/` dalam PR yang sama.

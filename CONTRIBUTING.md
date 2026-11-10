@@ -157,7 +157,7 @@ Workflow `CI` berjalan pada pull request, push ke branch selain `main`, dan manu
 
 - **Backend — test unit**: `pytest` tanpa DB, dengan cakupan baris+cabang.
 - **Backend — test integrasi (Postgres 18)**: `pytest -m integration` terhadap service container `postgres:18-alpine`.
-- **Backend — ringkasan cakupan gabungan**: menggabungkan cakupan unit + integrasi dan menampilkannya per modul di tab **Summary** run (juga artifact `coverage-xml-gabungan`). Bersifat informatif; belum memblok.
+- **Backend — ringkasan cakupan gabungan**: menggabungkan cakupan unit + integrasi dan menampilkannya per modul di tab **Summary** run (juga artifact `coverage-xml-gabungan`). Langkah **Gerbang cakupan** di job ini **memblok**: job gagal bila cakupan gabungan baris < 90% atau cabang < 80% (dua ambang terpisah, `backend/scripts/cakupan_gerbang.py`). Jadikan job ini required check di branch protection. Cara membaca kegagalan: [`CONSTRAINTS.md`](CONSTRAINTS.md) bagian 6.
 
 Membaca hasil: buka tab **Checks** di PR (atau **Actions**), lihat status tiap job; log `term-missing` menunjukkan baris yang belum tercakup; tabel cakupan gabungan ada di Summary job ringkasan.
 
@@ -170,6 +170,8 @@ uv run pytest -q -W ignore --cov=app --cov-branch --cov-report=term-missing   # 
 export TEST_DATABASE_URL=postgresql+asyncpg://postgres:test@127.0.0.1:55432/postgres
 uv run pytest -q -W ignore -m integration --cov=app --cov-branch              # job integrasi
 ```
+
+Untuk gerbang gabungan yang setara CI (`coverage combine` + `scripts/cakupan_gerbang.py`), ikuti bagian "Gerbang cakupan" di [`backend/README.md`](backend/README.md).
 
 Job baru (mis. frontend, #71) ditambahkan sebagai job tersendiri di bawah `jobs:` pada `ci.yml`.
 

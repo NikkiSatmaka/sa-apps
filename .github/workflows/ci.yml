@@ -1,8 +1,8 @@
-# CI Portal SA — backend (unit + integrasi) dengan laporan cakupan.
+# CI Portal SA — backend (unit + integrasi) dengan laporan dan gerbang cakupan.
 #
-# Spec induk #49, tiket #57. Workflow ini SENGAJA TIDAK MEMBLOK: laporan cakupan
-# hanya informatif. Gerbang cakupan (baris >= 90%, cabang >= 80%, lihat CONSTRAINTS.md)
-# dipasang di tiket B12 (#70). Job frontend ditambahkan di tiket #71 sebagai job baru
+# Spec induk #49, tiket #57 (laporan) dan #70 (gerbang). Job `cakupan-gabungan`
+# MEMBLOK bila cakupan gabungan unit + integrasi: baris < 90% atau cabang < 80%
+# (CONSTRAINTS.md). Job frontend ditambahkan di tiket #71 sebagai job baru
 # di bawah `jobs:` (pola sama: checkout -> setup -> install -> test), lalu masuk ke
 # `needs:` job `cakupan-gabungan`/gerbang bila perlu.
 name: CI
@@ -126,7 +126,8 @@ jobs:
     name: Backend — ringkasan cakupan gabungan
     runs-on: ubuntu-latest
     needs: [backend-unit, backend-integration]
-    # Tetap jalan walau salah satu job gagal, agar cakupan terlihat. Tidak memblok.
+    # Tetap jalan walau salah satu job gagal agar cakupan terlihat. Gerbang di bawah
+    # tetap gagal bila data tidak lengkap (lihat langkah "Gabungkan").
     if: ${{ !cancelled() }}
     timeout-minutes: 10
     defaults:
@@ -158,24 +159,42 @@ jobs:
           files=(cov-in/*.data)
           if [ ${#files[@]} -eq 0 ]; then
             echo "Tidak ada data cakupan (job unit/integrasi gagal sebelum menghasilkan data)." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
+            exit 1
+          fi
+          # Gerbang butuh KEDUA data: tanpa salah satunya angka gabungan menyesatkan.
+          if [ ! -e cov-in/coverage-unit.data ] || [ ! -e cov-in/coverage-integration.data ]; then
+            echo "Data cakupan unit atau integrasi tidak lengkap; gerbang tidak bisa dievaluasi." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
           export COVERAGE_FILE=coverage-gabungan.data
           uv run coverage combine --keep "${files[@]}"
           uv run coverage xml -o coverage.xml
+          uv run coverage json -o coverage.json
           {
             echo "## Cakupan backend (unit + integrasi)"
             echo
-            echo "Informatif, tidak memblok. Gerbang (baris >= 90%, cabang >= 80%) dipasang di tiket #70."
+            echo "Gerbang memblok: baris >= 90% dan cabang >= 80% (CONSTRAINTS.md)."
             echo
             uv run coverage report --format=markdown --skip-empty
           } >> "$GITHUB_STEP_SUMMARY"
           uv run coverage report --skip-empty
 
-      # TODO(#70): pasang gerbang cakupan di sini — tambahkan
-      # `uv run coverage report --fail-under=...`/pemeriksaan per modul sesuai
-      # CONSTRAINTS.md, lalu jadikan job ini required check di branch protection.
-      # Jangan menambahkan gerbang di tiket lain.
+      # Gerbang cakupan (#70): dua ambang terpisah dibaca dari data gabungan hasil
+      # `coverage combine` di atas (bukan dari cache). Gagal -> job merah.
+      - name: Gerbang cakupan (baris >= 90%, cabang >= 80%)
+        run: |
+          export COVERAGE_FILE=coverage-gabungan.data
+          status=0
+          uv run python scripts/cakupan_gerbang.py coverage.json > gerbang.txt 2>&1 || status=$?
+          cat gerbang.txt
+          {
+            echo
+            echo "### Gerbang cakupan"
+            echo '```'
+            cat gerbang.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
       - name: Unggah coverage.xml gabungan
         if: ${{ hashFiles('backend/coverage.xml') != '' }}

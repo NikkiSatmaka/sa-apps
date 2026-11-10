@@ -70,3 +70,9 @@ Redshift_Presentation_Outline.md
 .coverage.*
 htmlcov/
 coverage.xml
+coverage.json
+coverage-*.data
+coverage-*.xml
+cov-*.data
+cov-in/
+gerbang.txt

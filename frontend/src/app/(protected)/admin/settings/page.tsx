@@ -91,7 +91,7 @@ const SETTING_SECTIONS: SettingSection[] = [
       { key: "GEMINI_API_KEY", label: "Gemini API Key", type: "password", placeholder: "API key dari Google AI Studio" },
       { key: "OPENAI_API_KEY", label: "OpenAI API Key", type: "password", placeholder: "sk-..." },
       { key: "ANTHROPIC_API_KEY", label: "Anthropic API Key", type: "password", placeholder: "sk-ant-..." },
-      { key: "LLM_MODEL_NAME", label: "Model Name", type: "text", placeholder: "gemini-1.5-flash" },
+      { key: "LLM_MODEL_NAME", label: "Model Name", type: "text", placeholder: "gemini-3.8-flash" },
       { key: "LLM_API_ENDPOINT", label: "API Endpoint", type: "text", placeholder: "https://generativelanguage.googleapis.com/v1" },
     ],
   },

@@ -380,7 +380,7 @@ async def test_dq_sales_bukan_pic_pada_proyek_lain_tidak_menghentikan_timer_dan_
     assert fake_drive.panggilan == []
 
 
-# --------------------------------------------------------------------------- PATCH proyek: nilai dq_number
+# --------------------------------------------------------------------------- PATCH proyek: dq_number
 
 
 def _url_proyek() -> str:
@@ -462,3 +462,21 @@ def test_himpunan_aktor_menutupi_seluruh_skenario():
     assert set(AKTOR_TULIS) | set(AKTOR_TULIS_DITOLAK) == semua
     assert set(AKTOR_MAJU) | set(AKTOR_MAJU_DITOLAK) == semua
     assert set(AKTOR_DQ) | set(AKTOR_DQ_DITOLAK) == semua
+
+
+@pytest.mark.parametrize(("aktor", "kode"), [("lead", 200), ("admin", 200), ("sa", 403)])
+async def test_ubah_status_dokumen_proyek_terhapus_hanya_lead_sa_dan_admin(
+    api, db_session, skenario_akses, fake_drive, aktor, kode
+):
+    """Proyek soft-deleted: relasi tak bisa dibuktikan, jadi SA ditugaskan pun ditolak."""
+    from datetime import datetime, timezone
+
+    proyek = await _siapkan_proyek(db_session, skenario_akses, dq="DQ-10001")
+    dok = await _dokumen(db_session, skenario_akses, status="Draft")
+    proyek.deleted_at = datetime.now(timezone.utc)
+    await db_session.commit()
+
+    resp = await _ubah(api, skenario_akses, dok, "Reviewed", aktor)
+
+    assert resp.status_code == kode, resp.text
+    assert fake_drive.panggilan == []

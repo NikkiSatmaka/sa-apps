@@ -18,10 +18,20 @@ semua jalur, SEBELUM efek samping, atau tidak tertelan `try/except Exception`; p
 (`getattr`, method pada instance yang tak bisa di-resolve statis) tidak terlihat. Itu tugas test
 integrasi peran × aksi (403 tanpa efek samping) dan meta-verifikasi per tiket.
 
-Daftar `PENGECUALIAN`: tiap entri = rute, alasan, dan nomor. Selama overhaul (#88–#91) nomor =
-tiket pembersih `#N`; hasil akhir #92 hanya berisi pengecualian SAH bernomor `SAH-N`. Ratchet:
-entri yang rutenya sudah memanggil titik keputusan, atau rutenya tak ada lagi, membuat test GAGAL. Satu entri per baris, urut, supaya diff antar-tiket tidak
-beririsan.
+Daftar `PENGECUALIAN`: tiap entri = rute, alasan, dan nomor `SAH-N` (pengecualian sah). Ratchet:
+entri yang rutenya sudah memanggil titik keputusan, atau rutenya tak ada lagi, membuat test GAGAL.
+Satu entri per baris, urut, supaya diff antar-tiket tidak beririsan.
+
+Penjaga kedua (`pelanggaran_try`): panggilan titik keputusan (langsung atau lewat fungsi `app.*`
+yang memanggilnya) tidak boleh berada di badan `try` yang `except`-nya menangkap `Exception`/
+`BaseException`/bare/`HTTPException` tanpa re-raise, karena 403 akan tertelan (jadi 500 atau 200).
+
+Keterbatasan pemindai yang DIKUNCI test (`test_keterbatasan_*`), bukan kebetulan:
+- fungsi bersarang yang tidak pernah dipanggil, dan cabang mati (`if False:`), tetap dihitung
+  sebagai "memanggil titik keputusan" (analisis AST tidak mengeksekusi kode);
+- panggilan dinamis (`getattr`, method pada instance yang tak bisa di-resolve) tidak terlihat;
+- `pelanggaran_try` menganggap `raise` apa pun yang bare / me-raise nama `as` sebagai re-raise,
+  tanpa memeriksa apakah jalur itu selalu tercapai.
 """
 
 import ast
@@ -31,6 +41,7 @@ import textwrap
 import types
 from collections.abc import Callable, Iterable
 
+import pytest
 from fastapi import APIRouter, Depends
 from fastapi.routing import APIRoute
 
@@ -43,72 +54,55 @@ FIELD_BODY_ID_PROYEK = {"id_project", "project_id"}
 KEDALAMAN_MAKS = 5
 POLA_NOMOR = re.compile(r"^(#\d+|SAH-\d+)$")
 
+# Alasan tunggal untuk semua role gate murni (satu konstanta agar tidak berulang di tiap entri).
+ALASAN_ROLE_GATE = (
+    "role gate Lead_SA/Admin saja: tingkat tertinggi, tidak ada hubungan per-proyek yang bisa "
+    "lebih longgar; 403 sebelum proyek dimuat. Dikunci test_akses_k5 (role gate)"
+)
+
 # (METHOD, path absolut) -> (alasan, nomor "SAH-n")
-#
 # Hasil akhir #92: HANYA pengecualian yang SAH. Rute yang dulu punya pemeriksa buatan sendiri
 # (workflow, handover, Requirement, collaborators, detail proyek, kuesioner, polish) sudah
-# dimigrasikan ke titik keputusan bersama dan dikeluarkan dari daftar ini. Yang tersisa:
-# (a) role gate murni Lead_SA/Admin dan (b) aturan kepemilikan subtask. Menambah entri baru
-# memerlukan alasan spesifik + nomor SAH berikutnya + test integrasi yang mengunci aturannya.
+# dimigrasikan ke titik keputusan bersama dan dikeluarkan dari daftar ini. Yang tersisa hanya
+# role gate murni Lead_SA/Admin. `PATCH .../subtasks/{id}/status` (dulu SAH-4, kepemilikan
+# subtask) kini memanggil titik keputusan (TULIS) sehingga keluar dari daftar; nomor SAH-4
+# tidak dipakai ulang. Menambah entri baru memerlukan alasan spesifik + nomor SAH berikutnya +
+# test integrasi yang mengunci aturannya.
 PENGECUALIAN: dict[tuple[str, str], tuple[str, str]] = {
     ("DELETE", "/api/v1/projects/subtasks/{id_subtask}"): (
-        "role gate Lead_SA/Admin saja (_require_lead_sa): tingkat tertinggi, tidak ada "
-        "hubungan per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci "
-        "test_akses_k5 (role gate)",
+        ALASAN_ROLE_GATE,
         "SAH-1",
     ),
     ("DELETE", "/api/v1/projects/{project_id}"): (
-        "role gate Lead_SA/Admin saja (delete_project): tingkat tertinggi, tidak ada hubungan "
-        "per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci test_akses_k5 "
-        "(role gate)",
+        ALASAN_ROLE_GATE,
         "SAH-2",
     ),
     ("PATCH", "/api/v1/projects/subtasks/{id_subtask}/assign"): (
-        "role gate Lead_SA/Admin saja (_require_lead_sa): tingkat tertinggi, tidak ada "
-        "hubungan per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci "
-        "test_akses_k5 (role gate)",
+        ALASAN_ROLE_GATE,
         "SAH-3",
     ),
-    ("PATCH", "/api/v1/projects/subtasks/{id_subtask}/status"): (
-        "aturan kepemilikan SUBTASK (Lead_SA/Admin atau SA pemilik subtask), sengaja berbeda "
-        "dari akses proyek: subtask milik SA tertentu, bukan hak seluruh pihak proyek. "
-        "Dikunci test_akses_k5",
-        "SAH-4",
-    ),
     ("POST", "/api/v1/projects/{project_id}/assign"): (
-        "role gate Lead_SA/Admin saja (_require_lead_sa): tingkat tertinggi, tidak ada "
-        "hubungan per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci "
-        "test_akses_k5 (role gate)",
+        ALASAN_ROLE_GATE,
         "SAH-5",
     ),
     ("POST", "/api/v1/projects/{project_id}/handover-config"): (
-        "role gate Lead_SA/Admin saja (configure_handover): tingkat tertinggi, tidak ada "
-        "hubungan per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci "
-        "test_akses_k5 (role gate)",
+        ALASAN_ROLE_GATE,
         "SAH-6",
     ),
     ("POST", "/api/v1/projects/{project_id}/provision-folder"): (
-        "role gate Lead_SA/Admin saja (_require_lead_sa): tingkat tertinggi, tidak ada "
-        "hubungan per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci "
-        "test_akses_k5 (role gate)",
+        ALASAN_ROLE_GATE,
         "SAH-7",
     ),
     ("POST", "/api/v1/projects/{project_id}/reassign"): (
-        "role gate Lead_SA/Admin saja (_require_lead_sa): tingkat tertinggi, tidak ada "
-        "hubungan per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci "
-        "test_akses_k5 (role gate)",
+        ALASAN_ROLE_GATE,
         "SAH-8",
     ),
     ("POST", "/api/v1/projects/{project_id}/score-manual"): (
-        "role gate Lead_SA/Admin saja (require_role): tingkat tertinggi, tidak ada hubungan "
-        "per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci test_akses_k5 "
-        "(role gate)",
+        ALASAN_ROLE_GATE,
         "SAH-9",
     ),
     ("POST", "/api/v1/projects/{project_id}/subtasks"): (
-        "role gate Lead_SA/Admin saja (_require_lead_sa): tingkat tertinggi, tidak ada "
-        "hubungan per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci "
-        "test_akses_k5 (role gate)",
+        ALASAN_ROLE_GATE,
         "SAH-10",
     ),
 }
@@ -163,19 +157,28 @@ def _resolve(node: ast.expr, globals_: dict, closure: dict) -> object | None:
     return None
 
 
-def _callee(fn: Callable) -> Iterable[object]:
-    """Objek yang dipanggil di dalam `fn` dan bisa di-resolve secara statis."""
+def _pohon_dan_konteks(fn: Callable) -> tuple[ast.AST, dict, dict] | None:
+    """AST sumber `fn` beserta globals dan closure-nya, atau None bila sumber tak tersedia."""
     try:
         sumber = textwrap.dedent(inspect.getsource(fn))
         pohon = ast.parse(sumber)
     except OSError, TypeError, SyntaxError:
-        return
+        return None
     globals_ = getattr(fn, "__globals__", {})
     closure = {}
     if getattr(fn, "__closure__", None):
         closure = dict(
             zip(fn.__code__.co_freevars, (c.cell_contents for c in fn.__closure__), strict=False)
         )
+    return pohon, globals_, closure
+
+
+def _callee(fn: Callable) -> Iterable[object]:
+    """Objek yang dipanggil di dalam `fn` dan bisa di-resolve secara statis."""
+    konteks = _pohon_dan_konteks(fn)
+    if konteks is None:
+        return
+    pohon, globals_, closure = konteks
     for node in ast.walk(pohon):
         if isinstance(node, ast.Call):
             target = _resolve(node.func, globals_, closure)
@@ -212,6 +215,115 @@ def memanggil_titik_keputusan(fn: Callable, kedalaman: int = KEDALAMAN_MAKS) -> 
         return False
 
     return _telusuri(fn, kedalaman)
+
+
+# --------------------------------------------------------------------------- try yang menelan 403
+
+TANGKAP_SEMUA = {"Exception", "BaseException"}
+NAMA_HTTP_EXCEPTION = {"HTTPException"}
+
+
+def _nama_tipe(node: ast.expr | None) -> set[str]:
+    """Nama tipe pada `except <tipe>` (Name/Attribute/Tuple); bare except = {"*"}."""
+    if node is None:
+        return {"*"}
+    if isinstance(node, ast.Name):
+        return {node.id}
+    if isinstance(node, ast.Attribute):
+        return {node.attr}
+    if isinstance(node, ast.Tuple):
+        return set().union(*(_nama_tipe(e) for e in node.elts))
+    return set()
+
+
+def _melempar_ulang(handler: ast.ExceptHandler) -> bool:
+    """`raise` polos, atau `raise <nama as>`, di badan handler (tidak masuk fungsi bersarang)."""
+    antre = list(handler.body)
+    while antre:
+        node = antre.pop()
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            continue
+        if isinstance(node, ast.Raise):
+            if node.exc is None:
+                return True
+            if isinstance(node.exc, ast.Name) and node.exc.id == handler.name:
+                return True
+        antre.extend(ast.iter_child_nodes(node))
+    return False
+
+
+def _try_menelan_403(node: ast.Try | ast.TryStar) -> bool:
+    """Apakah `HTTPException` 403 dari badan `try` ini tertelan oleh handler-nya?
+
+    Handler pertama yang bisa menangkap `HTTPException` (bare, `Exception`, `BaseException`, atau
+    `HTTPException` sendiri) menentukan: tanpa re-raise = tertelan; dengan re-raise = lolos.
+    """
+    for handler in node.handlers:
+        nama = _nama_tipe(handler.type)
+        if "*" in nama or nama & TANGKAP_SEMUA or nama & NAMA_HTTP_EXCEPTION:
+            return not _melempar_ulang(handler)
+    return False
+
+
+def _simpul_badan(badan: list[ast.stmt]) -> Iterable[ast.AST]:
+    """Semua simpul di `badan` tanpa masuk fungsi/lambda bersarang (tidak dieksekusi di sini)."""
+    antre = list(badan)
+    while antre:
+        node = antre.pop()
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            continue
+        yield node
+        antre.extend(ast.iter_child_nodes(node))
+
+
+def _membawa_titik_keputusan(target: object) -> bool:
+    if _adalah_titik_keputusan(target):
+        return True
+    fungsi = _fungsi_app(target)
+    return fungsi is not None and memanggil_titik_keputusan(fungsi)
+
+
+def pelanggaran_try(fn: Callable) -> list[int]:
+    """Nomor baris (relatif sumber `fn`) tiap `try` yang menelan 403 dari titik keputusan.
+
+    Hanya BADAN `try` yang dilindungi handler-nya: panggilan di `else`/`finally`/badan handler
+    tidak dihitung. Panggilan dihitung bila resolve ke titik keputusan atau ke fungsi `app.*`
+    yang (sampai kedalaman pemindai) memanggilnya.
+    """
+    konteks = _pohon_dan_konteks(fn)
+    if konteks is None:
+        return []
+    pohon, globals_, closure = konteks
+    baris: list[int] = []
+    for node in ast.walk(pohon):
+        if not isinstance(node, ast.Try | ast.TryStar) or not _try_menelan_403(node):
+            continue
+        for sub in _simpul_badan(node.body):
+            if isinstance(sub, ast.Call) and _membawa_titik_keputusan(
+                _resolve(sub.func, globals_, closure)
+            ):
+                baris.append(node.lineno)
+                break
+    return sorted(baris)
+
+
+def _fungsi_terjangkau(awal: Callable, kedalaman: int = KEDALAMAN_MAKS) -> list[Callable]:
+    """`awal` beserta fungsi `app.*` yang terjangkau darinya (penelusuran sama dengan pemindai)."""
+    terlihat: dict[int, Callable] = {}
+
+    def _telusuri(f: Callable, sisa: int) -> None:
+        if id(f) in terlihat:
+            return
+        terlihat[id(f)] = f
+        if sisa <= 0:
+            return
+        for target in _callee(f):
+            anak = _fungsi_app(target)
+            if anak is not None:
+                _telusuri(anak, sisa - 1)
+
+    _telusuri(awal, kedalaman)
+    return list(terlihat.values())
 
 
 def _dependency_calls(rute: APIRoute) -> Iterable[Callable]:
@@ -266,7 +378,8 @@ def pindai(
             masalah.append(f"STALE: {kunci[0]} {kunci[1]} di PENGECUALIAN tapi rutenya tidak ada")
         if not alasan.strip() or not POLA_NOMOR.match(tiket):
             masalah.append(
-                f"{kunci[0]} {kunci[1]}: pengecualian wajib punya alasan dan nomor '#N' atau 'SAH-N'"
+                f"{kunci[0]} {kunci[1]}: pengecualian wajib punya alasan dan nomor "
+                "'#N' atau 'SAH-N'"
             )
     return masalah
 
@@ -407,7 +520,260 @@ def test_setiap_entri_pengecualian_adalah_pengecualian_sah_bernomor_unik():
         assert len(alasan.split()) >= 8, f"alasan terlalu pendek untuk {kunci}"
 
 
-def test_pengecualian_sah_hanya_role_gate_atau_kepemilikan_subtask():
-    """Cegah pengecualian baru diam-diam: tiap alasan harus menyebut role gate atau subtask."""
+def test_pengecualian_sah_hanya_role_gate():
+    """Cegah pengecualian baru diam-diam: satu-satunya alasan sah adalah role gate murni."""
     for kunci, (alasan, _tiket) in PENGECUALIAN.items():
-        assert "role gate" in alasan or "SUBTASK" in alasan, kunci
+        assert alasan == ALASAN_ROLE_GATE, kunci
+
+
+# --------------------------------------------------------------------------- try yang menelan 403
+
+
+def test_tidak_ada_titik_keputusan_di_dalam_try_yang_menelan_http_exception():
+    """403 dari titik keputusan tidak boleh berubah jadi 500/200 oleh `try/except Exception`."""
+    pelanggar = []
+    for path, rute in _ratakan(app):
+        for fn in _fungsi_terjangkau(rute.endpoint):
+            for baris in pelanggaran_try(fn):
+                pelanggar.append(f"{fn.__module__}.{fn.__qualname__} (baris {baris}) via {path}")
+    assert sorted(set(pelanggar)) == []
+
+
+def test_pemindai_try_menjangkau_fungsi_app_dalam_jumlah_wajar():
+    """Mencegah penjaga 'hijau' karena penelusuran tidak menemukan fungsi apa pun."""
+    fungsi = {f for _p, r in _ratakan(app) for f in _fungsi_terjangkau(r.endpoint)}
+    assert len(fungsi) >= 100
+
+
+async def _helper_app(db, project, user):
+    await ensure_project_access(db, project, user)
+
+
+# `_helper_app` berpura-pura milik paket app.* agar ditelusuri (modul test tidak ditelusuri).
+_helper_app.__module__ = "app.pura_pura"
+
+
+async def _handler_menelan(db, project, user):
+    try:
+        await ensure_project_access(db, project, user)
+    except Exception:
+        return "ditelan"
+
+
+async def _handler_bare(db, project, user):
+    try:
+        await ensure_project_access(db, project, user)
+    except:  # noqa: E722
+        return "ditelan"
+
+
+async def _handler_base_exception(db, project, user):
+    try:
+        await ensure_project_access(db, project, user)
+    except BaseException:
+        return "ditelan"
+
+
+async def _handler_tuple(db, project, user):
+    try:
+        await ensure_project_access(db, project, user)
+    except ValueError, Exception:
+        return "ditelan"
+
+
+async def _handler_http_exception_ditelan(db, project, user):
+    from fastapi import HTTPException
+
+    try:
+        await ensure_project_access(db, project, user)
+    except HTTPException:
+        return "ditelan"
+
+
+async def _handler_via_helper(db, project, user):
+    try:
+        await _helper_app(db, project, user)
+    except Exception:
+        return "ditelan"
+
+
+async def _handler_raise_jadi_500(db, project, user):
+    try:
+        await ensure_project_access(db, project, user)
+    except Exception as e:
+        raise RuntimeError("gagal") from e
+
+
+async def _handler_re_raise_polos(db, project, user):
+    try:
+        await ensure_project_access(db, project, user)
+    except Exception:
+        raise
+
+
+async def _handler_re_raise_nama(db, project, user):
+    try:
+        await ensure_project_access(db, project, user)
+    except Exception as e:
+        raise e
+
+
+async def _handler_http_exception_lolos_dulu(db, project, user):
+    from fastapi import HTTPException
+
+    try:
+        await ensure_project_access(db, project, user)
+    except HTTPException:
+        raise
+    except Exception:
+        return "hanya galat lain yang ditelan"
+
+
+async def _handler_tipe_sempit(db, project, user):
+    try:
+        await ensure_project_access(db, project, user)
+    except ValueError:
+        return "tidak menangkap HTTPException"
+
+
+async def _handler_cek_di_luar_try(db, project, user):
+    await ensure_project_access(db, project, user)
+    try:
+        return await _kerja()
+    except Exception:
+        return "gagal kerja"
+
+
+async def _handler_cek_di_finally_else_dan_handler(db, project, user):
+    try:
+        await _kerja()
+    except Exception:
+        await ensure_project_access(db, project, user)
+    else:
+        await ensure_project_access(db, project, user)
+    finally:
+        await ensure_project_access(db, project, user)
+
+
+async def _handler_fungsi_bersarang_di_try(db, project, user):
+    try:
+
+        async def _tidak_dipanggil():
+            await ensure_project_access(db, project, user)
+
+    except Exception:
+        return "tidak dieksekusi di dalam try"
+
+
+async def _kerja():
+    return None
+
+
+@pytest.mark.parametrize(
+    "fn",
+    [
+        _handler_menelan,
+        _handler_bare,
+        _handler_base_exception,
+        _handler_tuple,
+        _handler_http_exception_ditelan,
+        _handler_via_helper,
+        _handler_raise_jadi_500,
+    ],
+)
+def test_pelanggaran_try_mendeteksi_403_yang_tertelan(fn):
+    assert len(pelanggaran_try(fn)) == 1
+
+
+@pytest.mark.parametrize(
+    "fn",
+    [
+        _handler_re_raise_polos,
+        _handler_re_raise_nama,
+        _handler_http_exception_lolos_dulu,
+        _handler_tipe_sempit,
+        _handler_cek_di_luar_try,
+        _handler_cek_di_finally_else_dan_handler,
+        _handler_fungsi_bersarang_di_try,
+    ],
+)
+def test_pelanggaran_try_tidak_menandai_403_yang_lolos(fn):
+    assert pelanggaran_try(fn) == []
+
+
+def test_pelanggaran_try_via_fungsi_non_app_tidak_terlihat():
+    """KETERBATASAN (dikunci): helper di luar paket `app.*` tidak ditelusuri, sehingga `try`
+    yang membungkus helper itu tidak ditandai. Fungsi `app.*` ditelusuri (lihat
+    `_handler_via_helper`)."""
+
+    async def helper_luar(db, project, user):
+        await ensure_project_access(db, project, user)
+
+    async def handler(db, project, user):
+        try:
+            await helper_luar(db, project, user)
+        except Exception:
+            return "ditelan"
+
+    assert pelanggaran_try(handler) == []
+
+
+# --------------------------------------------------------------------------- keterbatasan pemindai
+
+
+def test_keterbatasan_fungsi_bersarang_tak_dipanggil_dihitung_sebagai_cek():
+    """KETERBATASAN (dikunci): pemindai menelusuri AST apa adanya, jadi fungsi bersarang yang
+    memanggil titik keputusan tetapi TIDAK PERNAH dipanggil tetap membuat rute dianggap
+    terlindungi (false negative). Ditangkap test integrasi peran × aksi, bukan pemindai ini."""
+    router = APIRouter()
+
+    @router.get("/projects/{project_id}/bersarang")
+    async def bersarang(project_id: str, user=Depends(get_current_user)):
+        async def _tak_pernah_dipanggil():
+            await ensure_project_access(None, None, user)
+
+        return {}
+
+    assert pindai(_ratakan(router), {}) == []
+
+
+def test_keterbatasan_cabang_mati_dihitung_sebagai_cek():
+    """KETERBATASAN (dikunci): cek di cabang yang tak pernah tercapai (`if False:`) tetap dihitung
+    karena pemindai tidak mengevaluasi kondisi."""
+    router = APIRouter()
+
+    @router.get("/projects/{project_id}/mati")
+    async def mati(project_id: str, user=Depends(get_current_user)):
+        if False:
+            await ensure_project_access(None, None, user)
+        return {}
+
+    assert pindai(_ratakan(router), {}) == []
+
+
+def test_keterbatasan_cek_hanya_di_sebagian_cabang_dianggap_terlindungi():
+    """KETERBATASAN (dikunci): cek yang hanya ada di satu cabang `if` membuat rute dianggap
+    terlindungi walau cabang lain lolos tanpa cek (pemindai tidak memeriksa semua jalur)."""
+    router = APIRouter()
+
+    @router.get("/projects/{project_id}/sebagian")
+    async def sebagian(project_id: str, bendera: bool = False, user=Depends(get_current_user)):
+        if bendera:
+            await ensure_project_access(None, None, user)
+        return {}
+
+    assert pindai(_ratakan(router), {}) == []
+
+
+def test_keterbatasan_panggilan_dinamis_tidak_terlihat():
+    """KETERBATASAN (dikunci): `getattr(...)(...)` tidak bisa di-resolve statis, sehingga cek
+    yang dipanggil secara dinamis TIDAK dikenali dan rute ditandai pelanggaran."""
+    import app.core.dependencies as modul
+
+    router = APIRouter()
+
+    @router.get("/projects/{project_id}/dinamis")
+    async def dinamis(project_id: str, user=Depends(get_current_user)):
+        await getattr(modul, "ensure_project_access")(None, None, user)
+
+    assert len(pindai(_ratakan(router), {})) == 1

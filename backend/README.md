@@ -146,7 +146,8 @@ Drive). Urutan kode status: 404 (proyek tak ada) → 403 (akses) → validasi do
 
 **Titik keputusan** (satu-satunya pintu): `app/core/dependencies.py`.
 `await ensure_project_access(db, project, user, TingkatAkses.X)` menolak dengan 403 bila tidak
-berhak; aturannya satu tabel `_IZIN` (fungsi murni `izinkan`). Hubungan dicocokkan lewat **id**
+berhak; aturannya satu tabel deklaratif `_ATURAN` (fungsi murni `izinkan`; tiap tingkat = satu `Aturan`
+berisi keterangan + hubungan yang diizinkan, Lead_SA/Admin selalu berhak). Hubungan dicocokkan lewat **id**
 (`sales_pic`, `assigned_sa`, baris collaborator), bukan lewat peran user, kecuali tingkat yang
 memang menggabungkan id dan peran (ditandai di bawah).
 
@@ -166,19 +167,25 @@ memang menggabungkan id dan peran (ditandai di bawah).
 
 Aturan tambahan di luar tabel: mundurkan status dokumen hanya Lead_SA/Admin; `doc_ready` hanya
 Draft → Reviewed; perubahan nilai `dq_number` (juga lewat PATCH proyek) mengikuti `ISI_DQ`;
-Sales PIC tanpa DQ melihat daftar kosong di `GET .../documents/solutions`; polish ulang log
+Sales PIC tanpa DQ melihat daftar kosong di `GET .../documents/solutions`; gating link Solutions
+untuk Sales (PIC proyek itu + DQ terisi + Reviewed/Final) satu helper
+(`app/services/dq_akses.py::saring_dokumen_terlihat`) yang juga dipakai `GET .../documents`; aturan
+dan efek samping DQ (status diizinkan, Sales hanya mengisi yang kosong, timer SLA berhenti,
+Ready) satu fungsi (`terapkan_dq`) yang dipakai `PATCH .../dq-number` dan PATCH proyek; status
+subtask mensyaratkan pemilik subtask yang masih berhak `TULIS`; polish ulang log
 tetap mensyaratkan **kepemilikan log** (orang lain → 404) ditambah akses `TULIS` penulis.
 
 **Pengecualian sah** (daftar `PENGECUALIAN` di `tests/test_penjaga_akses_rute.py`, bernomor
 `SAH-n`): role gate murni Lead_SA/Admin (hapus proyek, assign/reassign, provision-folder,
-handover-config, score-manual, buat/assign/hapus subtask) dan status subtask (Lead_SA/Admin atau
-SA pemilik subtask). Semuanya dikunci `tests/integration/test_akses_k5_penyelarasan_akhir.py`.
+handover-config, score-manual, buat/assign/hapus subtask). Semuanya dikunci
+`tests/integration/test_akses_k5_penyelarasan_akhir.py`. Penjaga juga memastikan tidak ada
+panggilan titik keputusan di dalam `try/except Exception` yang menelan 403.
 
 ### Menambah endpoint baru yang memuat id proyek
 
 1. Muat proyek (404 bila tidak ada), lalu panggil `ensure_project_access(db, project, user,
    TingkatAkses.…)` **sebelum** efek samping. Jangan buat pemeriksa sendiri; bila aturan yang
-   dibutuhkan belum ada, tambah `TingkatAkses` baru + baris di `_IZIN` + baris di
+   dibutuhkan belum ada, tambah `TingkatAkses` baru + entri di `_ATURAN` + baris di
    `tests/test_keputusan_akses.py::MATRIKS`.
 2. Jangan panggil di dalam `try/except Exception` (403 akan tertelan jadi 500). Pesan 403 default
    generik; `pesan=` hanya untuk kontrak lama yang sudah terkunci.

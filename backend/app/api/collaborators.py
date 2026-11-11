@@ -12,7 +12,14 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import TingkatAkses, ensure_project_access, get_current_user
+from app.core.dependencies import (
+    PERAN_PRIVILEGED,
+    PeranKolaborator,
+    PeranUser,
+    TingkatAkses,
+    ensure_project_access,
+    get_current_user,
+)
 from app.models.project import Project
 from app.models.project_collaborator import ProjectCollaborator
 from app.models.user import User
@@ -173,14 +180,17 @@ async def add_collaborator(
         )
 
     # Validasi role kolaborator
-    if body.role not in ("viewer", "contributor"):
+    if body.role not in tuple(PeranKolaborator):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Role kolaborator harus 'viewer' atau 'contributor'.",
         )
 
     # Contributor harus SA (karena hanya SA yang bisa buat activity log)
-    if body.role == "contributor" and target_user.role not in ("SA", "Lead_SA", "Admin"):
+    if body.role == PeranKolaborator.CONTRIBUTOR and target_user.role not in (
+        PeranUser.SA,
+        *PERAN_PRIVILEGED,
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Hanya SA yang bisa menjadi contributor (menambah activity log).",

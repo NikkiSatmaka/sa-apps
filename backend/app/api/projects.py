@@ -45,7 +45,7 @@ from app.services.requirement_generator import (
     resummarize_if_source_changed,
 )
 from app.services.source_document_extractor import extract_source_documents
-from app.services.dq_akses import normalisasi_dq, periksa_perubahan_dq
+from app.services.dq_akses import hentikan_timer_bila_pertama, terapkan_dq
 
 logger = logging.getLogger(__name__)
 
@@ -671,19 +671,21 @@ async def update_project(
     # SA ditugaskan, atau collaborator contributor (viewer ditolak).
     await ensure_project_access(db, project, current_user, TingkatAkses.UBAH_PROYEK)
 
-    # Perubahan NILAI dq_number mengikuti aturan DQ (Sales PIC/Lead_SA/Admin); diputuskan
-    # sebelum mutasi apa pun agar 403 tidak meninggalkan perubahan field lain.
-    ubah_dq = "dq_number" in body and await periksa_perubahan_dq(
-        db, project, current_user, body["dq_number"]
-    )
+    # Perubahan NILAI dq_number mengikuti aturan DAN efek samping yang sama dengan
+    # PATCH /projects/{id}/dq-number (terapkan_dq): diputuskan sebelum mutasi field lain agar 403/400
+    # tidak meninggalkan perubahan lain. Nilai yang sama dengan tersimpan diabaikan (form edit
+    # mengirim semua field, jadi peran lain yang tak mengubah DQ tidak boleh mendapat 403).
+    perubahan_dq = None
+    if "dq_number" in body:
+        dq_baru = body["dq_number"] or None  # "" dan None sama-sama berarti tidak terisi
+        if dq_baru != project.dq_number:
+            perubahan_dq = await terapkan_dq(db, project, current_user, dq_baru)
 
     # Update fields yang dikirim
     if "project_name" in body and body["project_name"]:
         project.project_name = body["project_name"]
     if "customer_name" in body and body["customer_name"]:
         project.customer_name = body["customer_name"]
-    if ubah_dq:
-        project.dq_number = normalisasi_dq(body["dq_number"])
     if "target_submit" in body and body["target_submit"]:
         from datetime import date as date_cls
 
@@ -745,6 +747,9 @@ async def update_project(
 
     project.updated_at = datetime.now(timezone.utc)
     await db.commit()
+
+    if perubahan_dq is not None:
+        await hentikan_timer_bila_pertama(db, project_id, perubahan_dq)
 
     return success_response(
         data={"id_project": project.id_project, "status": project.status},

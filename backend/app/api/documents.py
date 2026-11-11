@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import (
+    PERAN_PRIVILEGED,
     HubunganProyek,
     TingkatAkses,
     ensure_project_access,
@@ -36,6 +37,7 @@ from app.schemas.document import (
     DocumentStatusUpdate,
 )
 from app.schemas.response import success_response
+from app.services.dq_akses import saring_dokumen_terlihat
 from app.services.folder_provisioner import folder_provisioner
 from app.services.notification_service import (
     NotificationEvent,
@@ -94,8 +96,6 @@ BACKWARD_TRANSITIONS = {
     "Draft": [],  # Draft tidak bisa mundur
 }
 
-
-PERAN_PRIVILEGED = ("Lead_SA", "Admin")
 
 
 async def _periksa_akses_kelola_dokumen(
@@ -319,7 +319,9 @@ async def list_project_documents(
         .where(Document.id_project == project_id)
         .order_by(Document.created_at.desc())
     )
-    documents = result.scalars().all()
+    # Gating link Solutions bagi Sales (sama dengan GET .../documents/solutions) diterapkan SEBELUM
+    # apa pun diturunkan dari daftar: `total` dan pesan dihitung dari daftar yang sudah disaring.
+    documents = saring_dokumen_terlihat(current_user, project, result.scalars().all())
 
     # Banner "sumber berubah" (#37): hanya Requirement yang di-override/Final perlu hash saat ini.
     documents_data = []

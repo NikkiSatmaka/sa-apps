@@ -101,6 +101,13 @@ def test_setiap_tingkat_punya_baris_matriks():
     assert set(MATRIKS) == set(TingkatAkses)
 
 
+@pytest.mark.parametrize("tingkat", list(TingkatAkses))
+def test_butuh_kolaborator_diturunkan_dari_aturan_bukan_daftar_terpisah(tingkat):
+    """Atribut tingkat: query collaborator hanya bila ada collaborator yang diizinkan pada matriks."""
+    ada_kolaborator_diizinkan = bool(MATRIKS[tingkat] & {"kolab_viewer", "kolab_contributor"})
+    assert tingkat.butuh_kolaborator is ada_kolaborator_diizinkan
+
+
 @pytest.mark.parametrize(("nama", "tingkat", "diharapkan"), KASUS)
 def test_izinkan_sesuai_matriks(nama, tingkat, diharapkan):
     assert izinkan(HUBUNGAN[nama], tingkat) is diharapkan
@@ -224,7 +231,10 @@ async def test_ensure_sales_pic_ditolak_story_tapi_boleh_baca():
         (TingkatAkses.UBAH_STATUS, HubunganProyek(sales_pic=True, peran="SA")),
         (TingkatAkses.EDIT_KUESIONER, HubunganProyek(sales_pic=True, peran="SA")),
         # peran tak dikenal ditolak
-        (TingkatAkses.UBAH_STATUS, HubunganProyek(sales_pic=True, sa_ditugaskan=True, peran="Intern")),
+        (
+            TingkatAkses.UBAH_STATUS,
+            HubunganProyek(sales_pic=True, sa_ditugaskan=True, peran="Intern"),
+        ),
         (TingkatAkses.HANDOVER, HubunganProyek(sa_ditugaskan=True, peran="PMO")),
     ],
 )

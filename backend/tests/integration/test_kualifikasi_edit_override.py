@@ -485,7 +485,12 @@ async def test_patch_metadata_legacy_dimerge_tanpa_menyentuh_sub_skor(skenario):
 
 
 async def test_patch_field_umum_dan_validasi(skenario):
+    """DIUBAH (review kebijakan akses): DQ lewat PATCH proyek kini mengikuti aturan
+    /dq-number, jadi proyek disiapkan di status "Assigned" (sebelumnya "Pending Assignment"
+    menerima DQ -> kini 400) dan Sales PIC tidak lagi boleh MENGOSONGKAN DQ (-> 403; yang
+    mengosongkan kini Lead_SA). Assertion field umum lain tidak berubah."""
     c = skenario.api.client
+    await set_status(skenario.db, skenario.id, "Assigned")
     resp = await c.patch(
         f"{URL}/{skenario.id}",
         json={
@@ -502,11 +507,16 @@ async def test_patch_field_umum_dan_validasi(skenario):
     assert (p.project_name, p.customer_name, p.dq_number) == ("Nama Baru", "Cust Baru", "DQ-99999")
     assert str(p.target_submit) == "2031-01-31" and str(p.estimasi_nilai) == "123.45"
 
-    # dq kosong menghapus; target_submit tak valid diabaikan
+    # Sales PIC tidak boleh mengosongkan DQ yang sudah ada
+    resp = await c.patch(f"{URL}/{skenario.id}", json={"dq_number": ""}, headers=skenario.sales)
+    assert resp.status_code == 403
+    assert (await skenario.proyek()).dq_number == "DQ-99999"
+
+    # Lead_SA boleh mengosongkan; target_submit tak valid diabaikan
     resp = await c.patch(
         f"{URL}/{skenario.id}",
         json={"dq_number": "", "target_submit": "bukan-tanggal"},
-        headers=skenario.sales,
+        headers=skenario.lead,
     )
     assert resp.status_code == 200
     p = await skenario.proyek()

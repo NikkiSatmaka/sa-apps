@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/calendar", tags=["Calendar"])
 
+PESAN_EVENT_SUDAH_DIPETAKAN = "Event sudah dipetakan sebelumnya."
+
 
 @router.get(
     "/auth-url",
@@ -256,45 +258,11 @@ async def map_event_to_project(
         # Cek apakah karena unique constraint gcal_event_id
         error_str = str(e.orig) if e.orig else str(e)
         if "idx_unique_gcal_mapping" in error_str or "gcal_event_id" in error_str:
-            # Cari proyek mana yang sudah di-map
-            existing = await db.execute(
-                select(ActivityLog).where(
-                    ActivityLog.gcal_event_id == request.gcal_event_id
-                )
-            )
-            existing_log = existing.scalar_one_or_none()
-
-            if existing_log:
-                # Cari nama proyek yang sudah di-map. Event Non-Project tidak punya
-                # proyek (id_project None), jadi pakai label "Non-Project".
-                if existing_log.id_project is None:
-                    project_name = "Non-Project"
-                else:
-                    proj_result = await db.execute(
-                        select(Project).where(
-                            Project.id_project == existing_log.id_project
-                        )
-                    )
-                    existing_project = proj_result.scalar_one_or_none()
-                    project_name = (
-                        existing_project.project_name
-                        if existing_project
-                        else existing_log.id_project
-                    )
-
-                return JSONResponse(
-                    status_code=status.HTTP_409_CONFLICT,
-                    content=error_response(
-                        message=f"Event sudah dipetakan ke proyek {project_name}"
-                    ),
-                )
-
-            # Fallback jika tidak bisa temukan detail
+            # Pesan generik: nama proyek tempat event sudah dipetakan bisa milik proyek yang
+            # tidak boleh diakses pemanggil, jadi tidak boleh bocor lewat 409.
             return JSONResponse(
                 status_code=status.HTTP_409_CONFLICT,
-                content=error_response(
-                    message="Event sudah dipetakan ke proyek lain"
-                ),
+                content=error_response(message=PESAN_EVENT_SUDAH_DIPETAKAN),
             )
 
         # IntegrityError lain (bukan unique constraint gcal)

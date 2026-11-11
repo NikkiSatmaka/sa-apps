@@ -205,8 +205,9 @@ def test_map_integrity_error_non_gcal_400_dan_rollback(monkeypatch):
     db.rollback.assert_awaited_once()
 
 
-def test_map_konflik_gcal_tapi_log_lama_tidak_ditemukan_409_fallback(monkeypatch):
-    """Race: unique violation, tetapi log pemilik event sudah hilang saat dicari ulang."""
+def test_map_konflik_gcal_409_pesan_generik_tanpa_mencari_proyek_lain(monkeypatch):
+    """Unique violation gcal -> 409 generik. DIUBAH: dulu menguji fallback "log lama hilang"
+    ("...ke proyek lain"); pesan kini selalu generik dan tidak lagi mencari log/proyek lain."""
     from app.api import calendar as modul
 
     monkeypatch.setattr(modul, "ensure_project_access", AsyncMock())  # tiket #89: cek akses lolos
@@ -230,7 +231,7 @@ def test_map_konflik_gcal_tapi_log_lama_tidak_ditemukan_409_fallback(monkeypatch
         resp = c.post(f"{PREFIX}/calendar/map", json=badan)
 
     assert resp.status_code == 409
-    assert resp.json()["message"] == "Event sudah dipetakan ke proyek lain"
+    assert resp.json()["message"] == "Event sudah dipetakan sebelumnya."
 
 
 # ---  kolaborator

@@ -387,10 +387,13 @@ def _url_proyek() -> str:
     return f"{API}/projects/{ID_PROYEK}"
 
 
-@pytest.mark.parametrize("aktor", AKTOR_DQ)
+@pytest.mark.parametrize("aktor", ["lead", "admin"])
 async def test_patch_proyek_ubah_nilai_dq_pengisi_berhak_200(
     api, db_session, skenario_akses, aktor
 ):
+    """DIUBAH (review kebijakan akses): `sales_pic` dikeluarkan dari parametrisasi karena Sales PIC
+    kini tidak boleh menimpa DQ yang sudah ada (aturan sama dengan /dq-number; dikunci di
+    test_akses_perbaikan_review.py). Lead_SA/Admin tetap boleh mengubah."""
     await _siapkan_proyek(db_session, skenario_akses, dq="DQ-10002")
 
     resp = await api.client.patch(

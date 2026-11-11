@@ -303,7 +303,7 @@ async def test_role_gate_lead_admin_menolak_semua_hubungan_lain(
     assert fake_gmail.percobaan == []
 
 
-# ---------------------------------------------------------------- pengecualian SAH: subtask status
+# ---------------------------------------------------------------- status subtask (aturan pemilik)
 
 
 @pytest.mark.parametrize(
@@ -323,7 +323,8 @@ async def test_role_gate_lead_admin_menolak_semua_hubungan_lain(
 async def test_status_subtask_hanya_pemilik_subtask_atau_lead_admin(
     api, db_session, skenario_akses, aktor, boleh
 ):
-    """Aturan kepemilikan SUBTASK (bukan akses proyek): sengaja berbeda, dikunci di sini."""
+    """Aturan kepemilikan SUBTASK, ditambah akses TULIS ke proyeknya (bukan lagi pengecualian
+    SAH-4). Pemilik yang sudah kehilangan akses tulis ditolak: lihat test_akses_perbaikan_review."""
     subtask = bangun_subtask(ID_PROYEK, assigned_sa=skenario_akses.aktor["sa"].id)
     db_session.add(subtask)
     await db_session.commit()

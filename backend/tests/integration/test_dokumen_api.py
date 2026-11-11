@@ -123,10 +123,15 @@ async def test_buat_dokumen_tanpa_login_401(api, db_session):
 
 @pytest.mark.parametrize("peran", ["Lead_SA", "Admin", "Sales", "SA"])
 async def test_daftar_dokumen_diizinkan_untuk_peran_terkait_proyek(api, db_session, peran):
-    """Lead_SA/Admin: semua proyek. Sales: PIC proyek. SA: SA yang ditugaskan."""
+    """Lead_SA/Admin: semua proyek. Sales: PIC proyek. SA: SA yang ditugaskan.
+
+    DIUBAH (review kebijakan akses): dokumen kini di folder Inventory. Sebelumnya folder default
+    Solutions, yang kini disembunyikan dari Sales PIC sebelum DQ terisi (gating sama dengan
+    GET .../documents/solutions; dikunci test_akses_perbaikan_review.py). Assertion tidak berubah.
+    """
     dunia = await siapkan_dunia(api, db_session)
     proyek = await buat_proyek(db_session, dunia)
-    dokumen = await buat_dokumen(db_session, proyek, dunia)
+    dokumen = await buat_dokumen(db_session, proyek, dunia, folder_type="Inventory")
 
     resp = await api.client.get(
         f"{API}/projects/{proyek.id_project}/documents", headers=dunia.header[peran]

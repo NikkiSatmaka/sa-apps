@@ -2,8 +2,8 @@
 Unit tests untuk authorization Fase 0.6 (B8 & B9).
 
 Memvalidasi:
-- B8 scoring reads (GET bant-result & recommendations): butuh authentication saja,
-  terbuka untuk user terautentikasi manapun.
+- B8 scoring reads (GET bant-result & recommendations): akses BACA proyek (tiket #88, spec #87):
+  Lead_SA/Admin/Sales PIC/SA ditugaskan/collaborator; user terautentikasi tak terkait → 403.
 - B8 score-manual (POST, override #30): hanya Lead_SA/Admin. Sales PIC, assigned SA,
   dan collaborator DITOLAK (403).
 - B9 PATCH /projects/{id}: general access set — privileged, Sales PIC, assigned SA,
@@ -92,12 +92,12 @@ BANT_RESULT = BANTResult(
 
 
 # =============================================================================
-# B8 — Scoring reads (bant-result & recommendations): auth saja, terbuka
+# B8 — Scoring reads (bant-result & recommendations): akses BACA proyek (#88)
 # =============================================================================
 
 
 class TestScoringReadsAuth:
-    """GET bant-result & recommendations hanya butuh authentication."""
+    """GET bant-result & recommendations butuh akses BACA ke proyek yang diminta."""
 
     def test_bant_result_unauthenticated_401(self):
         """Request tanpa token → 401."""
@@ -107,13 +107,30 @@ class TestScoringReadsAuth:
         response = client.get("/api/v1/projects/PRJ-20250101-ABC123/bant-result")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_bant_result_authed_unrelated_user_200(self):
-        """User terautentikasi tak terkait tetap boleh membaca → 200."""
+    def test_bant_result_user_tak_terkait_403(self):
+        """Diubah di #88 (sebelumnya mengunci akses terbuka): user tak terkait → 403."""
         project = _make_project()  # user tak terkait sama sekali
         mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=_execute_result_scalar(project))
+        # query 1: proyek; query 2 (cek collaborator): bukan collaborator
+        mock_session.execute = AsyncMock(
+            side_effect=[_execute_result_scalar(project), _execute_result_scalar(None)]
+        )
         _override_db(mock_session)
         _override_current_user(_make_user(role="SA"))
+
+        client = TestClient(app)
+        response = client.get("/api/v1/projects/PRJ-20250101-ABC123/bant-result")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_bant_result_sa_ditugaskan_200(self):
+        user = _make_user(role="SA")
+        project = _make_project(assigned_sa=user.id)
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(
+            side_effect=[_execute_result_scalar(project), _execute_result_scalar(None)]
+        )
+        _override_db(mock_session)
+        _override_current_user(user)
 
         client = TestClient(app)
         response = client.get("/api/v1/projects/PRJ-20250101-ABC123/bant-result")
@@ -128,14 +145,31 @@ class TestScoringReadsAuth:
         response = client.get("/api/v1/projects/PRJ-20250101-ABC123/recommendations")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_recommendations_authed_unrelated_user_200(self):
-        """User terautentikasi tak terkait tetap boleh membaca → 200."""
+    def test_recommendations_user_tak_terkait_403(self):
+        """Diubah di #88 (sebelumnya mengunci akses terbuka): user tak terkait → 403."""
         project = _make_project()
         project.use_case_tags = []  # jalur cepat: tanpa panggil scoring_engine
         mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=_execute_result_scalar(project))
+        mock_session.execute = AsyncMock(
+            side_effect=[_execute_result_scalar(project), _execute_result_scalar(None)]
+        )
         _override_db(mock_session)
         _override_current_user(_make_user(role="SA"))
+
+        client = TestClient(app)
+        response = client.get("/api/v1/projects/PRJ-20250101-ABC123/recommendations")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_recommendations_sales_pic_200(self):
+        user = _make_user(role="Sales")
+        project = _make_project(sales_pic=user.id)
+        project.use_case_tags = []  # jalur cepat: tanpa panggil scoring_engine
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(
+            side_effect=[_execute_result_scalar(project), _execute_result_scalar(None)]
+        )
+        _override_db(mock_session)
+        _override_current_user(user)
 
         client = TestClient(app)
         response = client.get("/api/v1/projects/PRJ-20250101-ABC123/recommendations")

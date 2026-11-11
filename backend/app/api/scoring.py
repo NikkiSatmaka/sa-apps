@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user, require_role
+from app.core.dependencies import ensure_project_access, get_current_user, require_role
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.response import success_response
@@ -104,6 +104,9 @@ async def get_bant_result(
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
 
+    # Akses BACA (spec #87): sebelum membaca/mengolah data proyek apa pun
+    await ensure_project_access(db, project, current_user)
+
     # Cek apakah sudah punya skor BANT
     if project.bant_score is None and project.bant_detail is None:
         return success_response(
@@ -168,6 +171,9 @@ async def get_recommendations(
             status_code=404,
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
+
+    # Akses BACA (spec #87): sebelum membaca/mengolah data proyek apa pun
+    await ensure_project_access(db, project, current_user)
 
     use_case_tags = project.use_case_tags or []
 

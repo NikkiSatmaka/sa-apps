@@ -188,24 +188,24 @@ export default function EditProjectPage() {
       {/* Form */}
       <div className="bg-white border border-neutral-200 rounded-lg p-6 space-y-5">
         <div>
-          <label className="block text-sm font-medium text-neutral-700 mb-1">Nama Proyek</label>
-          <input type="text" value={form.project_name || ""} onChange={(e) => updateField("project_name", e.target.value)}
+          <label htmlFor="edit-project_name" className="block text-sm font-medium text-neutral-700 mb-1">Nama Proyek</label>
+          <input id="edit-project_name" type="text" value={form.project_name || ""} onChange={(e) => updateField("project_name", e.target.value)}
             className="w-full px-3 py-2.5 border border-neutral-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-neutral-700 mb-1">Nama Customer</label>
-          <input type="text" value={form.customer_name || ""} onChange={(e) => updateField("customer_name", e.target.value)}
+          <label htmlFor="edit-customer_name" className="block text-sm font-medium text-neutral-700 mb-1">Nama Customer</label>
+          <input id="edit-customer_name" type="text" value={form.customer_name || ""} onChange={(e) => updateField("customer_name", e.target.value)}
             className="w-full px-3 py-2.5 border border-neutral-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1">DQ Number</label>
-            <input type="text" value={form.dq_number || ""} onChange={(e) => updateField("dq_number", e.target.value)} placeholder="DQ-2026-XXXXX"
+            <label htmlFor="edit-dq_number" className="block text-sm font-medium text-neutral-700 mb-1">DQ Number</label>
+            <input id="edit-dq_number" type="text" value={form.dq_number || ""} onChange={(e) => updateField("dq_number", e.target.value)} placeholder="DQ-2026-XXXXX"
               className="w-full px-3 py-2.5 border border-neutral-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary-500" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1">Target Submit</label>
-            <input type="date" value={form.target_submit || ""} onChange={(e) => updateField("target_submit", e.target.value)}
+            <label htmlFor="edit-target_submit" className="block text-sm font-medium text-neutral-700 mb-1">Target Submit</label>
+            <input id="edit-target_submit" type="date" value={form.target_submit || ""} onChange={(e) => updateField("target_submit", e.target.value)}
               className="w-full px-3 py-2.5 border border-neutral-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
           </div>
         </div>
@@ -216,30 +216,30 @@ export default function EditProjectPage() {
         <h3 className="text-sm font-semibold text-neutral-700">Detail BANT</h3>
 
         <div>
-          <label className="block text-sm font-medium text-neutral-700 mb-1">Budget MRR (IDR)</label>
-          <input type="number" value={form.budget_mrr || ""} onChange={(e) => updateField("budget_mrr", e.target.value)} placeholder="50000000"
+          <label htmlFor="edit-budget_mrr" className="block text-sm font-medium text-neutral-700 mb-1">Budget MRR (IDR)</label>
+          <input id="edit-budget_mrr" type="number" value={form.budget_mrr || ""} onChange={(e) => updateField("budget_mrr", e.target.value)} placeholder="50000000"
             className="w-full px-3 py-2.5 border border-neutral-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
         </div>
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1">Nama PIC</label>
-            <input type="text" value={form.pic_name || ""} onChange={(e) => updateField("pic_name", e.target.value)}
+            <label htmlFor="edit-pic_name" className="block text-sm font-medium text-neutral-700 mb-1">Nama PIC</label>
+            <input id="edit-pic_name" type="text" value={form.pic_name || ""} onChange={(e) => updateField("pic_name", e.target.value)}
               className="w-full px-3 py-2.5 border border-neutral-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1">Jabatan PIC</label>
-            <input type="text" value={form.pic_position || ""} onChange={(e) => updateField("pic_position", e.target.value)}
+            <label htmlFor="edit-pic_position" className="block text-sm font-medium text-neutral-700 mb-1">Jabatan PIC</label>
+            <input id="edit-pic_position" type="text" value={form.pic_position || ""} onChange={(e) => updateField("pic_position", e.target.value)}
               className="w-full px-3 py-2.5 border border-neutral-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1">Email PIC</label>
-            <input type="email" value={form.pic_email || ""} onChange={(e) => updateField("pic_email", e.target.value)}
+            <label htmlFor="edit-pic_email" className="block text-sm font-medium text-neutral-700 mb-1">Email PIC</label>
+            <input id="edit-pic_email" type="email" value={form.pic_email || ""} onChange={(e) => updateField("pic_email", e.target.value)}
               className="w-full px-3 py-2.5 border border-neutral-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" />
           </div>
         </div>
         <div>
-          <label className="block text-sm font-medium text-neutral-700 mb-1">Kebutuhan Teknis</label>
-          <textarea value={form.need_description || ""} onChange={(e) => updateField("need_description", e.target.value)} rows={3}
+          <label htmlFor="edit-need_description" className="block text-sm font-medium text-neutral-700 mb-1">Kebutuhan Teknis</label>
+          <textarea id="edit-need_description" value={form.need_description || ""} onChange={(e) => updateField("need_description", e.target.value)} rows={3}
             className="w-full px-3 py-2.5 border border-neutral-300 rounded-lg text-sm resize-y focus:outline-none focus:ring-2 focus:ring-primary-500" />
         </div>
           </>

@@ -65,6 +65,10 @@ Redshift_Beginner_Slide_Deck.md
 Redshift_Presentation_Outline.md
 .kiro/steering/
 
+# Laporan cakupan test frontend
+frontend/coverage/
+coverage/
+
 # Artefak cakupan test
 .coverage
 .coverage.*

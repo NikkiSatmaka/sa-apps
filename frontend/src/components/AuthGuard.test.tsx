@@ -1,0 +1,125 @@
+import { screen, waitFor } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { AuthGuard } from "@/components/AuthGuard";
+import { useAuthStore } from "@/store/auth";
+import { api, http, HttpResponse, renderWithProviders, router, seedAuth, server } from "@/test";
+import { backendUser, type Role } from "@/test/fixtures/users";
+
+const renderGuard = () =>
+  renderWithProviders(
+    <AuthGuard>
+      <p>Konten rahasia</p>
+    </AuthGuard>,
+  );
+
+const roles: Role[] = ["Sales", "SA", "Lead_SA", "Admin"];
+
+describe("AuthGuard", () => {
+  it("tanpa token: mengalihkan ke /login dan tidak pernah menampilkan konten", async () => {
+    renderGuard();
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
+    expect(screen.queryByText("Konten rahasia")).not.toBeInTheDocument();
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+  });
+
+  it("memuat: menampilkan 'Memuat...' selagi token divalidasi, lalu konten setelah /auth/me sukses", async () => {
+    localStorage.setItem("access_token", "access-SA");
+    renderGuard();
+    expect(screen.getByText("Memuat...")).toBeInTheDocument();
+    expect(screen.queryByText("Konten rahasia")).not.toBeInTheDocument();
+
+    expect(await screen.findByText("Konten rahasia")).toBeInTheDocument();
+    expect(screen.queryByText("Memuat...")).not.toBeInTheDocument();
+    expect(router.replace).not.toHaveBeenCalled();
+  });
+
+  it("mengirim token sebagai Bearer ke /auth/me", async () => {
+    let auth: string | null = null;
+    server.use(
+      http.get(api("/auth/me"), ({ request }) => {
+        auth = request.headers.get("Authorization");
+        return HttpResponse.json(backendUser("SA"));
+      }),
+    );
+    localStorage.setItem("access_token", "access-SA");
+    renderGuard();
+    await screen.findByText("Konten rahasia");
+    expect(auth).toBe("Bearer access-SA");
+  });
+
+  it.each(roles)("peran %s: store terisi dari /auth/me (field name → full_name) dan konten tampil", async (role) => {
+    localStorage.setItem("access_token", `access-${role}`);
+    renderGuard();
+    expect(await screen.findByText("Konten rahasia")).toBeInTheDocument();
+    const { user, isAuthenticated, isLoading } = useAuthStore.getState();
+    expect(isAuthenticated).toBe(true);
+    expect(isLoading).toBe(false);
+    expect(user).toMatchObject({ role, email: backendUser(role).email, full_name: backendUser(role).name });
+  });
+
+  it("DIVERGENSI: guard tidak mengecek peran — semua peran melihat konten yang sama, tidak ada pengalihan karena peran", async () => {
+    // Tiket meminta "pengalihan saat peran tidak berhak", tetapi AuthGuard hanya memeriksa keberadaan
+    // & validitas token. Otorisasi per peran, bila ada, dilakukan di halaman masing-masing.
+    for (const role of roles) {
+      localStorage.setItem("access_token", `access-${role}`);
+      const { unmount } = renderGuard();
+      expect(await screen.findByText("Konten rahasia")).toBeInTheDocument();
+      unmount();
+      useAuthStore.getState().clearUser();
+    }
+    expect(router.replace).not.toHaveBeenCalled();
+  });
+
+  it("token ditolak backend (401): token dihapus dan dialihkan ke /login", async () => {
+    localStorage.setItem("access_token", "kedaluwarsa");
+    localStorage.setItem("refresh_token", "refresh-lama");
+    renderGuard();
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
+    expect(localStorage.getItem("access_token")).toBeNull();
+    expect(localStorage.getItem("refresh_token")).toBeNull(); // tidak ada alur refresh: langsung logout
+    expect(screen.queryByText("Konten rahasia")).not.toBeInTheDocument();
+    expect(screen.queryByText("Memuat...")).not.toBeInTheDocument();
+  });
+
+  it("backend error 500 diperlakukan sama seperti token tidak valid", async () => {
+    server.use(http.get(api("/auth/me"), () => HttpResponse.json({}, { status: 500 })));
+    localStorage.setItem("access_token", "access-SA");
+    renderGuard();
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
+    expect(localStorage.getItem("access_token")).toBeNull();
+  });
+
+  it("error jaringan: token dihapus dan dialihkan ke /login", async () => {
+    server.use(http.get(api("/auth/me"), () => HttpResponse.error()));
+    localStorage.setItem("access_token", "access-SA");
+    localStorage.setItem("refresh_token", "r");
+    renderGuard();
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
+    expect(localStorage.getItem("access_token")).toBeNull();
+    expect(localStorage.getItem("refresh_token")).toBeNull();
+    expect(screen.queryByText("Konten rahasia")).not.toBeInTheDocument();
+  });
+
+  it("sudah terautentikasi di store: tidak memanggil /auth/me lagi", async () => {
+    let calls = 0;
+    server.use(
+      http.get(api("/auth/me"), () => {
+        calls += 1;
+        return HttpResponse.json(backendUser("Admin"));
+      }),
+    );
+    seedAuth("Admin");
+    renderGuard();
+    expect(await screen.findByText("Konten rahasia")).toBeInTheDocument();
+    expect(calls).toBe(0);
+  });
+
+  it("store terautentikasi tetapi token hilang dari localStorage: dialihkan ke /login dan konten disembunyikan", async () => {
+    seedAuth("SA");
+    localStorage.clear();
+    renderGuard();
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
+    expect(screen.queryByText("Konten rahasia")).not.toBeInTheDocument();
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+  });
+});

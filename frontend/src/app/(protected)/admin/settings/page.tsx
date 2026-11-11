@@ -174,12 +174,6 @@ export default function AdminSettingsPage() {
   // State: section yang sedang disimpan
   const [savingSection, setSavingSection] = useState<string | null>(null);
 
-  // Role guard — redirect jika bukan Admin
-  if (user && user.role !== "Admin") {
-    router.push("/");
-    return null;
-  }
-
   // Toggle buka/tutup section
   const toggleSection = (sectionId: string) => {
     setOpenSections((prev) => {
@@ -245,6 +239,14 @@ export default function AdminSettingsPage() {
       showToast("success", `Koneksi ke ${provider} berhasil! ✓`);
     }, 1500);
   }, [values, showToast]);
+
+  // Role guard — redirect jika bukan Admin.
+  // Ditaruh SETELAH semua hook agar jumlah hook konsisten antar render
+  // (mis. saat user non-Admin logout dan `user` menjadi null).
+  if (user && user.role !== "Admin") {
+    router.push("/");
+    return null;
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">

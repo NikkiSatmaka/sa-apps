@@ -12,7 +12,7 @@ WORKDIR /app
 RUN npm i -g pnpm@12
 
 # Install dependencies dari pnpm-lock.yaml (frozen agar reproducible)
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # --- Stage 2: Builder ---

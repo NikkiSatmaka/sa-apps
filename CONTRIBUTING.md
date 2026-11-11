@@ -141,23 +141,25 @@ Stage file secara spesifik daripada semuanya sekaligus, agar perubahan yang tida
 
 ## Verification Gate
 
-CI backend sudah ada di [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (lihat bagian "CI" di bawah), tetapi **belum memblok merge** (gerbang cakupan menyusul di #70) dan belum mencakup frontend (#71). Verifikasi manual tetap menjadi tanggung jawab author sebelum meminta review:
+CI (backend dan frontend) ada di [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (lihat bagian "CI" di bawah); gerbang cakupan di sana memblok job yang gagal. Verifikasi manual tetap menjadi tanggung jawab author sebelum meminta review:
 
 - **Backend** — test suite lolos dan app bisa di-import/start dengan bersih. Setup test dan dependency ada di `backend/pyproject.toml`; test ada di `backend/tests/`.
-- **Frontend** — proyek lolos type-check dan build tanpa error (`pnpm install`, lalu `pnpm run lint` dan `pnpm run build`). Script ada di `frontend/package.json`.
+- **Frontend** — proyek lolos type-check dan build tanpa error (`pnpm install --frozen-lockfile`, lalu `pnpm exec tsc --noEmit`, `pnpm test:coverage`, dan `pnpm run build`; `pnpm lint` tidak berfungsi di Next 16). Script ada di `frontend/package.json`.
 - **Full stack** — jika perubahan memengaruhi runtime wiring (migration, env var, service startup), konfirmasi stack bisa naik via Docker Compose dan endpoint `/health` melaporkan healthy.
 - **Pengecekan sesuai scope** — verifikasi perubahan terhadap perilaku yang dimaksud, bukan sekadar command keluar tanpa error. Untuk perubahan UI, cek perilakunya di browser; untuk perubahan logika, jalankan code path terkait atau test-nya.
 
 Sebuah perubahan belum "selesai" hanya karena command berjalan tanpa error. Perubahan selesai ketika terbukti memenuhi tujuannya.
 
 
-### CI (backend)
+### CI (backend dan frontend)
 
 Workflow `CI` berjalan pada pull request, push ke branch selain `main`, dan manual (`workflow_dispatch`). Run lama pada branch yang sama dibatalkan otomatis. Tidak ada secret yang dibutuhkan.
 
 - **Backend — test unit**: `pytest` tanpa DB, dengan cakupan baris+cabang.
 - **Backend — test integrasi (Postgres 18)**: `pytest -m integration` terhadap service container `postgres:18-alpine`.
 - **Backend — ringkasan cakupan gabungan**: menggabungkan cakupan unit + integrasi dan menampilkannya per modul di tab **Summary** run (juga artifact `coverage-xml-gabungan`). Langkah **Gerbang cakupan** di job ini **memblok**: job gagal bila cakupan gabungan baris < 90% atau cabang < 80% (dua ambang terpisah, `backend/scripts/cakupan_gerbang.py`). Jadikan job ini required check di branch protection. Cara membaca kegagalan: [`CONSTRAINTS.md`](CONSTRAINTS.md) bagian 6.
+
+- **Frontend — tsc, test + cakupan, build**: `pnpm install --frozen-lockfile` (Node 26, pnpm 12, cache pnpm store), `pnpm exec tsc --noEmit`, `pnpm test:coverage`, lalu `pnpm run build`. Langkah **Test + gerbang cakupan** **memblok**: gagal bila cakupan total baris < 90% atau cabang < 80% (`coverage.thresholds` di `frontend/vitest.config.mts`) atau ada test gagal. Berkas individual di bawah ambang hanya muncul sebagai peringatan di Summary. Laporan cakupan HTML/lcov diunggah sebagai artifact `cakupan-frontend`. Jadikan job ini required check di branch protection.
 
 Membaca hasil: buka tab **Checks** di PR (atau **Actions**), lihat status tiap job; log `term-missing` menunjukkan baris yang belum tercakup; tabel cakupan gabungan ada di Summary job ringkasan.
 
@@ -173,7 +175,17 @@ uv run pytest -q -W ignore -m integration --cov=app --cov-branch              # 
 
 Untuk gerbang gabungan yang setara CI (`coverage combine` + `scripts/cakupan_gerbang.py`), ikuti bagian "Gerbang cakupan" di [`backend/README.md`](backend/README.md).
 
-Job baru (mis. frontend, #71) ditambahkan sebagai job tersendiri di bawah `jobs:` pada `ci.yml`.
+Mereproduksi frontend lokal (setara job `frontend`):
+
+```bash
+cd frontend
+pnpm install --frozen-lockfile
+pnpm exec tsc --noEmit
+pnpm test:coverage    # exit != 0 bila gerbang 90/80 dilanggar; baca pesan "does not meet global threshold"
+pnpm run build
+```
+
+Job baru ditambahkan sebagai job tersendiri di bawah `jobs:` pada `ci.yml`.
 
 ---
 

@@ -67,16 +67,15 @@ function getStatusBadgeStyle(status: string): string {
  * Format tanggal ke format lokal Indonesia
  */
 function formatDate(dateStr: string): string {
-  try {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString("id-ID", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
-  } catch {
-    return dateStr;
-  }
+  const date = new Date(dateStr);
+  // `toLocaleDateString` tidak melempar untuk tanggal tak valid (hasilnya "Invalid Date"),
+  // jadi validasi eksplisit agar nilai kosong/rusak tidak tampil sebagai "Invalid Date".
+  if (Number.isNaN(date.getTime())) return dateStr;
+  return date.toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 export function ProjectCard({

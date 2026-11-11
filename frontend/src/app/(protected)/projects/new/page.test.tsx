@@ -303,7 +303,9 @@ describe("NewProjectPage — pengiriman", () => {
   it("mengirim multipart dengan field header, jawaban kuesioner (JSON), dan file+tipe; token disertakan", async () => {
     useSchema();
     const captured = captureFetchPost(makeCreateProjectResponse({ scoring_triggered: true, bant_score: null, sub_scores: null }));
-    const user = setup();
+    // scoring_triggered memasang setTimeout(router.push, 2000) yang tidak dibersihkan saat unmount;
+    // jam palsu memastikan timer itu dibuang di afterEach dan tidak bocor ke test berikutnya.
+    const user = setup({ fake: true });
     await isiLangkah1(user, { dq: " DQ-2025-001 " });
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     await user.upload(input, [new File(["a"], "mom.pdf", { type: PDF }), new File(["b"], "rfp.pdf", { type: PDF })]);
@@ -338,7 +340,8 @@ describe("NewProjectPage — pengiriman", () => {
 
   it("tanpa DQ Number dan tanpa file: field opsional tidak dikirim", async () => {
     useSchema();
-    const captured = capturePost(() => created());
+    // scoring_triggered=false: tanpa timer redirect 2 dtk yang bocor ke test lain (lihat test 431).
+    const captured = capturePost(() => created({ scoring_triggered: false }));
     const user = setup();
     await isiLangkah1(user);
     await lanjut(user);
@@ -353,7 +356,7 @@ describe("NewProjectPage — pengiriman", () => {
     useSchema();
     let selesai!: () => void;
     const tunggu = new Promise<void>((r) => (selesai = r));
-    server.use(http.post(api("/projects"), async () => { await tunggu; return created(); }));
+    server.use(http.post(api("/projects"), async () => { await tunggu; return created({ scoring_triggered: false }); }));
     const user = setup();
     await isiLangkah1(user);
     await lanjut(user);

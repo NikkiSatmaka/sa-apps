@@ -116,10 +116,6 @@ PENGECUALIAN: dict[tuple[str, str], tuple[str, str]] = {
         "role gate Lead_SA/Admin saja (sudah paling ketat); diselaraskan ke titik bersama",
         "#92",
     ),
-    ("POST", "/api/v1/projects/{project_id}/collaborators"): (
-        "hanya cek peran user, tanpa relasi ke proyek",
-        "#91",
-    ),
     ("POST", "/api/v1/projects/{project_id}/documents"): ("belum ada cek akses tulis", "#90"),
     ("POST", "/api/v1/projects/{project_id}/handover"): (
         "pemeriksa sendiri: Lead_SA/Admin/SA ditugaskan, Sales ditolak; aturan benar",

@@ -28,7 +28,7 @@ from sqlalchemy import asc, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import ensure_project_access, get_current_user
+from app.core.dependencies import TingkatAkses, ensure_project_access, get_current_user
 from app.models.project import Project
 from app.models.project_collaborator import ProjectCollaborator
 from app.models.sla_tracking import SLATracking
@@ -682,9 +682,9 @@ async def update_project(
     if not project:
         raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
 
-    # Validasi akses general sebelum mutasi field apapun:
-    # privileged (Lead_SA/Admin), Sales PIC, assigned SA, atau collaborator.
-    await ensure_project_access(db, project, current_user)
+    # Validasi akses ubah proyek sebelum mutasi field apapun: Lead_SA/Admin, Sales PIC,
+    # SA ditugaskan, atau collaborator contributor (viewer ditolak).
+    await ensure_project_access(db, project, current_user, TingkatAkses.UBAH_PROYEK)
 
     # Update fields yang dikirim
     if "project_name" in body and body["project_name"]:

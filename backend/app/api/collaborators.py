@@ -12,7 +12,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import TingkatAkses, ensure_project_access, get_current_user
 from app.models.project import Project
 from app.models.project_collaborator import ProjectCollaborator
 from app.models.user import User
@@ -147,7 +147,8 @@ async def list_collaborators(
     summary="Tambah kolaborator ke proyek",
     description=(
         "Menambahkan user sebagai kolaborator proyek. "
-        "SA/Sales/Lead_SA/Admin bisa menambahkan kolaborator. "
+        "Hanya Lead_SA, Admin, SA ditugaskan, atau Sales PIC proyek itu yang bisa menambahkan "
+        "kolaborator. "
         "Role: 'viewer' (lihat saja) atau 'contributor' (bisa tambah activity log)."
     ),
 )
@@ -162,20 +163,25 @@ async def add_collaborator(
 
     Flow:
     1. Validasi proyek ada
-    2. Validasi user yang akan ditag ada
-    3. Validasi role kolaborator (viewer / contributor)
-    4. Cek duplikasi
-    5. Simpan ke database
+    2. Validasi akses penambah (Lead_SA/Admin/SA ditugaskan/Sales PIC)
+    3. Validasi user yang akan ditag ada
+    4. Validasi role kolaborator (viewer / contributor)
+    5. Cek duplikasi
+    6. Simpan ke database
     """
     project = await _verify_project_exists(project_id, db)
 
-    # Validasi akses: hanya SA, Sales, Lead_SA, Admin yang bisa add collaborator
+    # Gerbang peran kasar: hanya SA, Sales, Lead_SA, Admin yang bisa add collaborator
     allowed_roles = ("SA", "Sales", "Lead_SA", "Admin")
     if current_user.role not in allowed_roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Anda tidak memiliki izin menambahkan kolaborator.",
         )
+
+    # Relasi ke proyek: hanya Lead_SA/Admin, SA ditugaskan, atau Sales PIC proyek ini.
+    # Dicek sebelum mencari user target agar pihak luar tidak bisa menyelidiki user lain.
+    await ensure_project_access(db, project, current_user, TingkatAkses.TAMBAH_KOLABORATOR)
 
     # Validasi user yang akan ditag ada
     user_result = await db.execute(

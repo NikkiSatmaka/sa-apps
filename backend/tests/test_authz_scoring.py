@@ -320,10 +320,11 @@ class TestUpdateProjectAuthz:
         assert response.status_code == status.HTTP_200_OK
 
     def test_collaborator_allowed(self):
-        """Collaborator termasuk general access set → diizinkan update."""
+        """Collaborator contributor boleh update (viewer ditolak: tiket #91)."""
         collaborator = _make_user(role="SA")
         project = _make_project(sales_pic=uuid.uuid4(), assigned_sa=uuid.uuid4())
         collab_row = MagicMock(spec=ProjectCollaborator)
+        collab_row.role = "contributor"
         mock_session = AsyncMock()
         # load project, lalu cek collaborator → ketemu row.
         mock_session.execute = AsyncMock(

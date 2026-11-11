@@ -59,10 +59,6 @@ PENGECUALIAN: dict[tuple[str, str], tuple[str, str]] = {
         "pemeriksa sendiri (can_manage_requirement); aturan Requirement lebih sempit, benar",
         "#92",
     ),
-    ("GET", "/api/v1/projects/{id_project}/story"): (
-        "belum ada cek akses Story (Sales PIC dilarang)",
-        "#89",
-    ),
     ("GET", "/api/v1/projects/{project_id}"): (
         "salinan inline aturan ensure_project_access; diganti titik bersama (perilaku sama)",
         "#92",
@@ -99,18 +95,9 @@ PENGECUALIAN: dict[tuple[str, str], tuple[str, str]] = {
         "pemeriksa sendiri (_check_project_access): peran + kepemilikan; aturan benar",
         "#92",
     ),
-    ("POST", "/api/v1/activity-logs"): ("id proyek di body; belum ada cek akses tulis", "#89"),
     ("POST", "/api/v1/activity-logs/{id_log}/polish"): (
-        "kepemilikan log (404), bukan akses proyek; perlu keputusan",
-        "#89",
-    ),
-    ("POST", "/api/v1/calendar/map"): (
-        "id proyek di body (work_type Project); belum ada cek akses tulis",
-        "#89",
-    ),
-    ("POST", "/api/v1/projects/{id_project}/summarize"): (
-        "belum ada cek akses Story; memanggil LLM",
-        "#89",
+        "kepemilikan log (404), bukan akses proyek; perilaku dipertahankan, keputusan di K5",
+        "#92",
     ),
     ("POST", "/api/v1/projects/{project_id}/assign"): (
         "role gate Lead_SA/Admin saja (sudah paling ketat); diselaraskan ke titik bersama",

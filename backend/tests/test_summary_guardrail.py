@@ -42,9 +42,26 @@ def _story(items):
 def _patch_logger(items):
     logger_instance = MagicMock()
     logger_instance.get_project_story = AsyncMock(return_value=_story(items))
-    return patch(
-        "app.api.activity_logs.ActivityLogger", return_value=logger_instance
-    )
+    # Tiket #89: cek akses STORY di-stub lolos (diuji di test integrasi akses); berkas ini
+    # menguji guardrail + fallback LLM saja.
+    akses_lolos = patch("app.api.activity_logs._periksa_akses_proyek", new=AsyncMock())
+    logger_patch = patch("app.api.activity_logs.ActivityLogger", return_value=logger_instance)
+    return _Gabung(akses_lolos, logger_patch)
+
+
+class _Gabung:
+    """Context manager gabungan; `__enter__` mengembalikan mock ActivityLogger (seperti patch)."""
+
+    def __init__(self, akses, logger):
+        self._akses, self._logger = akses, logger
+
+    def __enter__(self):
+        self._akses.__enter__()
+        return self._logger.__enter__()
+
+    def __exit__(self, *exc):
+        self._logger.__exit__(*exc)
+        return self._akses.__exit__(*exc)
 
 
 @pytest.mark.asyncio

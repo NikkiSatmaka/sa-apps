@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import TingkatAkses, ensure_project_access, get_current_user
 from app.models.activity_log import ActivityLog
 from app.models.project import Project
 from app.models.user import User
@@ -196,6 +196,9 @@ async def map_event_to_project(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Proyek dengan ID '{request.project_id}' tidak ditemukan.",
             )
+
+        # Akses TULIS sebelum penulisan activity log apa pun (viewer/Sales/pihak luar ditolak).
+        await ensure_project_access(db, project, current_user, TingkatAkses.TULIS)
 
     # Hitung durasi
     if request.duration_hours:

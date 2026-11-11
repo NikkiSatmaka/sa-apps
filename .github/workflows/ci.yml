@@ -243,8 +243,10 @@ jobs:
       # cabang >= 80%). Di bawah ambang -> vitest keluar != 0 -> job merah.
       - name: Test + gerbang cakupan (baris >= 90%, cabang >= 80%)
         run: |
+          # Tanpa `shell:` eksplisit Actions memakai `bash -e` TANPA pipefail; aktifkan sendiri
+          # agar status = kode keluar vitest, bukan tee (terbukti di run uji gerbang #71).
+          set -o pipefail
           status=0
-          # pipefail aktif (default bash Actions): status = kode keluar vitest, bukan tee.
           pnpm test:coverage 2>&1 | tee test-coverage.txt || status=$?
           # Ringkasan ke tab Summary + peringatan per berkas (tidak memblok sendirian).
           node scripts/cakupan-ringkasan.mjs >> "$GITHUB_STEP_SUMMARY" || true

@@ -232,12 +232,13 @@ Fase 6 (BoQ vs Requirement)      ← terakhir; butuh tipe Requirement (1.2) + ko
 ## Rekomendasi Lintas-Fitur (tidak memblokir MVP, tapi layak dilacak)
 
 - [ ] **Verifikasi Google Drive nyata** ([#27](https://github.com/NikkiSatmaka/sa-apps/issues/27)): `GDRIVE_SERVICE_ACCOUNT_KEY` belum dikonfigurasi/didokumentasikan; seluruh pekerjaan Drive Fase 2/2A baru terbukti lewat mock. Gerbang untuk persistensi MoM/RFP ke Drive.
-- [ ] Tambah CI (lint + test backend) — belum ada hari ini.
-- [ ] Tambah test frontend — belum ada hari ini.
-- [ ] Perluas coverage test backend ke auth, state machine dokumen, handover, notifikasi (saat ini condong ke AI/provisioning/SLA/scoring).
+- [x] Tambah CI (test backend + frontend, gerbang cakupan 90/80) — selesai (spec #49/#50; PR #84, #85). Lint belum ada: `next lint` rusak di Next 16 dan backend punya banyak temuan `ruff` lama; dilacak terpisah. Job CI dijadikan *required check* lewat ruleset `Core` pada `main`.
+- [x] Tambah test frontend — selesai (Vitest + RTL + MSW, 1029 test, cakupan 99,6% baris / 95,4% cabang). Playwright E2E belum: tahap terpisah dengan penyedia LLM palsu di backend.
+- [x] Perluas coverage test backend — selesai (2484 test unit + integrasi di Postgres 18, cakupan gabungan 99,9% baris / 99,1% cabang). Temuan dari pengerjaan ini dilacak sebagai issue #72–#83.
 - [ ] **Email/Gmail sebagai trigger (spec §4.C)** — dilacak sebagai gap requirement nyata di Fase 2A.5 (lihat bawah), bukan sekadar catatan lintas-fitur. Butir ini tetap sebagai pengingat untuk menyinkronkan README setelah implementasi.
 - [ ] **Follow-up README (TIDAK dikerjakan di PR rekonsiliasi ini):** README mengklaim email Gmail berfungsi ("in-app notification + email (Gmail API) untuk semua event penting"), padahal `send_email` masih stub. Koreksi README ditunda sebagai follow-up terpisah; jangan diam-diam membiarkan klaim menyesatkan ini.
 - [ ] Selaraskan gap README-vs-realita (email Gmail, httpOnly cookie, penamaan `SECRET_KEY`, status DB `/health`).
+- [ ] **Halaman pengaturan admin (konfigurasi runtime lewat UI) — DIHAPUS, diimplementasi ulang SETELAH rangkaian refinement ini selesai** ([#81](https://github.com/NikkiSatmaka/sa-apps/issues/81)). Halaman lama menyimpan kredensial asli (API key, service account) di `localStorage` browser dan tidak pernah dipakai backend; tombol "Test Koneksi" hanya simulasi. Prasyarat implementasi ulang: (1) kebijakan akses proyek/peran selesai (issue #73–#75), (2) endpoint backend khusus Admin dengan penyimpanan secret terenkripsi di server dan tanpa mengembalikan nilai secret ke klien, (3) keputusan apakah konfigurasi runtime memang perlu lewat UI atau cukup tetap di env var/Portainer. Sampai itu, konfigurasi dilakukan lewat `.env`/Portainer.
 - [ ] Pecah router besar (`projects.py` ~702 line, `assignment.py` ~681 line).
 - [ ] Ekstrak helper generator ID yang terduplikasi ke package `utils/` yang kosong.
 

@@ -42,34 +42,6 @@ async def _verify_project_exists(project_id: str, db: AsyncSession) -> Project:
     return project
 
 
-async def _is_collaborator_or_above(
-    project_id: str, user_id: uuid.UUID, db: AsyncSession
-) -> bool:
-    """
-    Cek apakah user adalah kolaborator, SA yang di-assign, Sales PIC,
-    Lead_SA, atau Admin untuk proyek tertentu.
-    """
-    # Cek langsung: Sales PIC atau assigned SA
-    result = await db.execute(
-        select(Project).where(Project.id_project == project_id)
-    )
-    project = result.scalar_one_or_none()
-    if project and (project.sales_pic == user_id or project.assigned_sa == user_id):
-        return True
-
-    # Cek kolaborator
-    collab_result = await db.execute(
-        select(ProjectCollaborator).where(
-            ProjectCollaborator.id_project == project_id,
-            ProjectCollaborator.user_id == user_id,
-        )
-    )
-    if collab_result.scalar_one_or_none() is not None:
-        return True
-
-    return False
-
-
 @router.get(
     "/{project_id}/collaborators",
     summary="Daftar kolaborator proyek",
@@ -89,17 +61,8 @@ async def list_collaborators(
     """
     project = await _verify_project_exists(project_id, db)
 
-    # Validasi akses
-    is_privileged = current_user.role in ("Lead_SA", "Admin")
-    is_sales_pic = project.sales_pic == current_user.id
-    is_assigned_sa = project.assigned_sa == current_user.id
-    is_existing_collab = await _is_collaborator_or_above(project_id, current_user.id, db)
-
-    if not (is_privileged or is_sales_pic or is_assigned_sa or is_existing_collab):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Anda tidak memiliki akses ke proyek ini.",
-        )
+    # Titik keputusan bersama (BACA): Lead_SA/Admin, Sales PIC, SA ditugaskan, collaborator.
+    await ensure_project_access(db, project, current_user, TingkatAkses.BACA)
 
     # Query kolaborator + join user info
     result = await db.execute(
@@ -292,16 +255,14 @@ async def remove_collaborator(
     """
     project = await _verify_project_exists(project_id, db)
 
-    # Validasi akses
-    is_privileged = current_user.role in ("Lead_SA", "Admin")
-    is_sales_pic = project.sales_pic == current_user.id
-    is_assigned_sa = project.assigned_sa == current_user.id
-
-    if not (is_privileged or is_sales_pic or is_assigned_sa):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Anda tidak memiliki izin menghapus kolaborator.",
-        )
+    # Titik keputusan bersama (HAPUS_KOLABORATOR): Lead_SA/Admin, Sales PIC, SA ditugaskan.
+    await ensure_project_access(
+        db,
+        project,
+        current_user,
+        TingkatAkses.HAPUS_KOLABORATOR,
+        pesan="Anda tidak memiliki izin menghapus kolaborator.",
+    )
 
     # Cari kolaborator
     collab_result = await db.execute(

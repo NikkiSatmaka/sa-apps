@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import TingkatAkses, ensure_project_access, get_current_user
+from app.models.activity_log import ActivityLog
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.activity_log import (
@@ -174,6 +175,16 @@ async def retry_polish_notes(
 
     Requirement: 8.6
     """
+    # Kepemilikan log tetap ditegakkan service (orang lain → 404). Di atasnya (spec #87, #92)
+    # penulis harus MASIH punya akses TULIS ke proyek log: penulis yang kini viewer / kehilangan
+    # akses ditolak 403 sebelum panggilan LLM. Log Non-Project tidak terkait proyek → dilewati.
+    # Dilakukan di LUAR try agar 403 tidak tertelan jadi 500.
+    log = (
+        await db.execute(select(ActivityLog).where(ActivityLog.id_log == id_log))
+    ).scalar_one_or_none()
+    if log is not None and log.sa_id == current_user.id:
+        await _periksa_akses_proyek(db, log.id_project, current_user, TingkatAkses.TULIS)
+
     try:
         activity_logger = ActivityLogger(db)
 

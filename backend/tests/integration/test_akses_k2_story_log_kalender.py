@@ -300,22 +300,28 @@ async def test_map_kalender_proyek_tak_ada_tetap_404(api, skenario_akses):
     assert resp.status_code == 404
 
 
-# ---------------------------------------------------------------------------- polish (dipertahankan)
+# ---------------------------------------------------------------------------- polish
 
 
-async def test_polish_ulang_tetap_memakai_kepemilikan_log_bukan_akses_proyek(
+async def test_polish_ulang_kepemilikan_log_tetap_ditegakkan(
     api, db_session, skenario_akses, fake_llm
 ):
-    """Perilaku lama dipertahankan (keputusan di K5): penulis log yang kini viewer masih bisa
-    polish ulang log miliknya; orang lain → 404."""
-    viewer = skenario_akses.aktor["kolab_viewer"]
-    log = bangun_log(viewer.id, ID_PROYEK, ai_polished_notes=None)
+    """Kepemilikan log tetap: penulis yang masih berhak tulis bisa polish ulang log miliknya;
+    orang lain (walau Lead_SA) → 404.
+
+    DIUBAH di #92: versi lama memakai penulis `kolab_viewer` dan mengunci "viewer masih bisa
+    polish ulang" (akses terbuka). Kini penulis harus masih berhak TULIS; penolakan viewer diuji
+    di `test_akses_k5_penyelarasan_akhir.py`. Assertion kepemilikan (orang lain → 404) tidak berubah.
+    """
+    penulis = skenario_akses.aktor["kolab_contrib"]
+    log = bangun_log(penulis.id, ID_PROYEK, ai_polished_notes=None)
     db_session.add(log)
     await db_session.commit()
     fake_llm.sukses("structure_text", HASIL_POLISH)
 
     milik = await api.client.post(
-        f"/api/v1/activity-logs/{log.id_log}/polish", headers=skenario_akses.header("kolab_viewer")
+        f"/api/v1/activity-logs/{log.id_log}/polish",
+        headers=skenario_akses.header("kolab_contrib"),
     )
     orang_lain = await api.client.post(
         f"/api/v1/activity-logs/{log.id_log}/polish", headers=skenario_akses.header("lead")

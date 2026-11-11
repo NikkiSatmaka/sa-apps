@@ -216,6 +216,7 @@ Image Docker dirilis ke registry via `mise run publish [backend|frontend]` (wrap
 - Simpan semua secret di environment variable; jangan pernah hardcode. `.env` di-ignore git — perbarui `.env.example` (hanya key, tanpa nilai asli) ketika Anda menambah variable baru.
 - Perlakukan apa pun yang menangani auth, token, CORS, atau credential eksternal sebagai security-sensitive: catat di deskripsi PR apa yang Anda verifikasi.
 - Tandai setiap dependency pihak ketiga baru di PR, di-pin ke versi yang exact.
+- **Akses proyek.** Setiap endpoint yang menerima id proyek (langsung, atau lewat dokumen, activity log, event kalender, atau subtask) wajib memutuskan akses lewat satu titik: `ensure_project_access(db, project, user, TingkatAkses.…)` di `backend/app/core/dependencies.py`, dipanggil setelah proyek dimuat dan sebelum efek samping apa pun (penulisan, notifikasi, LLM, Drive). Jangan membuat pemeriksa sendiri per router. Test penjaga `backend/tests/test_penjaga_akses_rute.py` akan gagal bila ada rute berisi id proyek tanpa pemanggilan itu; pengecualian hanya sah dengan alasan spesifik dan nomor `SAH-n`. Matriks dan langkah menambah endpoint ada di [`backend/README.md`](backend/README.md#kebijakan-akses-proyek). Perubahan aturan akses butuh test integrasi peran × aksi (403 tanpa efek samping) dan penjelasan eksplisit di PR untuk setiap test lama yang diubah.
 
 ---
 

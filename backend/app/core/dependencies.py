@@ -4,7 +4,7 @@ Berisi auth middleware (JWT validation) dan dependencies lainnya.
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from fastapi import Depends, HTTPException, Request, status
@@ -138,6 +138,19 @@ class TingkatAkses(str, Enum):
     ISI_DQ = "isi_dq"
     # Tambah collaborator: Lead_SA, Admin, SA ditugaskan, Sales PIC
     TAMBAH_KOLABORATOR = "tambah_kolaborator"
+    # Hapus collaborator: sama dengan TAMBAH_KOLABORATOR (collaborator tidak boleh menghapus)
+    HAPUS_KOLABORATOR = "hapus_kolaborator"
+    # Ubah status proyek (workflow): Lead_SA, Admin, Sales PIC berperan Sales, SA ditugaskan
+    # berperan SA. Collaborator tidak dihitung. Dicocokkan lewat id DAN peran user.
+    UBAH_STATUS = "ubah_status"
+    # Handover (cek kesiapan + eksekusi): Lead_SA, Admin, SA ditugaskan berperan SA.
+    # Sales (termasuk PIC) dan collaborator ditolak.
+    HANDOVER = "handover"
+    # Kelola Requirement (edit butir, generate ulang, pertahankan versi): Lead_SA, Admin,
+    # SA ditugaskan berperan SA. Sales PIC dan collaborator read-only.
+    KELOLA_REQUIREMENT = "kelola_requirement"
+    # Ubah jawaban Kuesioner kualifikasi: Lead_SA, Admin, Sales PIC berperan Sales
+    EDIT_KUESIONER = "edit_kuesioner"
 
 
 @dataclass(frozen=True)
@@ -152,6 +165,9 @@ class HubunganProyek:
     sales_pic: bool = False
     sa_ditugaskan: bool = False
     kolaborator: str | None = None
+    # Peran user ("Sales"/"SA"/...). Hanya dipakai tingkat yang aturannya menggabungkan hubungan
+    # (id) DAN peran: UBAH_STATUS, HANDOVER, KELOLA_REQUIREMENT, EDIT_KUESIONER.
+    peran: str = field(default="", compare=False)
 
     @property
     def adalah_viewer(self) -> bool:
@@ -174,7 +190,29 @@ _IZIN: dict[TingkatAkses, Callable[[HubunganProyek], bool]] = {
     TingkatAkses.KELOLA: lambda h: h.privileged or h.sa_ditugaskan,
     TingkatAkses.ISI_DQ: lambda h: h.privileged or h.sales_pic,
     TingkatAkses.TAMBAH_KOLABORATOR: lambda h: h.privileged or h.sales_pic or h.sa_ditugaskan,
+    TingkatAkses.HAPUS_KOLABORATOR: lambda h: h.privileged or h.sales_pic or h.sa_ditugaskan,
+    TingkatAkses.UBAH_STATUS: lambda h: (
+        h.privileged
+        or (h.peran == "Sales" and h.sales_pic)
+        or (h.peran == "SA" and h.sa_ditugaskan)
+    ),
+    TingkatAkses.HANDOVER: lambda h: h.privileged or (h.peran == "SA" and h.sa_ditugaskan),
+    TingkatAkses.KELOLA_REQUIREMENT: lambda h: (
+        h.privileged or (h.peran == "SA" and h.sa_ditugaskan)
+    ),
+    TingkatAkses.EDIT_KUESIONER: lambda h: h.privileged or (h.peran == "Sales" and h.sales_pic),
 }
+
+# Tingkat yang keputusannya tidak membaca collaborator: tidak perlu query ke DB.
+_TANPA_KOLABORATOR = frozenset(
+    {
+        TingkatAkses.HAPUS_KOLABORATOR,
+        TingkatAkses.UBAH_STATUS,
+        TingkatAkses.HANDOVER,
+        TingkatAkses.KELOLA_REQUIREMENT,
+        TingkatAkses.EDIT_KUESIONER,
+    }
+)
 
 
 def izinkan(hubungan: HubunganProyek, tingkat: TingkatAkses = TingkatAkses.BACA) -> bool:
@@ -182,20 +220,26 @@ def izinkan(hubungan: HubunganProyek, tingkat: TingkatAkses = TingkatAkses.BACA)
     return _IZIN[tingkat](hubungan)
 
 
-async def hubungan_proyek(db: AsyncSession, project: Project, user: User) -> HubunganProyek:
-    """Baca hubungan `user` ke `project` (satu query collaborator)."""
-    collab_result = await db.execute(
-        select(ProjectCollaborator).where(
-            ProjectCollaborator.id_project == project.id_project,
-            ProjectCollaborator.user_id == user.id,
+async def hubungan_proyek(
+    db: AsyncSession, project: Project, user: User, *, baca_kolaborator: bool = True
+) -> HubunganProyek:
+    """Baca hubungan `user` ke `project` (satu query collaborator, kecuali `baca_kolaborator`
+    dimatikan untuk tingkat yang keputusannya tidak memakai collaborator)."""
+    kolab = None
+    if baca_kolaborator:
+        collab_result = await db.execute(
+            select(ProjectCollaborator).where(
+                ProjectCollaborator.id_project == project.id_project,
+                ProjectCollaborator.user_id == user.id,
+            )
         )
-    )
-    kolab = collab_result.scalar_one_or_none()
+        kolab = collab_result.scalar_one_or_none()
     return HubunganProyek(
         privileged=user.role in ("Lead_SA", "Admin"),
         sales_pic=project.sales_pic == user.id,
         sa_ditugaskan=project.assigned_sa == user.id,
         kolaborator=None if kolab is None else getattr(kolab, "role", None) or "viewer",
+        peran=user.role,
     )
 
 
@@ -204,6 +248,7 @@ async def ensure_project_access(
     project: Project,
     user: User,
     tingkat: TingkatAkses = TingkatAkses.BACA,
+    pesan: str | None = None,
 ) -> None:
     """
     TITIK KEPUTUSAN AKSES PROYEK — satu-satunya pintu yang boleh dipakai rute.
@@ -215,12 +260,17 @@ async def ensure_project_access(
     efek samping apa pun (penulisan, notifikasi, LLM, Drive). Jangan panggil di
     dalam `try/except Exception` yang menelan HTTPException.
 
+    `pesan` (opsional) mengganti teks 403 default; dipakai rute lama yang kontrak pesannya sudah
+    terkunci (tetap 403, aturan keputusan tidak berubah).
+
     Return None saat sukses. Test penjaga rute (`tests/test_penjaga_akses_rute.py`)
     menelusuri simbol ini; jangan ganti namanya tanpa memperbarui penjaga.
     """
-    hubungan = await hubungan_proyek(db, project, user)
+    hubungan = await hubungan_proyek(
+        db, project, user, baca_kolaborator=tingkat not in _TANPA_KOLABORATOR
+    )
     if not izinkan(hubungan, tingkat):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Anda tidak memiliki akses ke proyek ini.",
+            detail=pesan or "Anda tidak memiliki akses ke proyek ini.",
         )

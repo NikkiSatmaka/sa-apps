@@ -487,11 +487,13 @@ async def _load_requirement_for_edit(
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
 
-    if not can_manage_requirement(project, current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Hanya SA yang ditugaskan, Lead_SA, atau Admin yang dapat mengedit Requirement.",
-        )
+    await ensure_project_access(
+        db,
+        project,
+        current_user,
+        TingkatAkses.KELOLA_REQUIREMENT,
+        pesan="Hanya SA yang ditugaskan, Lead_SA, atau Admin yang dapat mengedit Requirement.",
+    )
 
     document = (
         await db.execute(

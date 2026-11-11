@@ -378,26 +378,8 @@ async def get_project_detail(
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
 
-    # Validasi akses: Admin/Lead_SA selalu bisa, Sales PIC / assigned SA bisa,
-    # kolaborator bisa, lainnya 403
-    is_privileged = current_user.role in ("Lead_SA", "Admin")
-    is_sales_pic = project.sales_pic == current_user.id
-    is_assigned_sa = project.assigned_sa == current_user.id
-
-    # Cek kolaborator
-    collab_result = await db.execute(
-        select(ProjectCollaborator).where(
-            ProjectCollaborator.id_project == project_id,
-            ProjectCollaborator.user_id == current_user.id,
-        )
-    )
-    is_collaborator = collab_result.scalar_one_or_none() is not None
-
-    if not (is_privileged or is_sales_pic or is_assigned_sa or is_collaborator):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Anda tidak memiliki akses ke proyek ini.",
-        )
+    # Titik keputusan bersama (BACA): Admin/Lead_SA, Sales PIC, SA ditugaskan, kolaborator.
+    await ensure_project_access(db, project, current_user, TingkatAkses.BACA)
 
     # Fetch nama Sales PIC
     sales_name = None
@@ -595,13 +577,15 @@ async def update_qualification_answers(
     if not project:
         raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
 
+    # Titik keputusan bersama (EDIT_KUESIONER): Lead_SA/Admin atau Sales PIC proyek ini.
+    await ensure_project_access(
+        db,
+        project,
+        current_user,
+        TingkatAkses.EDIT_KUESIONER,
+        pesan="Anda tidak memiliki akses untuk mengubah jawaban kuesioner proyek ini.",
+    )
     is_privileged = current_user.role in ("Lead_SA", "Admin")
-    is_sales_pic = current_user.role == "Sales" and project.sales_pic == current_user.id
-    if not (is_privileged or is_sales_pic):
-        raise HTTPException(
-            status_code=403,
-            detail="Anda tidak memiliki akses untuk mengubah jawaban kuesioner proyek ini.",
-        )
 
     if project.qualification_answers is None:
         raise HTTPException(

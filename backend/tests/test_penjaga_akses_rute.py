@@ -18,14 +18,15 @@ semua jalur, SEBELUM efek samping, atau tidak tertelan `try/except Exception`; p
 (`getattr`, method pada instance yang tak bisa di-resolve statis) tidak terlihat. Itu tugas test
 integrasi peran × aksi (403 tanpa efek samping) dan meta-verifikasi per tiket.
 
-Daftar `PENGECUALIAN`: tiap entri = rute, alasan, dan nomor tiket pembersih. Ratchet: entri yang
-rutenya sudah memanggil titik keputusan, atau rutenya tak ada lagi, membuat test GAGAL — tiket
-pembersih wajib menghapus entrinya. Satu entri per baris, urut, supaya diff antar-tiket tidak
+Daftar `PENGECUALIAN`: tiap entri = rute, alasan, dan nomor. Selama overhaul (#88–#91) nomor =
+tiket pembersih `#N`; hasil akhir #92 hanya berisi pengecualian SAH bernomor `SAH-N`. Ratchet:
+entri yang rutenya sudah memanggil titik keputusan, atau rutenya tak ada lagi, membuat test GAGAL. Satu entri per baris, urut, supaya diff antar-tiket tidak
 beririsan.
 """
 
 import ast
 import inspect
+import re
 import textwrap
 import types
 from collections.abc import Callable, Iterable
@@ -40,100 +41,75 @@ TITIK_KEPUTUSAN = ("app.core.dependencies", "ensure_project_access")
 PARAM_ID_PROYEK = {"project_id", "id_project", "doc_id", "id_log", "id_subtask"}
 FIELD_BODY_ID_PROYEK = {"id_project", "project_id"}
 KEDALAMAN_MAKS = 5
+POLA_NOMOR = re.compile(r"^(#\d+|SAH-\d+)$")
 
-# (METHOD, path absolut) -> (alasan, nomor tiket pembersih)
+# (METHOD, path absolut) -> (alasan, nomor "SAH-n")
+#
+# Hasil akhir #92: HANYA pengecualian yang SAH. Rute yang dulu punya pemeriksa buatan sendiri
+# (workflow, handover, Requirement, collaborators, detail proyek, kuesioner, polish) sudah
+# dimigrasikan ke titik keputusan bersama dan dikeluarkan dari daftar ini. Yang tersisa:
+# (a) role gate murni Lead_SA/Admin dan (b) aturan kepemilikan subtask. Menambah entri baru
+# memerlukan alasan spesifik + nomor SAH berikutnya + test integrasi yang mengunci aturannya.
 PENGECUALIAN: dict[tuple[str, str], tuple[str, str]] = {
     ("DELETE", "/api/v1/projects/subtasks/{id_subtask}"): (
-        "role gate Lead_SA/Admin saja (sudah paling ketat); diselaraskan ke titik bersama",
-        "#92",
+        "role gate Lead_SA/Admin saja (_require_lead_sa): tingkat tertinggi, tidak ada "
+        "hubungan per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci "
+        "test_akses_k5 (role gate)",
+        "SAH-1",
     ),
     ("DELETE", "/api/v1/projects/{project_id}"): (
-        "role gate Lead_SA/Admin saja (sudah paling ketat); diselaraskan ke titik bersama",
-        "#92",
-    ),
-    ("DELETE", "/api/v1/projects/{project_id}/collaborators/{user_id}"): (
-        "pemeriksa sendiri: privileged/Sales PIC/SA ditugaskan (collaborator tidak); aturan benar",
-        "#92",
-    ),
-    ("DELETE", "/api/v1/projects/{project_id}/requirement/items/{item_id}"): (
-        "pemeriksa sendiri (can_manage_requirement); aturan Requirement lebih sempit, benar",
-        "#92",
-    ),
-    ("GET", "/api/v1/projects/{project_id}"): (
-        "salinan inline aturan ensure_project_access; diganti titik bersama (perilaku sama)",
-        "#92",
-    ),
-    ("GET", "/api/v1/projects/{project_id}/collaborators"): (
-        "pemeriksa sendiri setara baca-set; diganti titik bersama (perilaku sama)",
-        "#92",
-    ),
-    ("GET", "/api/v1/projects/{project_id}/handover-status"): (
-        "pemeriksa sendiri: Lead_SA/Admin/SA ditugaskan, Sales ditolak; aturan benar",
-        "#92",
+        "role gate Lead_SA/Admin saja (delete_project): tingkat tertinggi, tidak ada hubungan "
+        "per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci test_akses_k5 "
+        "(role gate)",
+        "SAH-2",
     ),
     ("PATCH", "/api/v1/projects/subtasks/{id_subtask}/assign"): (
-        "role gate Lead_SA/Admin saja (sudah paling ketat); diselaraskan ke titik bersama",
-        "#92",
+        "role gate Lead_SA/Admin saja (_require_lead_sa): tingkat tertinggi, tidak ada "
+        "hubungan per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci "
+        "test_akses_k5 (role gate)",
+        "SAH-3",
     ),
     ("PATCH", "/api/v1/projects/subtasks/{id_subtask}/status"): (
-        "pemeriksa sendiri: Lead_SA/Admin atau pemilik subtask; aturan benar",
-        "#92",
-    ),
-    ("PATCH", "/api/v1/projects/{project_id}/status"): (
-        "pemeriksa sendiri (_check_project_access): peran + kepemilikan; aturan benar",
-        "#92",
-    ),
-    ("POST", "/api/v1/activity-logs/{id_log}/polish"): (
-        "kepemilikan log (404), bukan akses proyek; perilaku dipertahankan, keputusan di K5",
-        "#92",
+        "aturan kepemilikan SUBTASK (Lead_SA/Admin atau SA pemilik subtask), sengaja berbeda "
+        "dari akses proyek: subtask milik SA tertentu, bukan hak seluruh pihak proyek. "
+        "Dikunci test_akses_k5",
+        "SAH-4",
     ),
     ("POST", "/api/v1/projects/{project_id}/assign"): (
-        "role gate Lead_SA/Admin saja (sudah paling ketat); diselaraskan ke titik bersama",
-        "#92",
-    ),
-    ("POST", "/api/v1/projects/{project_id}/handover"): (
-        "pemeriksa sendiri: Lead_SA/Admin/SA ditugaskan, Sales ditolak; aturan benar",
-        "#92",
+        "role gate Lead_SA/Admin saja (_require_lead_sa): tingkat tertinggi, tidak ada "
+        "hubungan per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci "
+        "test_akses_k5 (role gate)",
+        "SAH-5",
     ),
     ("POST", "/api/v1/projects/{project_id}/handover-config"): (
-        "role gate Lead_SA/Admin saja (sudah paling ketat); diselaraskan ke titik bersama",
-        "#92",
+        "role gate Lead_SA/Admin saja (configure_handover): tingkat tertinggi, tidak ada "
+        "hubungan per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci "
+        "test_akses_k5 (role gate)",
+        "SAH-6",
     ),
     ("POST", "/api/v1/projects/{project_id}/provision-folder"): (
-        "role gate Lead_SA/Admin saja (sudah paling ketat); diselaraskan ke titik bersama",
-        "#92",
+        "role gate Lead_SA/Admin saja (_require_lead_sa): tingkat tertinggi, tidak ada "
+        "hubungan per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci "
+        "test_akses_k5 (role gate)",
+        "SAH-7",
     ),
     ("POST", "/api/v1/projects/{project_id}/reassign"): (
-        "role gate Lead_SA/Admin saja (sudah paling ketat); diselaraskan ke titik bersama",
-        "#92",
-    ),
-    ("POST", "/api/v1/projects/{project_id}/requirement/items"): (
-        "pemeriksa sendiri (can_manage_requirement); aturan Requirement lebih sempit, benar",
-        "#92",
-    ),
-    ("POST", "/api/v1/projects/{project_id}/requirement/keep-version"): (
-        "pemeriksa sendiri (can_manage_requirement); aturan Requirement lebih sempit, benar",
-        "#92",
-    ),
-    ("POST", "/api/v1/projects/{project_id}/requirement/regenerate"): (
-        "pemeriksa sendiri (can_manage_requirement); aturan Requirement lebih sempit, benar",
-        "#92",
+        "role gate Lead_SA/Admin saja (_require_lead_sa): tingkat tertinggi, tidak ada "
+        "hubungan per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci "
+        "test_akses_k5 (role gate)",
+        "SAH-8",
     ),
     ("POST", "/api/v1/projects/{project_id}/score-manual"): (
-        "require_role Lead_SA/Admin (write-set ketat); diselaraskan ke titik bersama",
-        "#92",
+        "role gate Lead_SA/Admin saja (require_role): tingkat tertinggi, tidak ada hubungan "
+        "per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci test_akses_k5 "
+        "(role gate)",
+        "SAH-9",
     ),
     ("POST", "/api/v1/projects/{project_id}/subtasks"): (
-        "role gate Lead_SA/Admin saja (sudah paling ketat); diselaraskan ke titik bersama",
-        "#92",
-    ),
-    ("PUT", "/api/v1/projects/{project_id}/qualification-answers"): (
-        "pemeriksa sendiri: Lead_SA/Admin atau Sales PIC; aturan khusus, benar",
-        "#92",
-    ),
-    ("PUT", "/api/v1/projects/{project_id}/requirement/items/{item_id}"): (
-        "pemeriksa sendiri (can_manage_requirement); aturan Requirement lebih sempit, benar",
-        "#92",
+        "role gate Lead_SA/Admin saja (_require_lead_sa): tingkat tertinggi, tidak ada "
+        "hubungan per-proyek yang bisa lebih longgar; 403 sebelum proyek dimuat. Dikunci "
+        "test_akses_k5 (role gate)",
+        "SAH-10",
     ),
 }
 
@@ -288,8 +264,10 @@ def pindai(
     for kunci, (alasan, tiket) in pengecualian.items():
         if kunci not in ada:
             masalah.append(f"STALE: {kunci[0]} {kunci[1]} di PENGECUALIAN tapi rutenya tidak ada")
-        if not alasan.strip() or not tiket.startswith("#") or not tiket[1:].isdigit():
-            masalah.append(f"{kunci[0]} {kunci[1]}: pengecualian wajib punya alasan dan tiket '#N'")
+        if not alasan.strip() or not POLA_NOMOR.match(tiket):
+            masalah.append(
+                f"{kunci[0]} {kunci[1]}: pengecualian wajib punya alasan dan nomor '#N' atau 'SAH-N'"
+            )
     return masalah
 
 
@@ -317,6 +295,20 @@ def test_pemindai_mengenali_rute_terlindungi_yang_ada():
         ("GET", "/api/v1/projects/{project_id}/documents"),
         ("GET", "/api/v1/projects/{project_id}/subtasks"),
         ("PATCH", "/api/v1/projects/{project_id}"),
+        # dimigrasikan dari pemeriksa buatan sendiri di #92
+        ("GET", "/api/v1/projects/{project_id}"),
+        ("GET", "/api/v1/projects/{project_id}/collaborators"),
+        ("DELETE", "/api/v1/projects/{project_id}/collaborators/{user_id}"),
+        ("PATCH", "/api/v1/projects/{project_id}/status"),
+        ("GET", "/api/v1/projects/{project_id}/handover-status"),
+        ("POST", "/api/v1/projects/{project_id}/handover"),
+        ("POST", "/api/v1/projects/{project_id}/requirement/regenerate"),
+        ("POST", "/api/v1/projects/{project_id}/requirement/keep-version"),
+        ("POST", "/api/v1/projects/{project_id}/requirement/items"),
+        ("PUT", "/api/v1/projects/{project_id}/requirement/items/{item_id}"),
+        ("DELETE", "/api/v1/projects/{project_id}/requirement/items/{item_id}"),
+        ("PUT", "/api/v1/projects/{project_id}/qualification-answers"),
+        ("POST", "/api/v1/activity-logs/{id_log}/polish"),
     ):
         assert peta[kunci] is True, kunci
 
@@ -406,7 +398,16 @@ def test_entri_pengecualian_stale_atau_tanpa_alasan_ditandai():
     assert sum("wajib punya alasan" in m for m in tanpa_alasan) == 2
 
 
-def test_setiap_entri_pengecualian_punya_alasan_dan_tiket_pembersih():
-    for kunci, (alasan, tiket) in PENGECUALIAN.items():
-        assert alasan.strip(), kunci
-        assert tiket in {"#89", "#90", "#91", "#92"}, kunci
+def test_setiap_entri_pengecualian_adalah_pengecualian_sah_bernomor_unik():
+    """Hasil akhir #92: tidak ada lagi entri 'tiket pembersih'; semuanya SAH-n, unik, beralasan."""
+    nomor = [tiket for _alasan, tiket in PENGECUALIAN.values()]
+    assert all(re.fullmatch(r"SAH-\d+", n) for n in nomor), nomor
+    assert len(set(nomor)) == len(nomor)
+    for kunci, (alasan, _tiket) in PENGECUALIAN.items():
+        assert len(alasan.split()) >= 8, f"alasan terlalu pendek untuk {kunci}"
+
+
+def test_pengecualian_sah_hanya_role_gate_atau_kepemilikan_subtask():
+    """Cegah pengecualian baru diam-diam: tiap alasan harus menyebut role gate atau subtask."""
+    for kunci, (alasan, _tiket) in PENGECUALIAN.items():
+        assert "role gate" in alasan or "SUBTASK" in alasan, kunci

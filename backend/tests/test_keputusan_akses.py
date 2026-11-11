@@ -26,12 +26,14 @@ from tests._auth_support import SesiPalsu, user_palsu
 
 PESAN_403 = "Anda tidak memiliki akses ke proyek ini."
 
-LEAD = HubunganProyek(privileged=True)
-ADMIN = HubunganProyek(privileged=True)
-SALES_PIC = HubunganProyek(sales_pic=True)
-SA_DITUGASKAN = HubunganProyek(sa_ditugaskan=True)
-KOLAB_VIEWER = HubunganProyek(kolaborator="viewer")
-KOLAB_CONTRIB = HubunganProyek(kolaborator="contributor")
+# `peran` hanya dibaca tingkat yang aturannya menggabungkan hubungan DAN peran (#92);
+# tidak ikut perbandingan `==`.
+LEAD = HubunganProyek(privileged=True, peran="Lead_SA")
+ADMIN = HubunganProyek(privileged=True, peran="Admin")
+SALES_PIC = HubunganProyek(sales_pic=True, peran="Sales")
+SA_DITUGASKAN = HubunganProyek(sa_ditugaskan=True, peran="SA")
+KOLAB_VIEWER = HubunganProyek(kolaborator="viewer", peran="SA")
+KOLAB_CONTRIB = HubunganProyek(kolaborator="contributor", peran="SA")
 PIHAK_LUAR = HubunganProyek()
 
 # (nama hubungan, hubungan) — baris tabel
@@ -75,6 +77,17 @@ MATRIKS = {
     TingkatAkses.ISI_DQ: {"privileged", "sales_pic"},
     # Tambah collaborator: Lead_SA, Admin, SA ditugaskan, Sales PIC
     TingkatAkses.TAMBAH_KOLABORATOR: {"privileged", "sales_pic", "sa_ditugaskan"},
+    # --- tingkat hasil penyelarasan #92 (aturan lama tiap rute dipertahankan) ---
+    # Hapus collaborator: collaborator (viewer/contributor) tidak boleh
+    TingkatAkses.HAPUS_KOLABORATOR: {"privileged", "sales_pic", "sa_ditugaskan"},
+    # Ubah status proyek (workflow): Sales PIC & SA ditugaskan (cocok id DAN peran)
+    TingkatAkses.UBAH_STATUS: {"privileged", "sales_pic", "sa_ditugaskan"},
+    # Handover: Sales PIC ditolak
+    TingkatAkses.HANDOVER: {"privileged", "sa_ditugaskan"},
+    # Requirement: Sales PIC dan collaborator read-only
+    TingkatAkses.KELOLA_REQUIREMENT: {"privileged", "sa_ditugaskan"},
+    # Jawaban kuesioner: Sales PIC (berperan Sales), Lead_SA, Admin
+    TingkatAkses.EDIT_KUESIONER: {"privileged", "sales_pic"},
 }
 
 KASUS = [
@@ -195,3 +208,57 @@ async def test_ensure_sales_pic_ditolak_story_tapi_boleh_baca():
     await ensure_project_access(SesiPalsu(None), proyek, user)
     with pytest.raises(HTTPException):
         await ensure_project_access(SesiPalsu(None), proyek, user, tingkat=TingkatAkses.STORY)
+
+
+# ----------------------------------------------------- tingkat yang menggabungkan id DAN peran (#92)
+
+
+@pytest.mark.parametrize(
+    ("tingkat", "hubungan"),
+    [
+        # SA ditugaskan tapi berperan Sales (bukan PIC): tidak lolos UBAH_STATUS/HANDOVER/Requirement
+        (TingkatAkses.UBAH_STATUS, HubunganProyek(sa_ditugaskan=True, peran="Sales")),
+        (TingkatAkses.HANDOVER, HubunganProyek(sa_ditugaskan=True, peran="Sales")),
+        (TingkatAkses.KELOLA_REQUIREMENT, HubunganProyek(sa_ditugaskan=True, peran="Sales")),
+        # Sales PIC tapi berperan SA: tidak lolos UBAH_STATUS/EDIT_KUESIONER
+        (TingkatAkses.UBAH_STATUS, HubunganProyek(sales_pic=True, peran="SA")),
+        (TingkatAkses.EDIT_KUESIONER, HubunganProyek(sales_pic=True, peran="SA")),
+        # peran tak dikenal ditolak
+        (TingkatAkses.UBAH_STATUS, HubunganProyek(sales_pic=True, sa_ditugaskan=True, peran="Intern")),
+        (TingkatAkses.HANDOVER, HubunganProyek(sa_ditugaskan=True, peran="PMO")),
+    ],
+)
+def test_tingkat_gabungan_id_dan_peran_menolak_ketidakcocokan(tingkat, hubungan):
+    assert izinkan(hubungan, tingkat) is False
+
+
+@pytest.mark.parametrize(
+    "tingkat",
+    [
+        TingkatAkses.HAPUS_KOLABORATOR,
+        TingkatAkses.UBAH_STATUS,
+        TingkatAkses.HANDOVER,
+        TingkatAkses.KELOLA_REQUIREMENT,
+        TingkatAkses.EDIT_KUESIONER,
+    ],
+)
+async def test_tingkat_tanpa_collaborator_tidak_query_db(tingkat):
+    """Keputusannya tidak memakai collaborator → tidak ada query (jumlah query rute lama sama)."""
+
+    class SesiTerlarang:
+        async def execute(self, _stmt):
+            raise AssertionError("tidak boleh query collaborator")
+
+    user = user_palsu("Lead_SA")
+    await ensure_project_access(SesiTerlarang(), _proyek(), user, tingkat=tingkat)
+    with pytest.raises(HTTPException):
+        await ensure_project_access(SesiTerlarang(), _proyek(), user_palsu("SA"), tingkat=tingkat)
+
+
+async def test_ensure_pesan_khusus_menggantikan_pesan_generik_status_tetap_403():
+    with pytest.raises(HTTPException) as exc:
+        await ensure_project_access(
+            SesiPalsu(None), _proyek(), user_palsu("SA"), pesan="Pesan kontrak lama."
+        )
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "Pesan kontrak lama."

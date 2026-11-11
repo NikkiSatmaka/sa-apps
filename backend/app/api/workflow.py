@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import TingkatAkses, ensure_project_access, get_current_user
 from app.models.audit_log import AuditLog
 from app.models.project import Project
 from app.models.user import User
@@ -83,38 +83,13 @@ def _generate_audit_id() -> str:
     return f"AUDIT-{date_part}-{random_part}"
 
 
-def _check_project_access(project: Project, current_user: User) -> None:
-    """
-    Validasi akses user terhadap proyek berdasarkan role.
-    - Sales: hanya proyek miliknya (sales_pic = current_user.id)
-    - SA: hanya proyek yang ditugaskan kepadanya (assigned_sa = current_user.id)
-    - Lead_SA/Admin: akses ke semua proyek
-    """
-    if current_user.role in ("Lead_SA", "Admin"):
-        # Lead_SA dan Admin punya akses ke semua proyek
-        return
-
-    if current_user.role == "Sales":
-        if project.sales_pic != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Anda hanya dapat mengubah status proyek milik Anda sendiri.",
-            )
-        return
-
-    if current_user.role == "SA":
-        if project.assigned_sa != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Anda hanya dapat mengubah status proyek yang ditugaskan kepada Anda.",
-            )
-        return
-
-    # Role tidak dikenal — tolak akses
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Role Anda tidak memiliki izin untuk operasi ini.",
-    )
+def _pesan_ditolak_ubah_status(peran: str) -> str:
+    """Pesan 403 per peran (kontrak lama dipertahankan); aturannya ada di TingkatAkses.UBAH_STATUS."""
+    if peran == "Sales":
+        return "Anda hanya dapat mengubah status proyek milik Anda sendiri."
+    if peran == "SA":
+        return "Anda hanya dapat mengubah status proyek yang ditugaskan kepada Anda."
+    return "Role Anda tidak memiliki izin untuk operasi ini."
 
 
 async def _notify_mandatory_hld(project: Project, db: AsyncSession) -> None:
@@ -206,7 +181,15 @@ async def update_project_status(
         )
 
     # === 2. Validasi akses user ===
-    _check_project_access(project, current_user)
+    # Titik keputusan bersama (UBAH_STATUS): Lead_SA/Admin semua proyek; Sales hanya PIC-nya;
+    # SA hanya yang ditugaskan; role lain ditolak. Collaborator tidak dihitung.
+    await ensure_project_access(
+        db,
+        project,
+        current_user,
+        TingkatAkses.UBAH_STATUS,
+        pesan=_pesan_ditolak_ubah_status(current_user.role),
+    )
 
     # === 3. Validasi transisi status ===
     old_status = project.status

@@ -68,3 +68,15 @@ Redshift_Presentation_Outline.md
 # Laporan cakupan test frontend
 frontend/coverage/
 coverage/
+
+# Artefak cakupan test
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+coverage.json
+coverage-*.data
+coverage-*.xml
+cov-*.data
+cov-in/
+gerbang.txt

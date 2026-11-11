@@ -108,20 +108,25 @@ class HandoverService:
             missing_items.append(f"Status proyek harus 'Closed-Win' (saat ini: '{project.status}')")
 
         # Cek dokumen HLD Final
+        # Satu proyek boleh punya beberapa dokumen HLD (revisi); cukup satu yang Final.
+        # Bila belum ada yang Final, laporkan status dokumen HLD terbaru.
         hld_result = await db.execute(
-            select(Document).where(
+            select(Document)
+            .where(
                 and_(
                     Document.id_project == project_id,
                     Document.doc_type == "HLD",
                 )
             )
+            .order_by(Document.created_at.desc())
         )
-        hld_doc = hld_result.scalar_one_or_none()
+        hld_docs = hld_result.scalars().all()
 
         hld_status = None
-        if hld_doc is None:
+        if not hld_docs:
             missing_items.append("Dokumen HLD belum dibuat")
         else:
+            hld_doc = next((d for d in hld_docs if d.status == "Final"), hld_docs[0])
             hld_status = hld_doc.status
             if hld_doc.status != "Final":
                 missing_items.append(
@@ -143,6 +148,10 @@ class HandoverService:
         # Cek folder GDrive
         if not project.gdrive_folder_id:
             missing_items.append("Folder Google Drive belum di-provisioning")
+
+        # Final_Deliverables dibuat di dalam Solutions (ADR 0005): id Solutions wajib ada.
+        if not project.gdrive_solutions_folder_id:
+            missing_items.append("Folder Solutions Google Drive belum di-provisioning")
 
         return {
             "ready": len(missing_items) == 0,
@@ -201,15 +210,17 @@ class HandoverService:
 
         # Validasi HLD Final
         hld_result = await db.execute(
-            select(Document).where(
+            select(Document)
+            .where(
                 and_(
                     Document.id_project == project_id,
                     Document.doc_type == "HLD",
                     Document.status == "Final",
                 )
             )
+            .limit(1)
         )
-        hld_doc = hld_result.scalar_one_or_none()
+        hld_doc = hld_result.scalars().first()
 
         if hld_doc is None:
             raise HandoverError(
@@ -232,6 +243,13 @@ class HandoverService:
             raise HandoverError(
                 "Folder Google Drive proyek belum di-provisioning. "
                 "Pastikan folder sudah dibuat sebelum handover."
+            )
+
+        # Final_Deliverables dibuat di dalam Solutions; tanpa id-nya folder akan salah tempat.
+        if not project.gdrive_solutions_folder_id:
+            raise HandoverError(
+                "Folder Solutions Google Drive proyek belum di-provisioning. "
+                "Provisioning ulang folder sebelum handover."
             )
 
         # === 2. Provisioning folder Final_Deliverables ===

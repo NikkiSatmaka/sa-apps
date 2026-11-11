@@ -170,6 +170,13 @@ class _FakeFlow2Session:
     async def refresh(self, _obj):
         return None
 
+    async def flush(self):
+        return None
+
+    def begin_nested(self):
+        """SAVEPOINT penulisan audit log: context manager kosong."""
+        return self
+
     async def close(self):
         return None
 

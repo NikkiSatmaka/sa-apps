@@ -277,23 +277,25 @@ async def test_transisi_maju_sa_dan_lead_sa_diizinkan_dan_dicatat(
     assert baris.updated_by == dunia.user[peran].id
 
 
+@pytest.mark.parametrize("peran", ["Lead_SA", "Admin"])
 @pytest.mark.parametrize(("awal", "akhir"), MUNDUR)
-async def test_transisi_mundur_lead_sa_diizinkan(api, db_session, awal, akhir):
+async def test_transisi_mundur_lead_sa_dan_admin_diizinkan(api, db_session, peran, awal, akhir):
+    # Diubah (#90): Admin = Lead_SA untuk semua aksi matriks; sebelumnya Admin keliru ditolak.
     dunia = await siapkan_dunia(api, db_session)
     proyek = await buat_proyek(db_session, dunia)
     dokumen = await buat_dokumen(db_session, proyek, dunia, status=awal)
 
-    resp = await _ubah(api, dokumen, akhir, dunia.header["Lead_SA"])
+    resp = await _ubah(api, dokumen, akhir, dunia.header[peran])
 
     assert resp.status_code == 200, resp.text
     baris = await muat(db_session, Document, id_doc=dokumen.id_doc)
     assert baris.status == akhir
-    assert baris.updated_by == dunia.user["Lead_SA"].id
+    assert baris.updated_by == dunia.user[peran].id
 
 
-@pytest.mark.parametrize("peran", ["SA", "Admin", "Sales"])
+@pytest.mark.parametrize("peran", ["SA", "Sales"])
 @pytest.mark.parametrize(("awal", "akhir"), MUNDUR)
-async def test_transisi_mundur_selain_lead_sa_403_status_tidak_berubah(
+async def test_transisi_mundur_selain_lead_sa_dan_admin_403_status_tidak_berubah(
     api, db_session, peran, awal, akhir
 ):
     dunia = await siapkan_dunia(api, db_session)
@@ -321,9 +323,12 @@ async def test_loncat_draft_ke_final_ditolak_semua_peran(api, db_session, peran)
     assert (await muat(db_session, Document, id_doc=dokumen.id_doc)).status == "Draft"
 
 
-@pytest.mark.parametrize(("peran", "kode"), [("Lead_SA", 400), ("SA", 403)])
+@pytest.mark.parametrize(("peran", "kode"), [("Lead_SA", 400), ("Admin", 400), ("SA", 403)])
 async def test_final_ke_draft_bukan_transisi_valid_bagi_siapa_pun(api, db_session, peran, kode):
-    """Final ke Draft melompat dua langkah. Non-Lead_SA ditolak lebih dulu oleh proteksi Final."""
+    """
+    Final ke Draft melompat dua langkah. Selain Lead_SA/Admin ditolak lebih dulu oleh proteksi
+    Final. Diubah (#90): Admin kini lolos proteksi Final (400 sebagai loncat), bukan 403.
+    """
     dunia = await siapkan_dunia(api, db_session)
     proyek = await buat_proyek(db_session, dunia)
     dokumen = await buat_dokumen(db_session, proyek, dunia, status="Final")
@@ -334,17 +339,40 @@ async def test_final_ke_draft_bukan_transisi_valid_bagi_siapa_pun(api, db_sessio
     assert (await muat(db_session, Document, id_doc=dokumen.id_doc)).status == "Final"
 
 
-@pytest.mark.parametrize("peran", ["SA", "Admin", "Sales"])
-async def test_dokumen_final_hanya_bisa_diubah_lead_sa(api, db_session, peran):
+async def test_dokumen_final_sa_ditugaskan_ditolak_dengan_pesan_proteksi_final(api, db_session):
     dunia = await siapkan_dunia(api, db_session)
     proyek = await buat_proyek(db_session, dunia)
     dokumen = await buat_dokumen(db_session, proyek, dunia, status="Final")
 
-    resp = await _ubah(api, dokumen, "Reviewed", dunia.header[peran])
+    resp = await _ubah(api, dokumen, "Reviewed", dunia.header["SA"])
 
     assert resp.status_code == 403
     assert "yang sudah 'Final'" in resp.json()["message"]
     assert (await muat(db_session, Document, id_doc=dokumen.id_doc)).status == "Final"
+
+
+async def test_dokumen_final_sales_ditolak_oleh_cek_akses_proyek(api, db_session):
+    """Sales (PIC sekalipun) tidak berhak mengelola status dokumen: 403 generik dari cek akses."""
+    dunia = await siapkan_dunia(api, db_session)
+    proyek = await buat_proyek(db_session, dunia)
+    dokumen = await buat_dokumen(db_session, proyek, dunia, status="Final")
+
+    resp = await _ubah(api, dokumen, "Reviewed", dunia.header["Sales"])
+
+    assert resp.status_code == 403
+    assert (await muat(db_session, Document, id_doc=dokumen.id_doc)).status == "Final"
+
+
+async def test_dokumen_final_admin_boleh_mundur_ke_reviewed(api, db_session):
+    # Diubah (#90): sebelumnya Admin ditolak oleh proteksi Final yang hanya mengizinkan Lead_SA.
+    dunia = await siapkan_dunia(api, db_session)
+    proyek = await buat_proyek(db_session, dunia)
+    dokumen = await buat_dokumen(db_session, proyek, dunia, status="Final")
+
+    resp = await _ubah(api, dokumen, "Reviewed", dunia.header["Admin"])
+
+    assert resp.status_code == 200, resp.text
+    assert (await muat(db_session, Document, id_doc=dokumen.id_doc)).status == "Reviewed"
 
 
 @pytest.mark.parametrize("status_", ["Draft", "Reviewed", "Final"])

@@ -104,6 +104,16 @@ def test_daftar_dokumen_mengembalikan_requirement_dengan_link_kosong_dan_butir()
     assert doc["source_hash"] == "a" * 64
 
 
+# Cek akses KELOLA (tiket #90) menambah satu query proyek di luar urutan `execute()` tetap di
+# bawah; dinetralkan di sini, matriks aksesnya diuji di Postgres nyata
+# (`tests/integration/test_akses_k3_dokumen_dq.py`).
+@pytest.fixture
+def lewati_cek_akses_dokumen():
+    with patch("app.api.documents._periksa_akses_kelola_dokumen", new_callable=AsyncMock):
+        yield
+
+
+@pytest.mark.usefixtures("lewati_cek_akses_dokumen")
 @pytest.mark.parametrize("dq", ["DQ-12345", None])
 def test_requirement_reviewed_tidak_memicu_doc_ready_maupun_unlock_solutions(dq):
     sales_id = uuid.uuid4()

@@ -107,6 +107,18 @@ def _cleanup_overrides():
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(autouse=True)
+def _lewati_cek_akses_dokumen():
+    """
+    Berkas ini menguji logika `doc_ready` dengan session ber-urutan `execute()` tetap.
+    Cek akses KELOLA (tiket #90) menambah satu query proyek di luar urutan itu, jadi
+    dinetralkan di sini; matriks aksesnya diuji di Postgres nyata
+    (`tests/integration/test_akses_k3_dokumen_dq.py`).
+    """
+    with patch("app.api.documents._periksa_akses_kelola_dokumen", new_callable=AsyncMock):
+        yield
+
+
 @pytest.fixture
 def client():
     return TestClient(app)

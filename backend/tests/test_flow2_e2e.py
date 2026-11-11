@@ -357,6 +357,21 @@ def _make_document(status: str = "Draft"):
     return doc
 
 
+@pytest.fixture
+def lewati_cek_akses_dokumen():
+    """
+    Test ini memakai session ber-urutan `execute()` tetap; cek akses (tiket #90) menambah
+    query di luar urutan itu sehingga dinetralkan. Matriks aksesnya diuji di Postgres nyata
+    (`tests/integration/test_akses_k3_dokumen_dq.py`).
+    """
+    with (
+        patch("app.api.documents._periksa_akses_kelola_dokumen", new_callable=AsyncMock),
+        patch("app.api.dq_number.ensure_project_access", new_callable=AsyncMock),
+    ):
+        yield
+
+
+@pytest.mark.usefixtures("lewati_cek_akses_dokumen")
 class TestCabangKurang5Hari:
     """
     DQ sudah terisi: dokumen Solutions → Reviewed memicu doc_ready + buka akses,

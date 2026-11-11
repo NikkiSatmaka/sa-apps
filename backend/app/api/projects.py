@@ -45,6 +45,7 @@ from app.services.requirement_generator import (
     resummarize_if_source_changed,
 )
 from app.services.source_document_extractor import extract_source_documents
+from app.services.dq_akses import normalisasi_dq, periksa_perubahan_dq
 
 logger = logging.getLogger(__name__)
 
@@ -686,13 +687,19 @@ async def update_project(
     # privileged (Lead_SA/Admin), Sales PIC, assigned SA, atau collaborator.
     await ensure_project_access(db, project, current_user)
 
+    # Perubahan NILAI dq_number mengikuti aturan DQ (Sales PIC/Lead_SA/Admin); diputuskan
+    # sebelum mutasi apa pun agar 403 tidak meninggalkan perubahan field lain.
+    ubah_dq = "dq_number" in body and await periksa_perubahan_dq(
+        db, project, current_user, body["dq_number"]
+    )
+
     # Update fields yang dikirim
     if "project_name" in body and body["project_name"]:
         project.project_name = body["project_name"]
     if "customer_name" in body and body["customer_name"]:
         project.customer_name = body["customer_name"]
-    if "dq_number" in body:
-        project.dq_number = body["dq_number"] if body["dq_number"] else None
+    if ubah_dq:
+        project.dq_number = normalisasi_dq(body["dq_number"])
     if "target_submit" in body and body["target_submit"]:
         from datetime import date as date_cls
 

@@ -71,17 +71,9 @@ PENGECUALIAN: dict[tuple[str, str], tuple[str, str]] = {
         "pemeriksa sendiri setara baca-set; diganti titik bersama (perilaku sama)",
         "#92",
     ),
-    ("GET", "/api/v1/projects/{project_id}/documents/solutions"): (
-        "belum ada cek akses; gating DQ Sales PIC + akses proyek",
-        "#90",
-    ),
     ("GET", "/api/v1/projects/{project_id}/handover-status"): (
         "pemeriksa sendiri: Lead_SA/Admin/SA ditugaskan, Sales ditolak; aturan benar",
         "#92",
-    ),
-    ("PATCH", "/api/v1/documents/{doc_id}/status"): (
-        "hanya cek peran, tanpa relasi ke proyek; Admin salah ditolak pada mundur/Final",
-        "#90",
     ),
     ("PATCH", "/api/v1/projects/subtasks/{id_subtask}/assign"): (
         "role gate Lead_SA/Admin saja (sudah paling ketat); diselaraskan ke titik bersama",
@@ -90,10 +82,6 @@ PENGECUALIAN: dict[tuple[str, str], tuple[str, str]] = {
     ("PATCH", "/api/v1/projects/subtasks/{id_subtask}/status"): (
         "pemeriksa sendiri: Lead_SA/Admin atau pemilik subtask; aturan benar",
         "#92",
-    ),
-    ("PATCH", "/api/v1/projects/{project_id}/dq-number"): (
-        "pemeriksa peran sendiri tanpa cek Sales PIC; belum memakai titik keputusan",
-        "#90",
     ),
     ("PATCH", "/api/v1/projects/{project_id}/status"): (
         "pemeriksa sendiri (_check_project_access): peran + kepemilikan; aturan benar",
@@ -120,7 +108,6 @@ PENGECUALIAN: dict[tuple[str, str], tuple[str, str]] = {
         "hanya cek peran user, tanpa relasi ke proyek",
         "#91",
     ),
-    ("POST", "/api/v1/projects/{project_id}/documents"): ("belum ada cek akses tulis", "#90"),
     ("POST", "/api/v1/projects/{project_id}/handover"): (
         "pemeriksa sendiri: Lead_SA/Admin/SA ditugaskan, Sales ditolak; aturan benar",
         "#92",

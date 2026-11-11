@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import TingkatAkses, ensure_project_access, get_current_user
 from app.models.document import Document
 from app.models.project import Project
 from app.models.user import User
@@ -39,8 +39,8 @@ ALLOWED_STATUSES_FOR_DQ = (
     "/projects/{project_id}/dq-number",
     summary="Input atau update DQ Number pada proyek",
     description=(
-        "Sales menginput DQ Number untuk proyek yang berstatus 'Assigned' atau lebih. "
-        "Setelah DQ tersimpan, hanya Lead_SA yang bisa mengedit. "
+        "Sales PIC proyek itu, Lead_SA, dan Admin menginput DQ Number untuk proyek yang "
+        "berstatus 'Assigned' atau lebih. Setelah DQ tersimpan, Sales tidak bisa mengedit. "
         "Status proyek berubah menjadi 'Ready' saat DQ pertama kali diinput."
     ),
 )
@@ -70,6 +70,10 @@ async def update_dq_number(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
+
+    # Hanya Sales PIC proyek ini, Lead_SA, dan Admin; sebelum validasi lain, penulisan,
+    # dan penghentian timer SLA (403 generik, tanpa efek samping).
+    await ensure_project_access(db, project, current_user, TingkatAkses.ISI_DQ)
 
     # === 2. Validasi status proyek cukup tinggi ===
     if project.status not in ALLOWED_STATUSES_FOR_DQ:
@@ -175,6 +179,14 @@ async def get_solutions_documents(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
+        )
+
+    await ensure_project_access(db, project, current_user, TingkatAkses.BACA)
+    # Sales hanya boleh melihat link Solutions bila PIC proyek ini (collaborator Sales tidak).
+    if current_user.role == "Sales" and project.sales_pic != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak memiliki akses ke proyek ini.",
         )
 
     # === 2. Gating untuk Sales: DQ Number harus ada ===

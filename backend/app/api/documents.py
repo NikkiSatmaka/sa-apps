@@ -3,11 +3,12 @@ API endpoints untuk Document Tracking.
 Menangani CRUD dokumen proyek dan state machine transisi status.
 
 State Machine:
-- Draft → Reviewed: SA, Lead_SA
-- Reviewed → Final: SA, Lead_SA
-- Final → Reviewed (mundur): HANYA Lead_SA
-- Reviewed → Draft (mundur): HANYA Lead_SA
+- Draft → Reviewed: Lead_SA, Admin, SA ditugaskan
+- Reviewed → Final: Lead_SA, Admin, SA ditugaskan
+- Final → Reviewed (mundur): HANYA Lead_SA dan Admin
+- Reviewed → Draft (mundur): HANYA Lead_SA dan Admin
 - Draft → Final (loncat): DITOLAK untuk semua role
+- `doc_ready` hanya pada transisi tepat Draft → Reviewed (spec #87)
 """
 
 import logging
@@ -18,7 +19,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import ensure_project_access, get_current_user
+from app.core.dependencies import (
+    HubunganProyek,
+    TingkatAkses,
+    ensure_project_access,
+    get_current_user,
+    izinkan,
+)
 from app.models.document import Document
 from app.models.project import Project
 from app.models.user import User
@@ -80,12 +87,37 @@ VALID_TRANSITIONS = {
     "Final": [],  # Final tidak bisa maju (terminal state untuk forward)
 }
 
-# Transisi mundur — hanya bisa dilakukan oleh Lead_SA
+# Transisi mundur — hanya bisa dilakukan oleh Lead_SA dan Admin
 BACKWARD_TRANSITIONS = {
-    "Final": ["Reviewed"],  # Final bisa mundur ke Reviewed (Lead_SA only)
-    "Reviewed": ["Draft"],  # Reviewed bisa mundur ke Draft (Lead_SA only)
+    "Final": ["Reviewed"],  # Final bisa mundur ke Reviewed (Lead_SA/Admin only)
+    "Reviewed": ["Draft"],  # Reviewed bisa mundur ke Draft (Lead_SA/Admin only)
     "Draft": [],  # Draft tidak bisa mundur
 }
+
+
+PERAN_PRIVILEGED = ("Lead_SA", "Admin")
+
+
+async def _periksa_akses_kelola_dokumen(
+    document: Document, user: User, db: AsyncSession
+) -> None:
+    """
+    Pastikan `user` boleh mengelola status dokumen (KELOLA: Lead_SA, Admin, SA ditugaskan).
+
+    Proyek yang soft-deleted tersembunyi dari ORM; tanpa proyek tidak ada relasi yang bisa
+    dibuktikan, sehingga hanya Lead_SA/Admin yang lolos (perilaku lama bagi mereka tetap).
+    """
+    project = (
+        await db.execute(select(Project).where(Project.id_project == document.id_project))
+    ).scalar_one_or_none()
+    if project is not None:
+        await ensure_project_access(db, project, user, TingkatAkses.KELOLA)
+        return
+    if not izinkan(HubunganProyek(privileged=user.role in PERAN_PRIVILEGED), TingkatAkses.KELOLA):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak memiliki akses ke proyek ini.",
+        )
 
 
 async def _handle_doc_ready(document: Document, db: AsyncSession) -> None:
@@ -222,6 +254,8 @@ async def create_document(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
+    # Unggah dokumen = tulis: Lead_SA, Admin, SA ditugaskan, collaborator contributor.
+    await ensure_project_access(db, project, current_user, TingkatAkses.TULIS)
 
     # Generate ID dokumen dan timestamp
     now = datetime.now(timezone.utc)
@@ -313,8 +347,8 @@ async def list_project_documents(
     summary="Update status dokumen (state machine)",
     description=(
         "Mengubah status dokumen mengikuti aturan state machine. "
-        "Transisi maju: Draft → Reviewed → Final (SA & Lead_SA). "
-        "Transisi mundur: hanya Lead_SA. "
+        "Transisi maju: Draft → Reviewed → Final (Lead_SA, Admin, SA ditugaskan). "
+        "Transisi mundur: hanya Lead_SA dan Admin. "
         "Loncat (Draft → Final): ditolak."
     ),
 )
@@ -328,10 +362,11 @@ async def update_document_status(
     Update status dokumen dengan enforcement state machine.
 
     Rules:
-    - Transisi maju (Draft→Reviewed, Reviewed→Final): SA dan Lead_SA
-    - Transisi mundur (Final→Reviewed, Reviewed→Draft): hanya Lead_SA
+    - Transisi maju (Draft→Reviewed, Reviewed→Final): Lead_SA, Admin, SA ditugaskan
+    - Transisi mundur (Final→Reviewed, Reviewed→Draft): hanya Lead_SA dan Admin
     - Loncat (Draft→Final): ditolak untuk semua role
-    - Status "Final" hanya bisa diubah oleh Lead_SA
+    - Status "Final" hanya bisa diubah oleh Lead_SA dan Admin
+    - `doc_ready` hanya pada transisi tepat Draft→Reviewed
     - Catat timestamp dan user pada setiap transisi
     """
     # Cari dokumen
@@ -344,6 +379,9 @@ async def update_document_status(
             detail=f"Dokumen dengan ID '{doc_id}' tidak ditemukan.",
         )
 
+    # Akses (403) diputuskan SEBELUM validasi transisi, commit, dan side-effect doc_ready.
+    await _periksa_akses_kelola_dokumen(document, current_user, db)
+
     current_status = document.status
     new_status = body.new_status.value
 
@@ -354,30 +392,33 @@ async def update_document_status(
             detail=f"Dokumen sudah berstatus '{current_status}'. Tidak ada perubahan.",
         )
 
-    # Cek proteksi: status "Final" hanya bisa diubah oleh Lead_SA
-    if current_status == "Final" and current_user.role != "Lead_SA":
+    # Cek proteksi: status "Final" hanya bisa diubah oleh Lead_SA dan Admin
+    if current_status == "Final" and current_user.role not in PERAN_PRIVILEGED:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=("Hanya Lead_SA yang dapat mengubah status dokumen yang sudah 'Final'."),
+            detail=(
+                "Hanya Lead_SA dan Admin yang dapat mengubah status dokumen yang sudah 'Final'."
+            ),
         )
 
     # Cek apakah transisi maju yang valid
     is_forward = new_status in VALID_TRANSITIONS.get(current_status, [])
 
-    # Cek apakah transisi mundur yang valid (hanya Lead_SA)
+    # Cek apakah transisi mundur yang valid (hanya Lead_SA dan Admin)
     is_backward = new_status in BACKWARD_TRANSITIONS.get(current_status, [])
 
     if is_forward:
-        # Transisi maju — SA dan Lead_SA boleh
+        # Transisi maju — Lead_SA, Admin, SA ditugaskan (sudah lolos cek KELOLA di atas)
         pass
     elif is_backward:
-        # Transisi mundur — hanya Lead_SA
-        if current_user.role != "Lead_SA":
+        # Transisi mundur — hanya Lead_SA dan Admin
+        if current_user.role not in PERAN_PRIVILEGED:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(
-                    "Hanya Lead_SA yang dapat melakukan transisi mundur. "
-                    f"Transisi '{current_status}' → '{new_status}' memerlukan role Lead_SA."
+                    "Hanya Lead_SA dan Admin yang dapat melakukan transisi mundur. "
+                    f"Transisi '{current_status}' → '{new_status}' memerlukan role Lead_SA "
+                    "atau Admin."
                 ),
             )
     else:
@@ -404,11 +445,15 @@ async def update_document_status(
     await db.commit()
     await db.refresh(document)
 
-    # Side-effect doc_ready: HANYA saat transisi ke `Reviewed` dengan DQ terisi.
-    # Transisi lain (ke Final, mundur, dll) tidak memicu ini (fix B13 / Fase 2A.3).
-    # Requirement (konten turunan AI, bukan dokumen kerja SA) tidak memicu doc_ready
-    # maupun pembukaan folder Solutions (#33).
-    if new_status == "Reviewed" and document.doc_type != "Requirement":
+    # Side-effect doc_ready: HANYA pada transisi tepat Draft → Reviewed dengan DQ terisi.
+    # Transisi lain (ke Final, mundur termasuk Final → Reviewed) tidak memicu ini
+    # (fix B13 / Fase 2A.3, spec #87). Requirement (konten turunan AI, bukan dokumen kerja SA)
+    # tidak memicu doc_ready maupun pembukaan folder Solutions (#33).
+    if (
+        current_status == "Draft"
+        and new_status == "Reviewed"
+        and document.doc_type != "Requirement"
+    ):
         await _handle_doc_ready(document, db)
 
     # Format response

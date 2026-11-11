@@ -3,6 +3,10 @@ Dependencies untuk FastAPI dependency injection.
 Berisi auth middleware (JWT validation) dan dependencies lainnya.
 """
 
+from collections.abc import Callable
+from dataclasses import dataclass
+from enum import Enum
+
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import ExpiredSignatureError, JWTError, jwt
@@ -116,35 +120,106 @@ def require_role(*allowed_roles: str):
     return _role_checker
 
 
-async def ensure_project_access(
-    db: AsyncSession,
-    project: Project,
-    user: User,
-) -> None:
+class TingkatAkses(str, Enum):
+    """Tingkat akses ke satu proyek. Matriks lengkap ada di `_IZIN` (spec #87)."""
+
+    # Baca: Lead_SA, Admin, Sales PIC, SA ditugaskan, collaborator (viewer & contributor)
+    BACA = "baca"
+    # Baca Project Story + minta ringkasan AI: seperti BACA tetapi Sales PIC TIDAK
+    STORY = "story"
+    # Tulis activity log / map kalender / unggah dokumen: Lead_SA, Admin, SA ditugaskan,
+    # collaborator contributor (viewer dan Sales PIC tidak)
+    TULIS = "tulis"
+    # Ubah proyek (PATCH): seperti BACA tetapi collaborator viewer ditolak
+    UBAH_PROYEK = "ubah_proyek"
+    # Majukan status dokumen: Lead_SA, Admin, SA ditugaskan
+    KELOLA = "kelola"
+    # Isi DQ Number: Lead_SA, Admin, Sales PIC proyek itu
+    ISI_DQ = "isi_dq"
+    # Tambah collaborator: Lead_SA, Admin, SA ditugaskan, Sales PIC
+    TAMBAH_KOLABORATOR = "tambah_kolaborator"
+
+
+@dataclass(frozen=True)
+class HubunganProyek:
+    """Hubungan satu user ke satu proyek (dicocokkan lewat id, bukan peran user).
+
+    `privileged` = peran Lead_SA/Admin. `kolaborator` = peran collaborator
+    (`"viewer"`/`"contributor"`) atau None bila bukan collaborator.
     """
-    Pastikan `user` boleh mengakses `project` di bawah general access set.
 
-    Bukan dependency FastAPI — fungsi helper biasa yang menerima Project yang
-    sudah di-load dan User. Mengizinkan akses jika user privileged
-    (role Lead_SA/Admin), Sales PIC project, assigned SA, atau collaborator.
-    Raise HTTP 403 (detail Indonesia) jika tidak satupun terpenuhi.
+    privileged: bool = False
+    sales_pic: bool = False
+    sa_ditugaskan: bool = False
+    kolaborator: str | None = None
 
-    Return None saat sukses.
-    """
-    is_privileged = user.role in ("Lead_SA", "Admin")
-    is_sales_pic = project.sales_pic == user.id
-    is_assigned_sa = project.assigned_sa == user.id
+    @property
+    def adalah_viewer(self) -> bool:
+        return self.kolaborator == "viewer"
 
-    # Cek keanggotaan collaborator (cocokkan cara get_project_detail query)
+    @property
+    def adalah_contributor(self) -> bool:
+        return self.kolaborator == "contributor"
+
+
+_IZIN: dict[TingkatAkses, Callable[[HubunganProyek], bool]] = {
+    TingkatAkses.BACA: lambda h: (
+        h.privileged or h.sales_pic or h.sa_ditugaskan or h.kolaborator is not None
+    ),
+    TingkatAkses.STORY: lambda h: h.privileged or h.sa_ditugaskan or h.kolaborator is not None,
+    TingkatAkses.TULIS: lambda h: h.privileged or h.sa_ditugaskan or h.adalah_contributor,
+    TingkatAkses.UBAH_PROYEK: lambda h: (
+        h.privileged or h.sales_pic or h.sa_ditugaskan or h.adalah_contributor
+    ),
+    TingkatAkses.KELOLA: lambda h: h.privileged or h.sa_ditugaskan,
+    TingkatAkses.ISI_DQ: lambda h: h.privileged or h.sales_pic,
+    TingkatAkses.TAMBAH_KOLABORATOR: lambda h: h.privileged or h.sales_pic or h.sa_ditugaskan,
+}
+
+
+def izinkan(hubungan: HubunganProyek, tingkat: TingkatAkses = TingkatAkses.BACA) -> bool:
+    """Fungsi keputusan murni: apakah `hubungan` boleh pada `tingkat`?"""
+    return _IZIN[tingkat](hubungan)
+
+
+async def hubungan_proyek(db: AsyncSession, project: Project, user: User) -> HubunganProyek:
+    """Baca hubungan `user` ke `project` (satu query collaborator)."""
     collab_result = await db.execute(
         select(ProjectCollaborator).where(
             ProjectCollaborator.id_project == project.id_project,
             ProjectCollaborator.user_id == user.id,
         )
     )
-    is_collaborator = collab_result.scalar_one_or_none() is not None
+    kolab = collab_result.scalar_one_or_none()
+    return HubunganProyek(
+        privileged=user.role in ("Lead_SA", "Admin"),
+        sales_pic=project.sales_pic == user.id,
+        sa_ditugaskan=project.assigned_sa == user.id,
+        kolaborator=None if kolab is None else getattr(kolab, "role", None) or "viewer",
+    )
 
-    if not (is_privileged or is_sales_pic or is_assigned_sa or is_collaborator):
+
+async def ensure_project_access(
+    db: AsyncSession,
+    project: Project,
+    user: User,
+    tingkat: TingkatAkses = TingkatAkses.BACA,
+) -> None:
+    """
+    TITIK KEPUTUSAN AKSES PROYEK — satu-satunya pintu yang boleh dipakai rute.
+
+    Bukan dependency FastAPI — helper biasa yang menerima Project yang sudah
+    di-load dan User. Raise HTTP 403 (pesan generik Indonesia, sama untuk semua
+    `tingkat` agar alasan penolakan tidak bocor) bila `user` tidak berhak pada
+    `tingkat`. Panggil SETELAH proyek dimuat (404 urusan pemanggil) dan SEBELUM
+    efek samping apa pun (penulisan, notifikasi, LLM, Drive). Jangan panggil di
+    dalam `try/except Exception` yang menelan HTTPException.
+
+    Return None saat sukses. Test penjaga rute (`tests/test_penjaga_akses_rute.py`)
+    menelusuri simbol ini; jangan ganti namanya tanpa memperbarui penjaga.
+    """
+    hubungan = await hubungan_proyek(db, project, user)
+    if not izinkan(hubungan, tingkat):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Anda tidak memiliki akses ke proyek ini.",

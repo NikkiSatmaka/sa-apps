@@ -1,10 +1,10 @@
-# CI Portal SA — backend (unit + integrasi) dengan laporan dan gerbang cakupan.
+# CI Portal SA — backend (unit + integrasi) dan frontend, dengan laporan dan gerbang cakupan.
 #
-# Spec induk #49, tiket #57 (laporan) dan #70 (gerbang). Job `cakupan-gabungan`
-# MEMBLOK bila cakupan gabungan unit + integrasi: baris < 90% atau cabang < 80%
-# (CONSTRAINTS.md). Job frontend ditambahkan di tiket #71 sebagai job baru
-# di bawah `jobs:` (pola sama: checkout -> setup -> install -> test), lalu masuk ke
-# `needs:` job `cakupan-gabungan`/gerbang bila perlu.
+# Spec induk #49 (backend) dan #50 (frontend); tiket #57 (laporan), #70 (gerbang backend),
+# #71 (job frontend + gerbang). Job `cakupan-gabungan` MEMBLOK bila cakupan gabungan
+# unit + integrasi backend: baris < 90% atau cabang < 80%. Job `frontend` MEMBLOK bila
+# cakupan total frontend di bawah ambang yang sama (coverage.thresholds di
+# frontend/vitest.config.mts) atau tsc/test/build gagal (CONSTRAINTS.md).
 name: CI
 
 on:
@@ -202,3 +202,71 @@ jobs:
         with:
           name: coverage-xml-gabungan
           path: backend/coverage.xml
+
+  frontend:
+    name: Frontend — tsc, test + cakupan, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      # Env build minimal, tanpa secret: hanya URL publik non-rahasia.
+      NEXT_PUBLIC_API_URL: /api/v1
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v6
+
+      # Versi selaras mise.toml (node 26, pnpm 12) dan frontend/Dockerfile.
+      # pnpm dipasang lebih dulu supaya setup-node bisa men-cache pnpm store.
+      - name: Pasang pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: "12"
+          package_json_file: frontend/package.json
+
+      - name: Pasang Node (dengan cache pnpm store)
+        uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # pnpm-workspace.yaml (minimumReleaseAgeExclude) wajib ada di direktori frontend.
+      - name: Pasang dependensi
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check (tsc --noEmit)
+        run: pnpm exec tsc --noEmit
+
+      # Gerbang cakupan: coverage.thresholds di vitest.config.mts (global: baris >= 90%,
+      # cabang >= 80%). Di bawah ambang -> vitest keluar != 0 -> job merah.
+      - name: Test + gerbang cakupan (baris >= 90%, cabang >= 80%)
+        run: |
+          status=0
+          # pipefail aktif (default bash Actions): status = kode keluar vitest, bukan tee.
+          pnpm test:coverage 2>&1 | tee test-coverage.txt || status=$?
+          # Ringkasan ke tab Summary + peringatan per berkas (tidak memblok sendirian).
+          node scripts/cakupan-ringkasan.mjs >> "$GITHUB_STEP_SUMMARY" || true
+          if [ "$status" -ne 0 ]; then
+            {
+              echo
+              echo "### Test/gerbang cakupan GAGAL"
+              echo '```'
+              grep -E "ERROR:|FAIL|Coverage for" test-coverage.txt | head -30
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
+
+      - name: Unggah laporan cakupan
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: cakupan-frontend
+          path: |
+            frontend/coverage/
+          if-no-files-found: warn
+
+      - name: Build produksi
+        run: pnpm run build

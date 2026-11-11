@@ -8,12 +8,12 @@ import { defineConfig } from "vitest/config";
  * Cakupan (v8): baris + cabang, dilaporkan per berkas. `include` diset eksplisit ke src/**
  * supaya berkas yang BELUM punya test tetap terhitung (default v8 hanya berkas yang diimpor test).
  *
- * Daftar pengecualian cakupan (semua beralasan jelas, jangan ditambah tanpa alasan):
- * - berkas test sendiri dan utilitas test (src/test/**) — bukan kode produk;
- * - *.d.ts — deklarasi tipe murni, tanpa kode runtime;
- * - src/app/globals.css — bukan JS (tidak dimuat v8).
- * Berkas lain (termasuk layout/halaman besar) sengaja TIDAK dikecualikan di sini; pengecualian
- * per-berkas yang sulit diuji dicatat di CONSTRAINTS.md oleh tiket penutup, bukan disembunyikan di sini.
+ * Daftar pengecualian cakupan FINAL (dikunci di CONSTRAINTS.md bagian 3; jangan ditambah
+ * tanpa prosedur bagian 4):
+ * - `*.test.{ts,tsx}` — berkas test sendiri, bukan kode produk;
+ * - `src/test/**` — utilitas/fixture/mock test, bukan kode produk;
+ * - `*.d.ts` — deklarasi tipe murni, tanpa kode runtime.
+ * Berkas lain (termasuk layout/halaman besar) sengaja TIDAK dikecualikan.
  */
 export default defineConfig({
   plugins: [react()],
@@ -35,7 +35,11 @@ export default defineConfig({
       provider: "v8",
       include: ["src/**/*.{ts,tsx}"],
       exclude: ["src/**/*.test.{ts,tsx}", "src/test/**", "src/**/*.d.ts"],
-      reporter: ["text", "html", "lcov"],
+      reporter: ["text", "html", "lcov", "json-summary"],
+      // Gerbang cakupan (CONSTRAINTS.md bagian 1, tiket #71): GLOBAL, selaras backend.
+      // Di bawah ambang -> `vitest run --coverage` keluar dengan kode != 0. Jangan diturunkan.
+      // Berkas individual di bawah ambang hanya diperingatkan (scripts/cakupan-ringkasan.mjs).
+      thresholds: { lines: 90, branches: 80 },
     },
   },
 });

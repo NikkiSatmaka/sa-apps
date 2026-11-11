@@ -10,7 +10,7 @@ Next.js 16 (App Router) + React 19 + TypeScript. Gambaran produk dan setup lengk
 | `pnpm exec tsc --noEmit` | Type-check (mencakup berkas test) |
 | `pnpm test` | Jalankan semua test sekali (Vitest) |
 | `pnpm test:watch` | Mode watch |
-| `pnpm test:coverage` | Test + laporan cakupan v8 per berkas (baris + cabang; HTML di `coverage/`) |
+| `pnpm test:coverage` | Test + laporan cakupan v8 per berkas (baris + cabang; HTML di `coverage/`) **dan gerbang**: exit ≠ 0 bila total baris < 90% atau cabang < 80% |
 
 `pnpm lint` (`next lint`) tidak berfungsi di Next 16 dan belum diganti.
 
@@ -19,6 +19,10 @@ Next.js 16 (App Router) + React 19 + TypeScript. Gambaran produk dan setup lengk
 Stack: Vitest (jsdom), React Testing Library, user-event, MSW, cakupan v8. Semua versi dipin eksak.
 Konfigurasi di `vitest.config.mts` (alias `@/`, `NEXT_PUBLIC_API_URL=http://localhost/api/v1` absolut,
 daftar pengecualian cakupan di komentar config). Test diletakkan berdampingan dengan kodenya: `X.test.ts(x)`.
+
+### Gerbang cakupan
+
+`coverage.thresholds` di `vitest.config.mts` (global: baris 90, cabang 80) ditegakkan di CI oleh job `Frontend` dan lokal oleh `pnpm test:coverage`. Pelanggaran tercetak sebagai `ERROR: Coverage for lines (xx%) does not meet global threshold (90%)`; kolom `Uncovered Line #s` menunjuk baris yang belum teruji. `node scripts/cakupan-ringkasan.mjs` (setelah `test:coverage`) mencetak total dan berkas individual di bawah ambang (peringatan saja). Dilarang menurunkan ambang atau menambah `exclude`; aturan lengkap di [CONSTRAINTS.md](../CONSTRAINTS.md).
 
 Utilitas bersama ada di `src/test/` dan diimpor dari `@/test`:
 

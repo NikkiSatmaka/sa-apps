@@ -14,24 +14,25 @@ function navLinks() {
 }
 
 describe("Sidebar — menu per peran", () => {
-  it("Sales hanya melihat Dashboard, Proyek, Notifikasi (tanpa Activity Log dan Settings)", () => {
+  it("Sales hanya melihat Dashboard, Proyek, Notifikasi (tanpa Activity Log dan menu Admin)", () => {
     renderWithProviders(<Sidebar />, { role: "Sales" });
     expect(navLinks()).toEqual(["Dashboard", "Proyek", "Notifikasi"]);
-    expect(screen.queryByRole("link", { name: "Settings" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /settings|pengaturan|pengguna/i })).not.toBeInTheDocument();
   });
 
-  it.each(["SA", "Lead_SA"] as const)("%s melihat semua menu umum tetapi bukan Settings admin", (role) => {
+  it.each(["SA", "Lead_SA"] as const)("%s melihat semua menu umum tetapi bukan menu Admin", (role) => {
     renderWithProviders(<Sidebar />, { role });
     expect(navLinks()).toEqual(["Dashboard", "Proyek", "Activity Log", "Notifikasi"]);
     expect(screen.queryByText("Admin")).not.toBeInTheDocument();
   });
 
-  it("Admin melihat menu umum plus bagian Admin dengan Settings", () => {
+  it("Admin melihat menu umum plus bagian Admin dengan Pengguna, tanpa Pengaturan", () => {
     renderWithProviders(<Sidebar />, { role: "Admin" });
-    expect(navLinks()).toEqual(["Dashboard", "Proyek", "Activity Log", "Notifikasi", "Settings"]);
+    expect(navLinks()).toEqual(["Dashboard", "Proyek", "Activity Log", "Notifikasi", "Pengguna"]);
+    expect(screen.queryByRole("link", { name: /settings|pengaturan/i })).not.toBeInTheDocument();
     // Label bagian "Admin" (selain peran di footer) hanya ada untuk Admin
     expect(screen.getAllByText("Admin").some((el) => el.className.includes("uppercase"))).toBe(true);
-    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/admin/settings");
+    expect(screen.getByRole("link", { name: "Pengguna" })).toHaveAttribute("href", "/admin/users");
   });
 
   it("peran belum diketahui hanya menampilkan Dashboard dan Proyek", () => {
@@ -49,15 +50,15 @@ describe("Sidebar — interaksi", () => {
     expect(screen.getByRole("link", { name: "Dashboard" }).className).not.toContain("bg-primary-50");
   });
 
-  it("menandai Dashboard aktif di '/' dan Settings aktif di /admin/settings", () => {
+  it("menandai Dashboard aktif di '/' dan Pengguna aktif di /admin/users", () => {
     setPathname("/");
     const { unmount } = renderWithProviders(<Sidebar />, { role: "Admin" });
     expect(screen.getByRole("link", { name: "Dashboard" }).className).toContain("bg-primary-50");
     unmount();
 
-    setPathname("/admin/settings");
+    setPathname("/admin/users");
     renderWithProviders(<Sidebar />, { role: "Admin" });
-    expect(screen.getByRole("link", { name: "Settings" }).className).toContain("bg-primary-50");
+    expect(screen.getByRole("link", { name: "Pengguna" }).className).toContain("bg-primary-50");
   });
 
   it("tombol toggle menciutkan sidebar: label teks hilang, lalu terbuka kembali", async () => {

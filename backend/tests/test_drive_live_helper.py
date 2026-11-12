@@ -2,7 +2,7 @@
 Unit test helper murni suite Drive live (#27): keputusan deselect, pemuatan konfigurasi env,
 perhitungan peran efektif, penamaan folder uji, dan klien verifikasi (dengan service palsu).
 
-Test ini TIDAK memanggil jaringan/Drive. Isi suite live itu sendiri (`tests/integration/drive_live/`)
+Test ini TIDAK memanggil jaringan/Drive. Isi suite live (`tests/integration/drive_live/`)
 hanya berjalan dengan `GDRIVE_LIVE_TEST=1` dan kredensial uji; helper-nya diuji di sini.
 """
 

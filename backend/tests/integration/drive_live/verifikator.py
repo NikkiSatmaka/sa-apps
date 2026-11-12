@@ -20,7 +20,7 @@ FIELD_IZIN = "nextPageToken,permissions(id,type,role,emailAddress,permissionDeta
 
 
 def bangun_service(kunci: dict):
-    """Service Drive v3 dari key service account (import dimuat malas; butuh jaringan saat dipakai)."""
+    """Service Drive v3 dari key service account (import malas)."""
     from google.oauth2 import service_account
     from googleapiclient.discovery import build
 

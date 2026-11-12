@@ -38,7 +38,7 @@ def peran_efektif(
     *,
     hitung_publik: bool = False,
 ) -> str | None:
-    """Peran efektif `email` dari gabungan izin folder + semua leluhurnya (lihat docstring modul)."""
+    """Peran efektif `email` dari izin folder + semua leluhurnya (lihat docstring modul)."""
     target = email.lower()
     cocok: list[str] = []
     for izin_folder in izin_per_leluhur:

@@ -307,3 +307,6 @@ from tests.integration.fakes.fixtures import (  # noqa: E402,F401
     fake_gmail,
     fake_llm,
 )
+
+# Dunia bersama test kebijakan akses proyek (spec #87); dipakai tiket K1–K5.
+from tests.integration.support_akses import skenario_akses  # noqa: E402,F401

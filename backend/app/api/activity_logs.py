@@ -16,10 +16,13 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import TingkatAkses, ensure_project_access, get_current_user
+from app.models.activity_log import ActivityLog
+from app.models.project import Project
 from app.models.user import User
 from app.schemas.activity_log import (
     ActivityLogCreate,
@@ -34,6 +37,25 @@ from app.utils.guardrails import is_nonempty_summary, sanitize_text_input
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Activity Logs"])
+
+
+async def _periksa_akses_proyek(
+    db: AsyncSession, id_project: str | None, user: User, tingkat: TingkatAkses
+) -> None:
+    """Cek akses `user` ke proyek `id_project` pada `tingkat` (403 bila tidak berhak).
+
+    WAJIB dipanggil di LUAR blok `try/except Exception` handler: `HTTPException` 403 yang
+    di-raise di dalam `try` akan tertelan jadi 500. Proyek yang tidak ada (atau `id_project`
+    kosong, mis. Non-Project) tidak ditolak di sini; validasi 404/422 tetap milik
+    `ActivityLogger` sehingga kontrak lama tidak berubah.
+    """
+    if id_project is None:
+        return
+    project = (
+        await db.execute(select(Project).where(Project.id_project == id_project))
+    ).scalar_one_or_none()
+    if project is not None:
+        await ensure_project_access(db, project, user, tingkat)
 
 
 def _build_log_response(log) -> dict:
@@ -82,6 +104,13 @@ async def create_activity_log(
 
     Requirement: 8.1, 8.2, 8.3, 8.4, 8.6
     """
+    # Akses TULIS dicek sebelum polish LLM, insert, dan kemajuan subtask. Non-Project tidak
+    # terkait proyek sehingga tidak dicek. Di luar try agar 403 tidak tertelan jadi 500.
+    if payload.work_type == "Project":
+        await _periksa_akses_proyek(
+            db, payload.id_project, current_user, TingkatAkses.TULIS
+        )
+
     try:
         activity_logger = ActivityLogger(db)
 
@@ -146,6 +175,16 @@ async def retry_polish_notes(
 
     Requirement: 8.6
     """
+    # Kepemilikan log tetap ditegakkan service (orang lain → 404). Di atasnya (spec #87, #92)
+    # penulis harus MASIH punya akses TULIS ke proyek log: penulis yang kini viewer / kehilangan
+    # akses ditolak 403 sebelum panggilan LLM. Log Non-Project tidak terkait proyek → dilewati.
+    # Dilakukan di LUAR try agar 403 tidak tertelan jadi 500.
+    log = (
+        await db.execute(select(ActivityLog).where(ActivityLog.id_log == id_log))
+    ).scalar_one_or_none()
+    if log is not None and log.sa_id == current_user.id:
+        await _periksa_akses_proyek(db, log.id_project, current_user, TingkatAkses.TULIS)
+
     try:
         activity_logger = ActivityLogger(db)
 
@@ -213,6 +252,9 @@ async def get_project_story(
 
     Requirement: 8.5
     """
+    # Akses STORY (Sales PIC tidak) di luar try agar 403 tidak tertelan jadi 500.
+    await _periksa_akses_proyek(db, id_project, current_user, TingkatAkses.STORY)
+
     try:
         activity_logger = ActivityLogger(db)
 
@@ -292,7 +334,12 @@ async def summarize_project(
     3. Bangun teks data aktivitas
     4. Kirim ke LLM untuk dirangkum
     5. Return hasil ringkasan
+
+    Akses STORY dicek lebih dulu: penolakan terjadi sebelum query log dan panggilan LLM.
     """
+    # Di luar try agar 403 tidak tertelan jadi 500.
+    await _periksa_akses_proyek(db, id_project, current_user, TingkatAkses.STORY)
+
     try:
         activity_logger = ActivityLogger(db)
 

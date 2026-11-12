@@ -138,6 +138,66 @@ Berkas `cov-*.data`/`coverage.json` adalah artefak lokal; jangan di-commit. Cara
 kegagalan: CONSTRAINTS.md bagian 6. Skrip gerbang punya test unit
 (`tests/test_cakupan_gerbang.py`).
 
+## Kebijakan akses proyek
+
+Spec: issue #87 (matriks disetujui), ADR 0002 (Backup SA = collaborator). Penolakan selalu **403**
+dengan pesan generik, dan terjadi **sebelum** efek samping apa pun (penulisan, notifikasi, LLM,
+Drive). Urutan kode status: 404 (proyek tak ada) → 403 (akses) → validasi domain (400/409/422).
+
+**Titik keputusan** (satu-satunya pintu): `app/core/dependencies.py`.
+`await ensure_project_access(db, project, user, TingkatAkses.X)` menolak dengan 403 bila tidak
+berhak; aturannya satu tabel deklaratif `_ATURAN` (fungsi murni `izinkan`; tiap tingkat = satu `Aturan`
+berisi keterangan + hubungan yang diizinkan, Lead_SA/Admin selalu berhak). Hubungan dicocokkan lewat **id**
+(`sales_pic`, `assigned_sa`, baris collaborator), bukan lewat peran user, kecuali tingkat yang
+memang menggabungkan id dan peran (ditandai di bawah).
+
+| `TingkatAkses` | Lead_SA/Admin | SA ditugaskan | Sales PIC | Collaborator viewer | Collaborator contributor |
+|---|---|---|---|---|---|
+| `BACA` (detail, SLA, BANT, rekomendasi, daftar dokumen/subtask/collaborator) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `STORY` (baca Story, ringkasan AI) | ✅ | ✅ | ❌ | ✅ | ✅ |
+| `TULIS` (activity log, map kalender, unggah dokumen, polish ulang) | ✅ | ✅ | ❌ | ❌ | ✅ |
+| `UBAH_PROYEK` (PATCH proyek) | ✅ | ✅ | ✅ | ❌ | ✅ |
+| `KELOLA` (majukan status dokumen) | ✅ | ✅ | ❌ | ❌ | ❌ |
+| `ISI_DQ` | ✅ | ❌ | ✅ | ❌ | ❌ |
+| `TAMBAH_KOLABORATOR`, `HAPUS_KOLABORATOR` | ✅ | ✅ | ✅ | ❌ | ❌ |
+| `UBAH_STATUS` (workflow; id **dan** peran: Sales untuk PIC, SA untuk yang ditugaskan) | ✅ | ✅ | ✅ | ❌ | ❌ |
+| `HANDOVER` (id dan peran SA) | ✅ | ✅ | ❌ | ❌ | ❌ |
+| `KELOLA_REQUIREMENT` (id dan peran SA) | ✅ | ✅ | ❌ | ❌ | ❌ |
+| `EDIT_KUESIONER` (id dan peran Sales) | ✅ | ❌ | ✅ | ❌ | ❌ |
+
+Aturan tambahan di luar tabel: mundurkan status dokumen hanya Lead_SA/Admin; `doc_ready` hanya
+Draft → Reviewed; perubahan nilai `dq_number` (juga lewat PATCH proyek) mengikuti `ISI_DQ`;
+Sales PIC tanpa DQ melihat daftar kosong di `GET .../documents/solutions`; gating link Solutions
+untuk Sales (PIC proyek itu + DQ terisi + Reviewed/Final) satu helper
+(`app/services/dq_akses.py::saring_dokumen_terlihat`) yang juga dipakai `GET .../documents`; aturan
+dan efek samping DQ (status diizinkan, Sales hanya mengisi yang kosong, timer SLA berhenti,
+Ready) satu fungsi (`terapkan_dq`) yang dipakai `PATCH .../dq-number` dan PATCH proyek; status
+subtask mensyaratkan pemilik subtask yang masih berhak `TULIS`; polish ulang log
+tetap mensyaratkan **kepemilikan log** (orang lain → 404) ditambah akses `TULIS` penulis.
+
+**Pengecualian sah** (daftar `PENGECUALIAN` di `tests/test_penjaga_akses_rute.py`, bernomor
+`SAH-n`): role gate murni Lead_SA/Admin (hapus proyek, assign/reassign, provision-folder,
+handover-config, score-manual, buat/assign/hapus subtask). Semuanya dikunci
+`tests/integration/test_akses_k5_penyelarasan_akhir.py`. Penjaga juga memastikan tidak ada
+panggilan titik keputusan di dalam `try/except Exception` yang menelan 403.
+
+### Menambah endpoint baru yang memuat id proyek
+
+1. Muat proyek (404 bila tidak ada), lalu panggil `ensure_project_access(db, project, user,
+   TingkatAkses.…)` **sebelum** efek samping. Jangan buat pemeriksa sendiri; bila aturan yang
+   dibutuhkan belum ada, tambah `TingkatAkses` baru + entri di `_ATURAN` + baris di
+   `tests/test_keputusan_akses.py::MATRIKS`.
+2. Jangan panggil di dalam `try/except Exception` (403 akan tertelan jadi 500). Pesan 403 default
+   generik; `pesan=` hanya untuk kontrak lama yang sudah terkunci.
+3. **Test penjaga** `tests/test_penjaga_akses_rute.py` memindai semua rute yang memuat id proyek
+   (path `project_id`/`id_project`/`doc_id`/`id_log`/`id_subtask` atau field body
+   `id_project`/`project_id`) dan GAGAL bila tidak mencapai `ensure_project_access`. Bila rute
+   benar-benar tidak boleh memakainya (role gate murni dsb.), tambah entri `PENGECUALIAN` dengan
+   alasan spesifik + nomor `SAH-n` berikutnya dan test integrasi yang mengunci aturannya.
+4. Tulis test integrasi peran × aksi di Postgres (pola: `tests/integration/support_akses.py`,
+   `test_akses_k*_*.py`): pihak berhak berhasil; pihak tidak berhak 403 **tanpa efek samping**
+   (pakai fixture `komit_sesi_request`; fake LLM/Drive/Gmail tidak terpanggil).
+
 ## Migration
 
 Setiap perubahan model SQLAlchemy wajib disertai migration Alembic di `alembic/versions/` dalam PR yang sama.

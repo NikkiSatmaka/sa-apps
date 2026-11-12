@@ -153,8 +153,17 @@ def test_activity_log_error_tak_terduga_500_tanpa_membocorkan_detail(
     from app.api import activity_logs as modul
 
     monkeypatch.setattr(modul, "ActivityLogger", _LoggerMeledak)
+    # Tiket #89: rute story/summarize/activity-logs kini memuat proyek lalu memeriksa akses
+    # SEBELUM service. Cek akses di-stub lolos agar yang diuji tetap jalur galat service.
+    monkeypatch.setattr(modul, "ensure_project_access", AsyncMock())
+    db = MagicMock()
+    # #92: polish ulang kini memuat log lebih dulu (cek akses TULIS penulis); `sa_id` ada tapi
+    # bukan milik pemanggil agar jalur yang diuji tetap galat service (500), bukan cek akses.
+    db.execute = AsyncMock(
+        return_value=_hasil(SimpleNamespace(id_project="PRJ-1", sa_id=uuid.uuid4()))
+    )
 
-    with _klien(_user()) as c:
+    with _klien(_user(), db) as c:
         resp = c.post(url, json=badan) if metode == "post" and badan else getattr(c, metode)(url)
 
     assert resp.status_code == 500
@@ -165,7 +174,11 @@ def test_activity_log_error_tak_terduga_500_tanpa_membocorkan_detail(
 # ---  kalender
 
 
-def test_map_integrity_error_non_gcal_400_dan_rollback():
+def test_map_integrity_error_non_gcal_400_dan_rollback(monkeypatch):
+    from app.api import calendar as modul
+
+    # Tiket #89: cek akses TULIS di-stub lolos; yang diuji adalah galat commit.
+    monkeypatch.setattr(modul, "ensure_project_access", AsyncMock())
     db = MagicMock()
     db.execute = AsyncMock(return_value=_hasil(SimpleNamespace(id_project="PRJ-1")))
     db.add = MagicMock()
@@ -192,8 +205,12 @@ def test_map_integrity_error_non_gcal_400_dan_rollback():
     db.rollback.assert_awaited_once()
 
 
-def test_map_konflik_gcal_tapi_log_lama_tidak_ditemukan_409_fallback():
-    """Race: unique violation, tetapi log pemilik event sudah hilang saat dicari ulang."""
+def test_map_konflik_gcal_409_pesan_generik_tanpa_mencari_proyek_lain(monkeypatch):
+    """Unique violation gcal -> 409 generik. DIUBAH: dulu menguji fallback "log lama hilang"
+    ("...ke proyek lain"); pesan kini selalu generik dan tidak lagi mencari log/proyek lain."""
+    from app.api import calendar as modul
+
+    monkeypatch.setattr(modul, "ensure_project_access", AsyncMock())  # tiket #89: cek akses lolos
     db = MagicMock()
     db.execute = AsyncMock(side_effect=[_hasil(SimpleNamespace(id_project="PRJ-1")), _hasil(None)])
     db.add = MagicMock()
@@ -214,7 +231,7 @@ def test_map_konflik_gcal_tapi_log_lama_tidak_ditemukan_409_fallback():
         resp = c.post(f"{PREFIX}/calendar/map", json=badan)
 
     assert resp.status_code == 409
-    assert resp.json()["message"] == "Event sudah dipetakan ke proyek lain"
+    assert resp.json()["message"] == "Event sudah dipetakan sebelumnya."
 
 
 # ---  kolaborator

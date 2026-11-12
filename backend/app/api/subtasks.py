@@ -22,7 +22,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import ensure_project_access, get_current_user
+from app.core.dependencies import (
+    PERAN_PRIVILEGED,
+    TingkatAkses,
+    ensure_project_access,
+    get_current_user,
+)
 from app.models.project import Project
 from app.models.subtask import Subtask
 from app.models.user import User
@@ -181,7 +186,7 @@ async def list_subtasks(
     summary="Ubah status subtask",
     description=(
         "Mengubah status subtask (open/in_progress/done). "
-        "Hanya SA pemilik subtask atau Lead_SA/Admin."
+        "Hanya SA pemilik subtask yang masih berhak tulis ke proyeknya, atau Lead_SA/Admin."
     ),
 )
 async def update_subtask_status(
@@ -193,15 +198,19 @@ async def update_subtask_status(
     """Ubah status subtask (owner SA atau privileged)."""
     subtask = await _load_subtask(id_subtask, db)
     # Pastikan proyek induk ada (konsistensi FK / validasi keberadaan).
-    await _verify_project_exists(subtask.id_project, db)
+    project = await _verify_project_exists(subtask.id_project, db)
 
-    is_privileged = current_user.role in ("Lead_SA", "Admin")
+    is_privileged = current_user.role in PERAN_PRIVILEGED
     is_owner = subtask.assigned_sa == current_user.id
     if not (is_privileged or is_owner):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Anda tidak memiliki akses untuk mengubah status subtask ini.",
         )
+    # Pemilik non-privileged juga harus masih berhak TULIS ke proyek subtask ini (SA yang sudah
+    # dilepas dari proyek atau menjadi viewer ditolak). Lead_SA/Admin selalu lolos di sini.
+    if not is_privileged:
+        await ensure_project_access(db, project, current_user, TingkatAkses.TULIS)
 
     if body.status not in VALID_SUBTASK_STATUSES:
         raise HTTPException(

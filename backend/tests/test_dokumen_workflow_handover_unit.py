@@ -18,6 +18,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from app.api import documents, workflow
+from app.core.dependencies import TingkatAkses, ensure_project_access
 from app.services.handover_service import HandoverError, HandoverService, _generate_audit_id
 
 SEMUA_STATUS = [
@@ -97,20 +98,26 @@ def test_id_audit_berformat_tanggal_dan_acak_enam_karakter():
         assert pola.match(_generate_audit_id())
 
 
-def test_akses_proyek_peran_tidak_dikenal_ditolak():
+# DIUBAH di #92: `workflow._check_project_access` (sinkron) dihapus; aturannya pindah ke titik
+# keputusan bersama `TingkatAkses.UBAH_STATUS`. Kedua test di bawah menguji aturan yang sama
+# (peran tak dikenal ditolak 403; Lead_SA/Admin lolos tanpa kepemilikan) lewat `ensure_project_access`.
+# UBAH_STATUS tidak membaca collaborator sehingga `db` tidak dipakai.
+async def test_akses_proyek_peran_tidak_dikenal_ditolak():
     proyek = SimpleNamespace(sales_pic=uuid.uuid4(), assigned_sa=uuid.uuid4())
     user = SimpleNamespace(role="Intern", id=uuid.uuid4())
 
     with pytest.raises(HTTPException) as err:
-        workflow._check_project_access(proyek, user)
+        await ensure_project_access(None, proyek, user, TingkatAkses.UBAH_STATUS)
 
     assert err.value.status_code == 403
 
 
 @pytest.mark.parametrize("peran", ["Lead_SA", "Admin"])
-def test_akses_proyek_privileged_lolos_tanpa_kepemilikan(peran):
+async def test_akses_proyek_privileged_lolos_tanpa_kepemilikan(peran):
     proyek = SimpleNamespace(sales_pic=uuid.uuid4(), assigned_sa=None)
-    workflow._check_project_access(proyek, SimpleNamespace(role=peran, id=uuid.uuid4()))
+    await ensure_project_access(
+        None, proyek, SimpleNamespace(role=peran, id=uuid.uuid4()), TingkatAkses.UBAH_STATUS
+    )
 
 
 # ------------------------------ state machine dokumen

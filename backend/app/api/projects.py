@@ -28,7 +28,7 @@ from sqlalchemy import asc, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import ensure_project_access, get_current_user
+from app.core.dependencies import TingkatAkses, ensure_project_access, get_current_user
 from app.models.project import Project
 from app.models.project_collaborator import ProjectCollaborator
 from app.models.sla_tracking import SLATracking
@@ -45,6 +45,7 @@ from app.services.requirement_generator import (
     resummarize_if_source_changed,
 )
 from app.services.source_document_extractor import extract_source_documents
+from app.services.dq_akses import hentikan_timer_bila_pertama, terapkan_dq
 
 logger = logging.getLogger(__name__)
 
@@ -377,26 +378,8 @@ async def get_project_detail(
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
 
-    # Validasi akses: Admin/Lead_SA selalu bisa, Sales PIC / assigned SA bisa,
-    # kolaborator bisa, lainnya 403
-    is_privileged = current_user.role in ("Lead_SA", "Admin")
-    is_sales_pic = project.sales_pic == current_user.id
-    is_assigned_sa = project.assigned_sa == current_user.id
-
-    # Cek kolaborator
-    collab_result = await db.execute(
-        select(ProjectCollaborator).where(
-            ProjectCollaborator.id_project == project_id,
-            ProjectCollaborator.user_id == current_user.id,
-        )
-    )
-    is_collaborator = collab_result.scalar_one_or_none() is not None
-
-    if not (is_privileged or is_sales_pic or is_assigned_sa or is_collaborator):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Anda tidak memiliki akses ke proyek ini.",
-        )
+    # Titik keputusan bersama (BACA): Admin/Lead_SA, Sales PIC, SA ditugaskan, kolaborator.
+    await ensure_project_access(db, project, current_user, TingkatAkses.BACA)
 
     # Fetch nama Sales PIC
     sales_name = None
@@ -594,13 +577,15 @@ async def update_qualification_answers(
     if not project:
         raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
 
+    # Titik keputusan bersama (EDIT_KUESIONER): Lead_SA/Admin atau Sales PIC proyek ini.
+    await ensure_project_access(
+        db,
+        project,
+        current_user,
+        TingkatAkses.EDIT_KUESIONER,
+        pesan="Anda tidak memiliki akses untuk mengubah jawaban kuesioner proyek ini.",
+    )
     is_privileged = current_user.role in ("Lead_SA", "Admin")
-    is_sales_pic = current_user.role == "Sales" and project.sales_pic == current_user.id
-    if not (is_privileged or is_sales_pic):
-        raise HTTPException(
-            status_code=403,
-            detail="Anda tidak memiliki akses untuk mengubah jawaban kuesioner proyek ini.",
-        )
 
     if project.qualification_answers is None:
         raise HTTPException(
@@ -682,17 +667,25 @@ async def update_project(
     if not project:
         raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
 
-    # Validasi akses general sebelum mutasi field apapun:
-    # privileged (Lead_SA/Admin), Sales PIC, assigned SA, atau collaborator.
-    await ensure_project_access(db, project, current_user)
+    # Validasi akses ubah proyek sebelum mutasi field apapun: Lead_SA/Admin, Sales PIC,
+    # SA ditugaskan, atau collaborator contributor (viewer ditolak).
+    await ensure_project_access(db, project, current_user, TingkatAkses.UBAH_PROYEK)
+
+    # Perubahan NILAI dq_number mengikuti aturan DAN efek samping yang sama dengan
+    # PATCH /projects/{id}/dq-number (terapkan_dq): diputuskan sebelum mutasi field lain agar 403/400
+    # tidak meninggalkan perubahan lain. Nilai yang sama dengan tersimpan diabaikan (form edit
+    # mengirim semua field, jadi peran lain yang tak mengubah DQ tidak boleh mendapat 403).
+    perubahan_dq = None
+    if "dq_number" in body:
+        dq_baru = body["dq_number"] or None  # "" dan None sama-sama berarti tidak terisi
+        if dq_baru != project.dq_number:
+            perubahan_dq = await terapkan_dq(db, project, current_user, dq_baru)
 
     # Update fields yang dikirim
     if "project_name" in body and body["project_name"]:
         project.project_name = body["project_name"]
     if "customer_name" in body and body["customer_name"]:
         project.customer_name = body["customer_name"]
-    if "dq_number" in body:
-        project.dq_number = body["dq_number"] if body["dq_number"] else None
     if "target_submit" in body and body["target_submit"]:
         from datetime import date as date_cls
 
@@ -754,6 +747,9 @@ async def update_project(
 
     project.updated_at = datetime.now(timezone.utc)
     await db.commit()
+
+    if perubahan_dq is not None:
+        await hentikan_timer_bila_pertama(db, project_id, perubahan_dq)
 
     return success_response(
         data={"id_project": project.id_project, "status": project.status},

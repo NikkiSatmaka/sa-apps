@@ -132,10 +132,37 @@ Stage file secara spesifik daripada semuanya sekaligus, agar perubahan yang tida
 2. Jaga judul PR tetap ringkas (gaya conventional-commit) dan gunakan deskripsi untuk meringkas:
    - apa yang berubah dan mengapa,
    - apa yang telah diverifikasi (build, test, pengecekan manual),
+   - **perilaku baru atau yang diubah beserta nama test yang melindunginya** (lihat "Test-first" di bawah),
    - apa pun yang sengaja ditinggalkan atau terblokir.
 3. Sebuah PR harus lolos verification gate (di bawah) sebelum ditandai siap di-review.
 4. Minimal satu review sebelum merge. Tanggapi feedback review dengan commit baru (hindari force-push menimpa review yang sedang berjalan); squash saat merge jika history-nya noisy.
 5. Hapus branch setelah merge.
+
+---
+
+## Test-first
+
+Setiap perilaku baru (fungsi, method, endpoint, komponen, aturan bisnis, cabang kondisi) memiliki test yang **ditulis lebih dulu** dan terbukti gagal sebelum kodenya ditulis. Dengan begitu, saat PR masuk ke `main`, syarat lulusnya sudah jelas dan sudah terbukti. Aturan lengkap untuk agen ada di [`AGENTS.md`](AGENTS.md) bagian "Test-first"; kontrak mutu test (ambang cakupan, larangan melemahkan test) di [`CONSTRAINTS.md`](CONSTRAINTS.md).
+
+Alur kerja:
+
+1. **Merah** — tulis test untuk perilaku yang dimaksud, jalankan, dan pastikan gagal karena alasan yang benar (bukan salah import atau salah setup). Bug fix dimulai dari test regresi yang mereproduksi bug.
+2. **Hijau** — tulis kode seminimal mungkin sampai test lolos.
+3. **Refaktor** — rapikan dengan test tetap hijau. Refaktor murni tidak boleh mengubah test yang ada.
+
+Pilih jenis test sesuai risikonya:
+
+| Yang diubah | Jenis test |
+| ----------- | ---------- |
+| Logika murni, validasi, perhitungan | Unit (backend tanpa DB; frontend `lib`/store) |
+| SQL, constraint, authz per peran, transaksi | Integrasi di Postgres sungguhan (`-m integration`) |
+| Perubahan schema | Test migration (upgrade, downgrade, constraint) |
+| UI dan alur pengguna | React Testing Library + MSW |
+| Layanan eksternal (Gemini, Drive, Gmail, Calendar) | Fake di boundary; tidak pernah memanggil layanan sungguhan |
+
+Pengecualian hanya untuk perubahan dokumentasi murni atau konfigurasi tanpa perilaku; sebutkan alasannya di deskripsi PR. Untuk kode yang sulit diuji, ubah desainnya agar bisa diuji.
+
+Yang ditegakkan CI hari ini: semua test lolos dan cakupan **total** baris ≥ 90% / cabang ≥ 80%. Angka total tidak menjamin tiap perubahan membawa test-nya, jadi **reviewer memeriksa checklist test di template PR** dan boleh menolak PR yang perilaku barunya belum terlindungi.
 
 ---
 

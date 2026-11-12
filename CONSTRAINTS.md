@@ -46,6 +46,16 @@ Dilarang, tanpa pengecualian prosedural (bagian 4):
 6. Test unit menyentuh database dev/Compose. Conftest memaksa `DATABASE_URL` ke
    `127.0.0.1:1`; test integrasi memakai `TEST_DATABASE_URL` sendiri.
 
+7. Menambah atau mengubah perilaku tanpa test yang menyertainya (aturan test-first,
+   `AGENTS.md` bagian "Test-first"). Test ditulis lebih dulu dan terbukti gagal sebelum
+   kodenya ada. Pengecualian terbatas pada dokumentasi murni dan konfigurasi tanpa
+   perilaku, dan alasannya wajib tertulis di deskripsi PR.
+
+Catatan penegakan: gerbang cakupan (bagian 1) hanya memeriksa angka **total**, sehingga
+kode tak teruji dalam jumlah kecil bisa lolos tanpa terdeteksi. Aturan 7 karenanya
+ditegakkan lewat checklist di template PR dan review sampai gerbang per-perubahan
+(cakupan pada baris yang diubah) tersedia.
+
 Test menegaskan **perilaku eksternal** (respons API, status akhir, baris tersimpan,
 panggilan ke fake, invarian), bukan urutan panggilan internal.
 

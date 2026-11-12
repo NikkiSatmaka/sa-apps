@@ -14,14 +14,17 @@ dari permission user pada folder itu ATAU leluhurnya (permission folder diwarisi
 from __future__ import annotations
 
 import asyncio
+import importlib
 from types import SimpleNamespace
 
 import pytest
 
-from app.services import folder_provisioner as modul_provisioner
 from app.services.folder_provisioner import FolderProvisioningError
 
 pytestmark = pytest.mark.drive_live
+
+# `app.services` mengekspor singleton bernama sama; ambil MODUL-nya lewat importlib.
+modul_provisioner = importlib.import_module("app.services.folder_provisioner")
 
 NAMA_SUBFOLDER = {"Inventory", "Diagram", "Solutions"}
 

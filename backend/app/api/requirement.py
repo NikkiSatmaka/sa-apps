@@ -12,13 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.documents import _to_response
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import TingkatAkses, ensure_project_access, get_current_user
 from app.models.document import Document
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.response import success_response
 from app.services.requirement_generator import (
-    can_manage_requirement,
     collect_sources,
     generate_pending_requirement,
     is_protected_requirement,
@@ -50,11 +49,13 @@ async def regenerate_requirement(
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
 
-    if not can_manage_requirement(project, current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Hanya SA yang ditugaskan, Lead SA, atau Admin yang dapat generate ulang Requirement.",
-        )
+    await ensure_project_access(
+        db,
+        project,
+        current_user,
+        TingkatAkses.KELOLA_REQUIREMENT,
+        pesan="Hanya SA yang ditugaskan, Lead SA, atau Admin yang dapat generate ulang Requirement.",
+    )
 
     if project.requirement_generation_status is None:
         raise HTTPException(
@@ -113,11 +114,16 @@ async def keep_requirement_version(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
-    if not can_manage_requirement(project, current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Hanya SA yang ditugaskan, Lead SA, atau Admin yang dapat mempertahankan versi Requirement.",
-        )
+    await ensure_project_access(
+        db,
+        project,
+        current_user,
+        TingkatAkses.KELOLA_REQUIREMENT,
+        pesan=(
+            "Hanya SA yang ditugaskan, Lead SA, atau Admin yang dapat mempertahankan versi "
+            "Requirement."
+        ),
+    )
 
     document = (
         await db.execute(

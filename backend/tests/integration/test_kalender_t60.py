@@ -336,7 +336,11 @@ async def test_map_non_project_dengan_proyek_atau_kategori_proyek_422(api, db_se
     assert (await api.client.post(f"{CAL}/map", json=kategori_salah, headers=h)).status_code == 422
 
 
-async def test_map_event_sama_dua_kali_409_menyebut_nama_proyek_dan_hanya_satu_log(api, db_session):
+async def test_map_event_sama_dua_kali_409_tanpa_membocorkan_nama_proyek_dan_hanya_satu_log(
+    api, db_session
+):
+    """DIUBAH (review kebijakan akses): dulu mengunci pesan 409 MENYEBUT nama proyek lain, yang
+    membocorkan nama proyek yang tak boleh diakses pemanggil; kini pesannya generik."""
     sales = await buat_user(db_session, "Sales")
     sa = await buat_user(db_session, "SA")
     sa2 = await buat_user(db_session, "SA")
@@ -352,12 +356,14 @@ async def test_map_event_sama_dua_kali_409_menyebut_nama_proyek_dan_hanya_satu_l
 
     assert pertama.status_code == 201
     assert kedua.status_code == 409
-    assert "Proyek Pertama" in kedua.json()["message"]
+    assert "Proyek Pertama" not in kedua.text
+    assert kedua.json()["message"] == "Event sudah dipetakan sebelumnya."
     assert await _jumlah_log(db_session, gcal_event_id="evt-1") == 1
 
 
 async def test_map_event_non_project_duplikat_409_tanpa_menyebut_proyek_none(api, db_session):
-    """Regresi: pesan konflik untuk event Non-Project tidak boleh berbunyi '...proyek None'."""
+    """Regresi: pesan konflik untuk event Non-Project tidak boleh berbunyi '...proyek None'.
+    DIUBAH: tidak lagi mengharuskan kata 'Non-Project' (pesan kini generik untuk semua kasus)."""
     sa = await buat_user(db_session, "SA")
     badan = _map(
         work_type="Non-Project", project_phase=None, subtask_category="Training", is_all_day=True
@@ -367,8 +373,7 @@ async def test_map_event_non_project_duplikat_409_tanpa_menyebut_proyek_none(api
     kedua = await api.client.post(f"{CAL}/map", json=badan, headers=bearer(sa))
 
     assert (pertama.status_code, kedua.status_code) == (201, 409)
-    assert "None" not in kedua.json()["message"]
-    assert "Non-Project" in kedua.json()["message"]
+    assert kedua.json()["message"] == "Event sudah dipetakan sebelumnya."
 
 
 async def test_map_tanpa_login_401(api):

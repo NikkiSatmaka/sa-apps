@@ -7,7 +7,7 @@ Format .env untuk list fields:
 - CORS_ORIGINS=http://localhost:3000,http://example.com  (comma-separated)
 """
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 # Placeholder lama yang tidak boleh dipakai sebagai secret produksi.
@@ -42,6 +42,10 @@ class Settings(BaseSettings):
 
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 100
+    # Jumlah proxy tepercaya di depan backend yang MENAMBAH entri ke X-Forwarded-For.
+    # 0 (default) = XFF diabaikan, IP klien = peer socket. N > 0 = IP klien = entri ke-N dari
+    # KANAN rantai XFF (entri kiri bisa dipalsukan klien). Lihat deployment.md.
+    TRUSTED_PROXY_HOPS: int = Field(default=0, ge=0)
 
     # SLA Scheduler — background scheduler internal ringan (ADR 0003).
     # Menjalankan process_sla_actions() secara periodik saat backend naik.

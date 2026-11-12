@@ -260,7 +260,8 @@ class TestPropertiKonsistensiWorkType:
             diterima = False
         assert diterima is seharusnya
 
-    @given(st.text(min_size=1, max_size=5000).filter(lambda s: s.strip()))
+    # NUL dikecualikan dari domain: kini ditolak sengaja (#78, test_karakter_nul_ditolak).
+    @given(st.text(min_size=1, max_size=5000).filter(lambda s: s.strip() and "\x00" not in s))
     def test_properti_raw_notes_tidak_kosong_selalu_hasil_trim(self, notes):
         a = ActivityLogCreate(**_project(raw_notes=notes))
         assert a.raw_notes == notes.strip()

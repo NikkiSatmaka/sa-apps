@@ -603,6 +603,42 @@ async def test_summarize_memakai_hasil_polish_bukan_catatan_mentah(api, db_sessi
     assert "belum-di-polish-unik" in prompt
 
 
+async def test_summarize_polish_tanpa_pic_dan_butir_kosong_tetap_satu_baris(
+    api, db_session, fake_llm
+):
+    _, sa, proyek = await _siap(db_session)
+    await _tambah_log(
+        db_session,
+        sa,
+        proyek.id_project,
+        jam_lalu=1,
+        raw_notes="mentah-tak-dipakai",
+        ai_polished_notes={
+            "discussion_points": ["Bahas\nsizing", "   "],
+            "action_items": [{"description": "Kirim BOQ", "pic": None}, {"description": " "}],
+        },
+    )
+    await _tambah_log(
+        db_session,
+        sa,
+        proyek.id_project,
+        jam_lalu=2,
+        raw_notes="polish-kosong-pakai-mentah",
+        ai_polished_notes={"discussion_points": [], "action_items": []},
+    )
+    fake_llm.sukses("complete_text", "Ringkasan.")
+
+    resp = await api.client.post(
+        f"{API}/projects/{proyek.id_project}/summarize", headers=bearer(sa)
+    )
+
+    assert resp.status_code == 200, resp.text
+    prompt = fake_llm.panggilan_jenis("complete_text")[0].argumen["prompt"]
+    assert "| Bahas sizing Aksi: Kirim BOQ\n" in prompt
+    assert "mentah-tak-dipakai" not in prompt
+    assert "polish-kosong-pakai-mentah" in prompt
+
+
 @pytest.mark.parametrize(
     "siapkan",
     [

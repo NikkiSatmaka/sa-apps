@@ -77,6 +77,25 @@ def _build_log_response(log) -> dict:
     }
 
 
+def _teks_catatan(log) -> str:
+    """
+    Teks catatan untuk ringkasan proyek: hasil polish AI (`discussion_points` + `action_items`)
+    bila ada isinya, selain itu `raw_notes`. Dijadikan satu baris agar format daftar aktivitas
+    di prompt tetap satu entri per baris.
+    """
+    polished = log.ai_polished_notes or {}
+    bagian = [str(p).strip() for p in polished.get("discussion_points", []) if str(p).strip()]
+    for item in polished.get("action_items", []):
+        deskripsi = str(item.get("description", "")).strip()
+        if not deskripsi:
+            continue
+        pic = item.get("pic")
+        bagian.append(f"Aksi: {deskripsi} (PIC: {pic})" if pic else f"Aksi: {deskripsi}")
+    if not bagian:
+        return log.raw_notes
+    return " ".join(" ".join(bagian).split())
+
+
 @router.post(
     "/activity-logs",
     status_code=status.HTTP_201_CREATED,
@@ -189,14 +208,14 @@ async def retry_polish_notes(
         activity_logger = ActivityLogger(db)
 
         # Retry polish — service menangani validasi ownership
-        activity_log = await activity_logger.retry_polish(
+        activity_log, berhasil = await activity_logger.retry_polish(
             id_log=id_log,
             sa_id=current_user.id,
         )
 
         response_data = _build_log_response(activity_log)
 
-        if activity_log.ai_polished_notes:
+        if berhasil:
             message = "AI polishing berhasil. Notes sudah diperbarui."
         else:
             message = "AI polishing masih gagal. Silakan coba lagi nanti."
@@ -364,8 +383,7 @@ async def summarize_project(
         total_hours = sum(float(log.duration_hours) for log in items)
         lines = []
         for log in items:
-            polished = log.ai_polished_notes or {}
-            notes_text = polished.get("structured_notes", log.raw_notes)
+            notes_text = _teks_catatan(log)
             lines.append(f"- [{log.subtask_category}] {float(log.duration_hours)}h | {notes_text}")
         activity_data = "\n".join(lines)
 

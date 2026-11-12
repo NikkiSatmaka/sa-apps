@@ -247,7 +247,11 @@ async def add_collaborator(
 @router.delete(
     "/{project_id}/collaborators/{user_id}",
     summary="Hapus kolaborator dari proyek",
-    description="Menghapus kolaborator dari proyek. Hanya Lead_SA, Admin, atau yang menambahkan yang bisa hapus.",
+    description=(
+        "Menghapus kolaborator dari proyek. Hanya Lead_SA, Admin, SA yang ditugaskan, atau "
+        "Sales PIC proyek yang bisa menghapus; yang menambahkan kolaborator (added_by) tidak "
+        "otomatis berhak."
+    ),
 )
 async def remove_collaborator(
     project_id: str,
@@ -258,10 +262,10 @@ async def remove_collaborator(
     """
     Hapus kolaborator dari proyek.
 
-    Akses:
+    Akses (TingkatAkses.HAPUS_KOLABORATOR):
     - Lead_SA / Admin: selalu bisa
-    - User yang menambahkan kolaborator (added_by): bisa
-    - Sales PIC / assigned SA: bisa
+    - Sales PIC / SA yang ditugaskan: bisa
+    - User yang menambahkan kolaborator (added_by): tidak otomatis bisa
     """
     project = await _verify_project_exists(project_id, db)
 
@@ -316,7 +320,12 @@ async def remove_collaborator(
     description="Cari user berdasarkan nama atau email. Digunakan untuk autocomplete saat menambah kolaborator.",
 )
 async def search_users(
-    q: str = Query(..., min_length=2, description="Kata kunci pencarian (nama atau email)"),
+    q: str = Query(
+        ...,
+        min_length=2,
+        pattern=r"^[^\x00]*$",  # NUL tak bisa dikirim ke Postgres → 422, bukan 500
+        description="Kata kunci pencarian (nama atau email)",
+    ),
     limit: int = Query(default=10, ge=1, le=50),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -325,12 +334,15 @@ async def search_users(
     Cari user berdasarkan nama atau email (case-insensitive).
     Mengembalikan max `limit` hasil.
     """
-    search_pattern = f"%{q}%"
+    # `%`, `_`, dan `\` pada kata kunci adalah karakter harfiah, bukan wildcard ilike.
+    escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    search_pattern = f"%{escaped}%"
 
     result = await db.execute(
         select(User)
         .where(
-            (User.name.ilike(search_pattern)) | (User.email.ilike(search_pattern))
+            (User.name.ilike(search_pattern, escape="\\"))
+            | (User.email.ilike(search_pattern, escape="\\"))
         )
         .where(User.id != current_user.id)  # Exclude diri sendiri
         .order_by(User.name)

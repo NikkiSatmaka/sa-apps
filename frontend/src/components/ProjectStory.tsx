@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import useSWR from "swr";
 import { fetcher, apiRequest } from "@/lib/fetcher";
+import { useAuthStore } from "@/store/auth";
 
 /**
  * Komponen Project Story — timeline activity log untuk satu proyek.
@@ -63,6 +64,8 @@ interface ProjectStoryProps {
 const PAGE_SIZE = 20;
 
 export function ProjectStory({ projectId }: ProjectStoryProps) {
+  // Sales PIC boleh membaca Story tetapi tidak boleh menulis (polish ulang = tingkat TULIS)
+  const bisaMenulis = useAuthStore((s) => s.user?.role) !== "Sales";
   const [filterCategory, setFilterCategory] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -289,7 +292,7 @@ export function ProjectStory({ projectId }: ProjectStoryProps) {
                     </div>
                   )}
                 </div>
-              ) : (
+              ) : bisaMenulis ? (
                 <button
                   type="button"
                   onClick={() => handlePolish(log.id_log)}
@@ -300,7 +303,7 @@ export function ProjectStory({ projectId }: ProjectStoryProps) {
                 >
                   {polishingIds.has(log.id_log) ? "Memproses..." : "Polish Ulang"}
                 </button>
-              )}
+              ) : null}
             </li>
           ))}
         </ul>

@@ -39,6 +39,14 @@ describe("ProjectActivityLogsPage", () => {
     await screen.findByText("Diskusi kebutuhan dengan customer");
   });
 
+  it("Sales (PIC) membaca riwayat tetapi tidak melihat tombol + Tambah Log", async () => {
+    setParams({ id: "p-1" });
+    useProject();
+    renderWithProviders(<ProjectActivityLogsPage />, { role: "Sales" });
+    await screen.findByText("Diskusi kebutuhan dengan customer");
+    expect(screen.queryByRole("link", { name: "+ Tambah Log" })).not.toBeInTheDocument();
+  });
+
   it("meminta story proyek yang sesuai dengan param id", async () => {
     setParams({ id: "p-77" });
     useProject();

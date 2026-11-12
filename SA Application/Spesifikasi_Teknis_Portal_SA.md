@@ -36,6 +36,8 @@ Portal ini menggabungkan manajemen proyek (request Sales ke SA) dan manajemen ut
 3. **AI Activity Polish:** Saat SA mengetik catatan rapat (*notes*) secara kasual di Portal, Gemini AI merapikan teks tersebut menjadi **Poin Diskusi & Action Items** terstruktur.
 4. **Project Story:** Log aktivitas ini dimasukkan ke dalam *Project Story* global yang dapat diakses oleh Manager dan *Backup SA* (untuk *handover* saat SA cuti).
 
+   > **Catatan divergensi (keputusan 2026-11-10):** Project Story juga dapat dibaca (dan ringkasan AI-nya diminta) oleh **Sales PIC proyek itu**, agar Sales melihat progres. Story memuat catatan rapat mentah dan versi polish AI, jadi pembukaan akses ini keputusan sadar. Sales bukan PIC tetap tidak berhak, dan Sales PIC tetap tidak boleh menulis activity log/kalender.
+
    > **Catatan pemetaan (keputusan grill 2026-10-21):** *Backup SA* **bukan** peran atau entity baru — ia dipenuhi oleh fitur **Project Collaboration**, yaitu *collaborator* dengan akses baca *Project Story*. Lihat [`docs/adr/0002-backup-sa-via-project-collaboration.md`](../docs/adr/0002-backup-sa-via-project-collaboration.md).
 
 ### Flow 4: Post-Sales & PMO Handover

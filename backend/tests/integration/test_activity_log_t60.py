@@ -467,9 +467,10 @@ async def test_story_hanya_log_proyek_itu_dan_proyek_tidak_ada_404(api, db_sessi
     assert tak_ada.status_code == 404
 
 
-# Diubah di tiket #89 (spec #87): "sales_pic" DIKELUARKAN dari pembaca yang berwenang. Test ini
-# dulu mengunci Story terbuka bagi Sales PIC; kebijakan baru (spec Flow 3 + ADR 0002) menutupnya.
-# Penolakan Sales PIC dibuktikan di tests/integration/test_akses_k2_story_log_kalender.py.
+# Riwayat: tiket #89 (spec #87) sempat mengeluarkan "sales_pic" dari pembaca Story; keputusan
+# pemilik produk 2026-11-10 membukanya lagi (Sales perlu melihat progres). Matriks peran × aksi
+# (termasuk Sales PIC 200 dan Sales bukan PIC 403) ada di
+# tests/integration/test_akses_k2_story_log_kalender.py.
 @pytest.mark.parametrize("pembaca", ["assigned_sa", "lead", "admin", "viewer"])
 async def test_story_dapat_dibaca_pihak_berwenang_termasuk_backup_sa(api, db_session, pembaca):
     """ADR 0002: Backup SA = kolaborator viewer, boleh baca Project Story."""

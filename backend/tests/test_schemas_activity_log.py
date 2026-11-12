@@ -170,6 +170,14 @@ class TestActivityLogCreateDitolak:
         """Regresi: catatan hanya-spasi dulu lolos min_length lalu ter-trim jadi string kosong."""
         _ditolak(**_project(raw_notes=notes))
 
+    @pytest.mark.parametrize(
+        "field", ["raw_notes", "gcal_event_id", "id_subtask", "id_project"]
+    )
+    def test_karakter_nul_ditolak(self, field):
+        """#78: `\\x00` tidak bisa disimpan Postgres; tolak di skema agar tidak jadi 500 dari DB."""
+        galat = _ditolak(**_project(**{field: "abc\x00def"}))
+        assert "NUL" in str(galat)
+
     def test_field_wajib_hilang(self):
         for hilang in ("subtask_category", "duration_hours", "raw_notes"):
             d = _project()
@@ -252,7 +260,8 @@ class TestPropertiKonsistensiWorkType:
             diterima = False
         assert diterima is seharusnya
 
-    @given(st.text(min_size=1, max_size=5000).filter(lambda s: s.strip()))
+    # NUL dikecualikan dari domain: kini ditolak sengaja (#78, test_karakter_nul_ditolak).
+    @given(st.text(min_size=1, max_size=5000).filter(lambda s: s.strip() and "\x00" not in s))
     def test_properti_raw_notes_tidak_kosong_selalu_hasil_trim(self, notes):
         a = ActivityLogCreate(**_project(raw_notes=notes))
         assert a.raw_notes == notes.strip()

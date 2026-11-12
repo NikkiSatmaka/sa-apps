@@ -172,6 +172,14 @@ class ActivityLogCreate(BaseModel):
 
         return self
 
+    @field_validator("raw_notes", "gcal_event_id", "id_subtask", "id_project")
+    @classmethod
+    def tolak_karakter_nul(cls, v: Optional[str]) -> Optional[str]:
+        """`\\x00` tidak bisa disimpan Postgres (text/varchar); tolak 422, bukan 500 dari DB."""
+        if v is not None and "\x00" in v:
+            raise ValueError("Teks tidak boleh berisi karakter NUL (\\x00).")
+        return v
+
     @field_validator("duration_hours")
     @classmethod
     def validate_duration_multiple(cls, v: Decimal) -> Decimal:

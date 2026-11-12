@@ -489,9 +489,10 @@ class NotificationService:
             if notification is None:
                 raise ValueError(f"Notifikasi '{notification_id}' tidak ditemukan.")
 
-            # Validasi ownership
+            # Validasi ownership. Pesan sengaja sama dengan "tidak ditemukan" agar keberadaan
+            # notifikasi milik orang lain tidak bocor.
             if notification.recipient_user_id != user_id:
-                raise ValueError("Anda tidak memiliki akses ke notifikasi ini.")
+                raise ValueError(f"Notifikasi '{notification_id}' tidak ditemukan.")
 
             # Update status dan read_at
             notification.status = "read"

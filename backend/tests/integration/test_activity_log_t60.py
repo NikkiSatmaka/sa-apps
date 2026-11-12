@@ -155,6 +155,23 @@ async def test_polish_ulang_masih_gagal_tetap_needs_repolish_dengan_pesan(
     assert "masih gagal" in resp.json()["message"]
 
 
+async def test_polish_ulang_gagal_tidak_menimpa_hasil_polish_lama(api, db_session, fake_llm):
+    """#78: polish ulang yang gagal tidak boleh menghapus hasil polish yang sudah ada."""
+    _, sa, proyek = await _siap(db_session)
+    log = await _tambah_log(db_session, sa, proyek.id_project, jam_lalu=1)
+    log.ai_polished_notes = HASIL_POLISH
+    await db_session.commit()
+    fake_llm.error("structure_text", "timeout", tetap=True)
+
+    resp = await api.client.post(f"{LOGS}/{log.id_log}/polish", headers=bearer(sa))
+
+    assert resp.status_code == 200, resp.text
+    assert "masih gagal" in resp.json()["message"]
+    assert resp.json()["data"]["ai_polished_notes"] == HASIL_POLISH
+    await db_session.refresh(log)
+    assert log.ai_polished_notes == HASIL_POLISH
+
+
 async def test_polish_ulang_log_milik_orang_lain_atau_tidak_ada_404(api, db_session, fake_llm):
     _, sa, proyek = await _siap(db_session)
     lain = await buat_user(db_session, "SA")
@@ -223,6 +240,29 @@ async def test_buat_log_proyek_tidak_ada_422_dan_tidak_memanggil_llm(api, db_ses
     ],
 )
 async def test_buat_log_validasi_422(api, db_session, fake_llm, ubah):
+    _, sa, proyek = await _siap(db_session)
+
+    resp = await api.client.post(
+        LOGS, json={**_badan(proyek.id_project), **ubah}, headers=bearer(sa)
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert await _jumlah_log(db_session) == 0
+    assert fake_llm.jumlah() == 0
+
+
+@pytest.mark.parametrize(
+    "ubah",
+    [
+        {"raw_notes": "catatan\x00bocor"},
+        {"gcal_event_id": "evt\x00"},
+        {"id_subtask": "SUB\x001"},
+        {"id_project": "PRJ\x001"},
+    ],
+    ids=["raw_notes", "gcal_event_id", "id_subtask", "id_project"],
+)
+async def test_buat_log_karakter_nul_422_bukan_500(api, db_session, fake_llm, ubah):
+    """#78: `\x00` tak bisa disimpan Postgres; harus ditolak 422 di validasi, bukan 500 dari DB."""
     _, sa, proyek = await _siap(db_session)
 
     resp = await api.client.post(
@@ -533,6 +573,70 @@ async def test_summarize_llm_sukses_memakai_teks_llm_dan_mengirim_data_aktivitas
     prompt = fake_llm.panggilan_jenis("complete_text")[0].argumen["prompt"]
     assert "rapat desain" in prompt and "susun BOQ" in prompt
     assert "[Customer Meeting] 2.0h" in prompt
+
+
+async def test_summarize_memakai_hasil_polish_bukan_catatan_mentah(api, db_session, fake_llm):
+    """#78: ringkasan membaca `discussion_points`/`action_items`, bukan kunci yang tak pernah ada."""
+    _, sa, proyek = await _siap(db_session)
+    await _tambah_log(
+        db_session,
+        sa,
+        proyek.id_project,
+        jam_lalu=2,
+        raw_notes="catatan-mentah-unik",
+        ai_polished_notes=HASIL_POLISH,
+    )
+    await _tambah_log(
+        db_session, sa, proyek.id_project, jam_lalu=1, raw_notes="belum-di-polish-unik"
+    )
+    fake_llm.sukses("complete_text", "Ringkasan.")
+
+    resp = await api.client.post(
+        f"{API}/projects/{proyek.id_project}/summarize", headers=bearer(sa)
+    )
+
+    assert resp.status_code == 200, resp.text
+    prompt = fake_llm.panggilan_jenis("complete_text")[0].argumen["prompt"]
+    assert "Bahas arsitektur" in prompt and "Kirim BOQ" in prompt
+    assert "catatan-mentah-unik" not in prompt
+    # Log tanpa hasil polish tetap jatuh ke catatan mentah.
+    assert "belum-di-polish-unik" in prompt
+
+
+async def test_summarize_polish_tanpa_pic_dan_butir_kosong_tetap_satu_baris(
+    api, db_session, fake_llm
+):
+    _, sa, proyek = await _siap(db_session)
+    await _tambah_log(
+        db_session,
+        sa,
+        proyek.id_project,
+        jam_lalu=1,
+        raw_notes="mentah-tak-dipakai",
+        ai_polished_notes={
+            "discussion_points": ["Bahas\nsizing", "   "],
+            "action_items": [{"description": "Kirim BOQ", "pic": None}, {"description": " "}],
+        },
+    )
+    await _tambah_log(
+        db_session,
+        sa,
+        proyek.id_project,
+        jam_lalu=2,
+        raw_notes="polish-kosong-pakai-mentah",
+        ai_polished_notes={"discussion_points": [], "action_items": []},
+    )
+    fake_llm.sukses("complete_text", "Ringkasan.")
+
+    resp = await api.client.post(
+        f"{API}/projects/{proyek.id_project}/summarize", headers=bearer(sa)
+    )
+
+    assert resp.status_code == 200, resp.text
+    prompt = fake_llm.panggilan_jenis("complete_text")[0].argumen["prompt"]
+    assert "| Bahas sizing Aksi: Kirim BOQ\n" in prompt
+    assert "mentah-tak-dipakai" not in prompt
+    assert "polish-kosong-pakai-mentah" in prompt
 
 
 @pytest.mark.parametrize(

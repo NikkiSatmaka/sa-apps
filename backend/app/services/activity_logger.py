@@ -234,7 +234,7 @@ class ActivityLogger:
             logger.error(f"AI polishing exception: {e}")
             return None
 
-    async def retry_polish(self, id_log: str, sa_id: uuid.UUID) -> ActivityLog:
+    async def retry_polish(self, id_log: str, sa_id: uuid.UUID) -> tuple[ActivityLog, bool]:
         """
         Re-trigger AI polishing untuk entry yang gagal (requirement 8.6).
 
@@ -245,7 +245,8 @@ class ActivityLogger:
             sa_id: UUID SA yang meminta retry (untuk validasi ownership).
 
         Returns:
-            ActivityLog yang sudah di-update.
+            Pasangan (ActivityLog, berhasil). Bila polish ulang gagal, hasil polish yang sudah
+            ada dipertahankan (tidak ditimpa `None`) dan `berhasil` bernilai False.
 
         Raises:
             ValueError: Jika log tidak ditemukan atau bukan milik SA.
@@ -264,16 +265,16 @@ class ActivityLogger:
         # Re-trigger polishing
         ai_polished_notes = await self.polish_notes(activity_log.raw_notes)
 
-        # Update record
-        activity_log.ai_polished_notes = ai_polished_notes
-        await self.db.commit()
-        await self.db.refresh(activity_log)
+        # Update record hanya bila polish ulang berhasil; kegagalan tidak boleh menghapus hasil lama.
+        berhasil = ai_polished_notes is not None
+        if berhasil:
+            activity_log.ai_polished_notes = ai_polished_notes
+            await self.db.commit()
+            await self.db.refresh(activity_log)
 
-        logger.info(
-            f"Retry polish untuk log {id_log}: {'berhasil' if ai_polished_notes else 'gagal lagi'}"
-        )
+        logger.info(f"Retry polish untuk log {id_log}: {'berhasil' if berhasil else 'gagal lagi'}")
 
-        return activity_log
+        return activity_log, berhasil
 
     async def get_project_story(
         self,

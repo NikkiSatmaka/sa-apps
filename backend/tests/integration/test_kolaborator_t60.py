@@ -519,3 +519,38 @@ async def test_cari_user_limit_dan_validasi_parameter(api, db_session):
     assert [u["name"] for u in dua.json()["data"]] == ["Kandidat 0", "Kandidat 1"]
     assert pendek.status_code == tanpa_q.status_code == limit_besar.status_code == 422
     assert kosong.json()["data"] == []
+
+
+@pytest.mark.parametrize(
+    ("q", "cocok", "tidak_cocok"),
+    [
+        ("i%t", "Andi%Tes", "AndiXTes"),
+        ("a_x", "Rina_xyz", "RinaZxyz"),
+        ("a\\b", "Sa\\bro", "Saxbro"),
+    ],
+    ids=["persen", "garis-bawah", "backslash"],
+)
+async def test_cari_user_karakter_wildcard_diperlakukan_harfiah(
+    api, db_session, q, cocok, tidak_cocok
+):
+    """#78: `%`, `_`, dan `\\` di kata kunci bukan wildcard `ilike`."""
+    saya = await buat_user(db_session, "SA", name="Penanya")
+    await buat_user(db_session, "SA", name=cocok, email=f"{uuid.uuid4().hex[:8]}@portal-sa.local")
+    await buat_user(
+        db_session, "SA", name=tidak_cocok, email=f"{uuid.uuid4().hex[:8]}@portal-sa.local"
+    )
+
+    resp = await api.client.get(f"{PROYEK}/users/search", params={"q": q}, headers=bearer(saya))
+
+    assert resp.status_code == 200, resp.text
+    assert [u["name"] for u in resp.json()["data"]] == [cocok]
+
+
+async def test_cari_user_karakter_nul_422_bukan_500(api, db_session):
+    saya = await buat_user(db_session, "SA")
+
+    resp = await api.client.get(
+        f"{PROYEK}/users/search", params={"q": "bu\x00di"}, headers=bearer(saya)
+    )
+
+    assert resp.status_code == 422, resp.text

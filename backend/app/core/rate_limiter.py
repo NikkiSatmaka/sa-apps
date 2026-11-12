@@ -1,18 +1,61 @@
 """
 Rate limiter sederhana menggunakan in-memory storage.
-Membatasi 100 request per menit per user (berdasarkan authenticated user ID).
+Membatasi request per menit per pengguna terautentikasi (id dari token), anonim per IP klien.
 Untuk production, bisa diganti dengan Redis-based rate limiter.
 """
 
+import ipaddress
 import time
 from collections import defaultdict
 from typing import Dict, List
 
 from fastapi import Request, HTTPException, status
 from fastapi.responses import JSONResponse
+from jose import JWTError, jwt
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
+
+
+def _user_id_dari_token(authorization: str | None) -> str | None:
+    """Id pengguna dari access token Bearer yang valid; selain itu None (tanpa error)."""
+    if not authorization:
+        return None
+    skema, _, token = authorization.partition(" ")
+    token = token.strip()
+    if skema.lower() != "bearer" or not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+    except JWTError:
+        return None
+    if payload.get("type") != "access":
+        return None
+    sub = payload.get("sub")
+    return str(sub) if sub else None
+
+
+def _ip_klien(request: Request) -> str:
+    """
+    IP klien. Default: alamat peer socket.
+
+    Dengan `TRUSTED_PROXY_HOPS` = N > 0, pakai entri ke-N dari KANAN `X-Forwarded-For`
+    (entri yang ditambahkan infrastruktur tepercaya). Entri lebih kiri dapat dipalsukan klien
+    sehingga diabaikan; entri pertama TIDAK PERNAH dipercaya. Rantai lebih pendek dari N,
+    kosong, atau entri target bukan IP valid -> peer socket.
+    """
+    peer = request.client.host if request.client else "unknown"
+    hops = settings.TRUSTED_PROXY_HOPS
+    if hops <= 0:
+        return peer
+    rantai = [e.strip() for e in request.headers.get("X-Forwarded-For", "").split(",")]
+    if len(rantai) < hops:
+        return peer
+    kandidat = rantai[-hops]
+    try:
+        return str(ipaddress.ip_address(kandidat))
+    except ValueError:
+        return peer
 
 
 class RateLimiterMiddleware(BaseHTTPMiddleware):
@@ -30,27 +73,21 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
 
     def _get_user_identifier(self, request: Request) -> str:
         """
-        Dapatkan identifier user dari request.
-        Prioritas: authenticated user ID > IP address.
+        Dapatkan identifier kuota dari request.
+        Prioritas: user dari access token valid > IP klien.
+
+        Token diselesaikan di sini (bukan lewat `request.state`, yang baru terisi di
+        `get_current_user` SETELAH middleware). Token tidak ada/tidak valid -> kuota per IP.
         """
-        # Cek apakah ada user_id dari auth middleware
-        user_id = getattr(request.state, "user_id", None)
+        user_id = _user_id_dari_token(request.headers.get("Authorization"))
         if user_id:
             return f"user:{user_id}"
-
-        # Fallback ke IP address untuk request yang belum terautentikasi
-        client_host = request.client.host if request.client else "unknown"
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            client_host = forwarded_for.split(",")[0].strip()
-        return f"ip:{client_host}"
+        return f"ip:{_ip_klien(request)}"
 
     def _cleanup_old_requests(self, user_id: str, now: float):
         """Hapus timestamp request yang sudah di luar window."""
         cutoff = now - self.window_seconds
-        self._requests[user_id] = [
-            ts for ts in self._requests[user_id] if ts > cutoff
-        ]
+        self._requests[user_id] = [ts for ts in self._requests[user_id] if ts > cutoff]
 
     def _calculate_retry_after(self, user_id: str, now: float) -> int:
         """Hitung jumlah detik sebelum user bisa request lagi."""

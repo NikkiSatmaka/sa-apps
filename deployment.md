@@ -27,7 +27,7 @@ Cloudflare SSL → VM Reverse Proxy (port 3535) → Frontend Container (Next.js 
 | Service | Image | Port Mapping |
 |---------|-------|-------------|
 | db | `postgres:18-alpine` | 5433:5432 |
-| backend | `ghcr.io/apeuta/sa-portal-backend:latest` | 8555:8000 |
+| backend | `ghcr.io/apeuta/sa-portal-backend:latest` | 127.0.0.1:8555:8000 (hanya loopback VM) |
 | frontend | `ghcr.io/apeuta/sa-portal-frontend:latest` | 3535:3000 |
 
 ---
@@ -285,6 +285,36 @@ lalu start stack. Data yang ditulis setelah langkah 7 (jika backend sempat berja
 
 **Catatan healthcheck**: `compose.yaml` memakai `pg_isready -U sa_portal -d sa_portal_db` (hardcoded). Tidak diubah pada upgrade ini; pastikan `POSTGRES_USER`/`POSTGRES_DB` di env tetap bernilai `sa_portal`/`sa_portal_db`.
 
+### Rate Limiter & `TRUSTED_PROXY_HOPS`
+
+Rate limiter (in-memory, per proses) menghitung kuota **per pengguna terautentikasi** (id dari access token). Request tanpa token valid dihitung **per IP klien**. IP klien dibaca dari `X-Forwarded-For` (XFF) hanya bila `TRUSTED_PROXY_HOPS` = N > 0: IP klien = entri ke-N dari **kanan** rantai XFF. Entri lebih kiri dapat dipalsukan klien sehingga diabaikan; entri pertama tidak pernah dipercaya. Dengan N = 0 (default), XFF diabaikan dan IP klien = alamat peer socket (di produksi itu IP container frontend, jadi semua anonim berbagi satu kuota, tetapi pengguna login tetap terpisah). Rantai lebih pendek dari N, kosong, atau entri target bukan IP valid juga jatuh ke peer socket tanpa error.
+
+**Menentukan N.** N = jumlah hop tepercaya yang menambahkan entri ke XFF sebelum request sampai backend. Proxy API Next.js menyalin semua header klien dan tidak menambah entri sendiri (belum diukur; verifikasi di bawah). Untuk rantai Cloudflare → nginx (`proxy_add_x_forwarded_for`, menambah) → Next → backend, rantai di backend diperkirakan `<apa pun dari klien>, <IP klien menurut Cloudflare>, <IP edge Cloudflare>`, sehingga nilai yang diharapkan **N = 2**. **Ini ASUMSI dari konfigurasi lazim, bukan hasil pengukuran.** Konfigurasi nginx produksi ada di luar repo; jangan mengisi nilai sebelum diverifikasi.
+
+**Memverifikasi N di produksi** (sebelum mengisi):
+1. Dari jaringan lain (mis. data seluler), cek IP publik Anda (`curl https://ifconfig.me`).
+2. Sementara pasang log debug rantai XFF di backend (mis. log `request.headers.get("X-Forwarded-For")` pada satu request ke `/api/v1/auth/config`), atau lihat header yang diterima backend lewat `docker exec` + tangkapan sementara. Kirim satu request dengan header palsu: `curl -H 'X-Forwarded-For: 6.6.6.6' https://sa-portal.mov.co.id/api/v1/auth/config`.
+3. Cocokkan: entri yang berisi IP publik Anda harus berada di posisi ke-N dari kanan, dan entri `6.6.6.6` harus berada di kiri (terabaikan). Contoh `6.6.6.6, <IP Anda>, <IP edge Cloudflare>` → N = 2.
+4. Isi `TRUSTED_PROXY_HOPS=<N>` di environment stack Portainer, deploy ulang, lalu cek lagi: request dengan XFF palsu dari klien yang sama tidak boleh membuka kuota anonim baru. Hapus log debug.
+
+Bila hasil tidak cocok, pakai N = 0 (aman) sampai rantai dipahami. Salah isi N terlalu kecil memercayai entri yang dapat dipalsukan klien; terlalu besar membuat rantai "terlalu pendek" sehingga jatuh ke peer socket.
+
+**Rekomendasi opsional untuk nginx produksi** (di luar repo, tidak diwajibkan): ambil IP klien dari Cloudflare lalu timpa XFF, sehingga rantai di backend hanya berisi satu entri dan N = 1.
+
+```nginx
+# Percayai hanya rentang IP Cloudflare (daftar resmi: https://www.cloudflare.com/ips/)
+set_real_ip_from 173.245.48.0/20;   # ...tambahkan semua rentang Cloudflare
+real_ip_header   CF-Connecting-IP;
+
+location / {
+    proxy_pass http://127.0.0.1:3535;
+    # MENIMPA (bukan menambah) agar klien tidak bisa menyisipkan entri
+    proxy_set_header X-Forwarded-For $remote_addr;
+}
+```
+
+Port backend (8555) sengaja hanya diikat ke `127.0.0.1`, jadi tidak terjangkau dari luar VM.
+
 ### Troubleshooting (Portainer)
 
 #### Login Gagal (404)
@@ -311,7 +341,7 @@ docker buildx build --platform linux/amd64 --no-cache \
 **Solusi**:
 - Pastikan `BACKEND_URL` di environment Portainer = `http://backend:8000`
 - Pastikan backend container running (cek di Portainer → Containers)
-- Cek health check: `curl http://localhost:8555/health` dari VM
+- Cek health check: `curl http://127.0.0.1:8555/health` dari VM (port backend hanya terikat ke loopback; Swagger hanya lewat terowongan SSH, mis. `ssh -L 8555:127.0.0.1:8555 <vm>`)
 
 #### Image Portainer Tidak Ter-Update
 

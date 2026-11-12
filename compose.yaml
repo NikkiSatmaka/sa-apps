@@ -81,8 +81,11 @@ services:
       GUARDRAIL_PII_DETECTION_ENABLED: ${GUARDRAIL_PII_DETECTION_ENABLED:-true}
       GMAIL_CREDENTIALS: ${GMAIL_CREDENTIALS:-}
       GMAIL_SENDER: ${GMAIL_SENDER:-}
+      # Jumlah proxy tepercaya penambah X-Forwarded-For (0 = abaikan XFF). Lihat deployment.md.
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-0}
     ports:
-      - "8555:8000"
+      # Hanya loopback VM: health check lokal jalan, tidak terjangkau dari luar VM.
+      - "127.0.0.1:8555:8000"
     volumes:
       - backend-data:/app/data
       - backend-logs:/app/logs

@@ -197,7 +197,7 @@ memang menggabungkan id dan peran (ditandai di bawah).
 | `TingkatAkses` | Lead_SA/Admin | SA ditugaskan | Sales PIC | Collaborator viewer | Collaborator contributor |
 |---|---|---|---|---|---|
 | `BACA` (detail, SLA, BANT, rekomendasi, daftar dokumen/subtask/collaborator) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `STORY` (baca Story, ringkasan AI) | ✅ | ✅ | ❌ | ✅ | ✅ |
+| `STORY` (baca Story, ringkasan AI; Sales PIC boleh, lihat catatan di bawah) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `TULIS` (activity log, map kalender, unggah dokumen, polish ulang) | ✅ | ✅ | ❌ | ❌ | ✅ |
 | `UBAH_PROYEK` (PATCH proyek) | ✅ | ✅ | ✅ | ❌ | ✅ |
 | `KELOLA` (majukan status dokumen) | ✅ | ✅ | ❌ | ❌ | ❌ |
@@ -207,6 +207,11 @@ memang menggabungkan id dan peran (ditandai di bawah).
 | `HANDOVER` (id dan peran SA) | ✅ | ✅ | ❌ | ❌ | ❌ |
 | `KELOLA_REQUIREMENT` (id dan peran SA) | ✅ | ✅ | ❌ | ❌ | ❌ |
 | `EDIT_KUESIONER` (id dan peran Sales) | ✅ | ❌ | ✅ | ❌ | ❌ |
+
+Catatan `STORY` (keputusan pemilik produk 2026-11-10, membalik spec #87 / issue #74): Sales PIC
+**proyek itu** boleh membaca Project Story dan meminta ringkasan AI agar Sales melihat progres.
+Story memuat catatan rapat mentah dan versi polish AI, jadi pembukaan ini disengaja. Sales bukan
+PIC tetap ditolak, dan Sales PIC tetap tidak boleh menulis activity log/kalender (`TULIS`).
 
 Aturan tambahan di luar tabel: mundurkan status dokumen hanya Lead_SA/Admin; `doc_ready` hanya
 Draft → Reviewed; perubahan nilai `dq_number` (juga lewat PATCH proyek) mengikuti `ISI_DQ`;

@@ -244,7 +244,10 @@ _ATURAN: dict[TingkatAkses, Aturan] = {
         kolaborator=AksesKolaborator.SEMUA,
     ),
     TingkatAkses.STORY: Aturan(
-        "Baca Project Story + minta ringkasan AI: seperti BACA tetapi Sales PIC TIDAK",
+        "Baca Project Story + minta ringkasan AI: sama dengan BACA. Sales PIC proyek itu BOLEH "
+        "(keputusan pemilik produk 2026-11-10; Story memuat catatan rapat mentah dan versi polish "
+        "AI, dibuka sadar agar Sales melihat progres). Tingkat TULIS tidak berubah.",
+        sales_pic=True,
         sa_ditugaskan=True,
         kolaborator=AksesKolaborator.SEMUA,
     ),

@@ -252,7 +252,7 @@ async def get_project_story(
 
     Requirement: 8.5
     """
-    # Akses STORY (Sales PIC tidak) di luar try agar 403 tidak tertelan jadi 500.
+    # Akses STORY (termasuk Sales PIC proyek itu) di luar try agar 403 tidak tertelan jadi 500.
     await _periksa_akses_proyek(db, id_project, current_user, TingkatAkses.STORY)
 
     try:

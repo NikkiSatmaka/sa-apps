@@ -58,7 +58,7 @@ Taksonomi untuk mengelompokkan entri activity log (mis. Internal Meeting, Custom
 _Avoid_: Subtask (keduanya berbeda peran), activity type
 
 **Project Story**:
-Catatan naratif/kronologis aktivitas sebuah proyek, dapat diakses Backup SA untuk handover.
+Catatan naratif/kronologis aktivitas sebuah proyek, dapat diakses Backup SA untuk handover dan Sales PIC proyek itu (read-only, untuk melihat progres; keputusan 2026-11-10). Memuat catatan rapat mentah dan versi polish AI.
 _Avoid_: Timeline, log narasi
 
 ## Dokumen

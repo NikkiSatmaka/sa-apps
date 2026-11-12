@@ -194,6 +194,14 @@ describe("ProjectStory — pagination", () => {
   });
 });
 
+describe("ProjectStory — Sales PIC (read-only, keputusan 2026-11-10)", () => {
+  it("Sales membaca Story tetapi tidak melihat tombol Polish Ulang (hak TULIS tidak ada)", async () => {
+    renderWithProviders(<ProjectStory projectId="p-1" />, { role: "Sales" });
+    expect(await screen.findByText("Diskusi kebutuhan dengan customer")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Polish Ulang" })).not.toBeInTheDocument();
+  });
+});
+
 describe("ProjectStory — Polish Ulang", () => {
   it("sukses: POST polish, toast sukses, dan daftar dimuat ulang", async () => {
     let polished = false;

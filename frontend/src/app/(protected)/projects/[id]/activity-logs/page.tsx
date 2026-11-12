@@ -5,6 +5,7 @@ import Link from "next/link";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import { ProjectStory } from "@/components/ProjectStory";
+import { useAuthStore } from "@/store/auth";
 
 /**
  * Halaman riwayat Activity Log per proyek (Project Story lengkap).
@@ -24,6 +25,8 @@ interface ProjectSummary {
 export default function ProjectActivityLogsPage() {
   const params = useParams();
   const projectId = params.id as string;
+  // Sales PIC boleh membaca Story tetapi tidak boleh menulis log
+  const bisaMenulis = useAuthStore((s) => s.user?.role) !== "Sales";
 
   const { data: project } = useSWR<ProjectSummary>(`/projects/${projectId}`, fetcher);
 
@@ -43,13 +46,15 @@ export default function ProjectActivityLogsPage() {
               {project ? `${project.project_name} — ${project.customer_name}` : projectId}
             </p>
           </div>
-          <Link
-            href={`/activity-logs?project=${encodeURIComponent(projectId)}`}
-            className="px-4 py-2.5 text-sm font-medium rounded-lg min-h-[44px] flex items-center
-              bg-primary-600 text-white hover:bg-primary-700 transition-colors"
-          >
-            + Tambah Log
-          </Link>
+          {bisaMenulis && (
+            <Link
+              href={`/activity-logs?project=${encodeURIComponent(projectId)}`}
+              className="px-4 py-2.5 text-sm font-medium rounded-lg min-h-[44px] flex items-center
+                bg-primary-600 text-white hover:bg-primary-700 transition-colors"
+            >
+              + Tambah Log
+            </Link>
+          )}
         </div>
       </div>
 

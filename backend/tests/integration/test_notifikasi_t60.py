@@ -206,8 +206,11 @@ async def test_tandai_dibaca_notifikasi_user_lain_ditolak_dan_tidak_berubah(api_
 
     resp = await api_servis.client.patch(f"{NOTIF}/{n.id}/read", headers=bearer(penyusup))
 
+    # #78: tetap 404 agar keberadaan notifikasi orang lain tidak bocor, dan pesannya sama dengan
+    # id yang memang tidak ada (sebelumnya "tidak memiliki akses" justru membocorkannya).
     assert resp.status_code == 404
-    assert "akses" in resp.json()["message"].lower()
+    assert "tidak ditemukan" in resp.json()["message"]
+    assert "akses" not in resp.json()["message"].lower()
     await db_session.refresh(n)
     assert n.status == "pending" and n.read_at is None
 

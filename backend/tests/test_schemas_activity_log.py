@@ -170,6 +170,14 @@ class TestActivityLogCreateDitolak:
         """Regresi: catatan hanya-spasi dulu lolos min_length lalu ter-trim jadi string kosong."""
         _ditolak(**_project(raw_notes=notes))
 
+    @pytest.mark.parametrize(
+        "field", ["raw_notes", "gcal_event_id", "id_subtask", "id_project"]
+    )
+    def test_karakter_nul_ditolak(self, field):
+        """#78: `\\x00` tidak bisa disimpan Postgres; tolak di skema agar tidak jadi 500 dari DB."""
+        galat = _ditolak(**_project(**{field: "abc\x00def"}))
+        assert "NUL" in str(galat)
+
     def test_field_wajib_hilang(self):
         for hilang in ("subtask_category", "duration_hours", "raw_notes"):
             d = _project()

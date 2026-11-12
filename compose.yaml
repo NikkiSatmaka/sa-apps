@@ -81,6 +81,9 @@ services:
       GUARDRAIL_PII_DETECTION_ENABLED: ${GUARDRAIL_PII_DETECTION_ENABLED:-true}
       GMAIL_CREDENTIALS: ${GMAIL_CREDENTIALS:-}
       GMAIL_SENDER: ${GMAIL_SENDER:-}
+      # Google Drive: JSON key service account (satu baris) untuk provisioning folder proyek.
+      # Kosong = provisioning berstatus `failed` (graceful). Lihat deployment.md, bagian Google Drive.
+      GDRIVE_SERVICE_ACCOUNT_KEY: ${GDRIVE_SERVICE_ACCOUNT_KEY:-}
       # Jumlah proxy tepercaya penambah X-Forwarded-For (0 = abaikan XFF). Lihat deployment.md.
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-0}
     ports:

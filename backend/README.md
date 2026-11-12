@@ -114,6 +114,49 @@ Catatan:
 - Contoh: `tests/integration/test_fake_boundary_contoh.py` (lewat API + Postgres) dan
   `tests/test_fakes_boundary.py` (unit perilaku fake).
 
+## Verifikasi Drive live
+
+Suite `tests/integration/drive_live/` (marker `drive_live`, issue #27) membuktikan
+`folder_provisioner` dan alur assign → provisioning → lock/unlock SLA → `doc_ready` terhadap
+**Google Drive nyata**. Ia memverifikasi hasil lewat klien `googleapiclient` terpisah, bukan dari
+nilai kembalian kode produksi. Status: suite ini ditulis tanpa akses kredensial dan **belum pernah
+dijalankan** terhadap Drive sungguhan; hasil run pertama dicatat di issue #27.
+
+Keamanan: tanpa `GDRIVE_LIVE_TEST=1` seluruh test live **dideselect** (bukan skip, bukan error),
+termasuk di CI (`-m integration`). Folder uji diberi awalan `[LIVE-TEST <uuid>] `, dihapus di akhir
+tiap test (juga saat gagal), dan sisa sesi terputus disapu di awal sesi (folder `[LIVE-TEST...` milik
+service account itu). Gunakan service account **khusus uji** dan jangan jalankan dua sesi paralel.
+
+```bash
+# 1. Siapkan service account + akun uji (menulis backend/.env.drive-live, di-ignore git, mode 0600)
+scripts/wizard-google-drive.sh
+
+# 2. Postgres sementara untuk skenario tingkat API (lihat bagian Test integrasi)
+docker run -d --rm --name sa-test-pg -e POSTGRES_PASSWORD=test \
+  -p 127.0.0.1:55432:5432 --tmpfs /var/lib/postgresql postgres:18-alpine
+
+# 3. Jalankan suite (dari root repo, lalu masuk backend/)
+set -a; source backend/.env.drive-live; set +a
+export TEST_DATABASE_URL=postgresql+asyncpg://postgres:test@127.0.0.1:55432/postgres
+cd backend && GDRIVE_LIVE_TEST=1 uv run pytest -m drive_live -v
+
+# 4. Bersihkan Postgres sementara; hapus kunci uji di Cloud Console bila selesai
+docker rm -f sa-test-pg
+```
+
+Env yang dibaca (semua wajib bila `GDRIVE_LIVE_TEST=1`; kurang → error konfigurasi yang menyebut
+namanya): `GDRIVE_SERVICE_ACCOUNT_KEY`, `DRIVE_LIVE_LEAD_EMAIL`, `DRIVE_LIVE_SA_EMAIL`,
+`DRIVE_LIVE_SALES_EMAIL`, `DRIVE_LIVE_PMO_EMAIL`, `DRIVE_LIVE_DELIVERY_EMAIL` (lima email wajib akun
+Google nyata yang **berbeda satu sama lain** dan bukan service account). Opsional:
+`DRIVE_LIVE_TEST_TIMEOUT` (detik, default 120). Skenario API juga butuh `TEST_DATABASE_URL`.
+Lihat daftar skenario dengan `GDRIVE_LIVE_TEST=1 uv run pytest --collect-only -m drive_live` (env di atas).
+
+Definisi "akses efektif" yang dipakai assertion: peran tertinggi dari permission user pada folder
+itu **atau leluhurnya** (permission folder diwarisi anak); lihat `drive_live/izin.py`. Helper murni
+suite (seleksi, konfigurasi, peran efektif, verifikator) diuji di `tests/test_drive_live_helper.py`
+dan `tests/test_drive_live_seleksi_proses.py`. Jika hasil live berbeda dari ekspektasi spec,
+itu temuan: jangan longgarkan assertion, catat sebagai gap.
+
 ## Gerbang cakupan (setara CI)
 
 CI memblok bila cakupan **gabungan unit + integrasi** punya baris < 90% atau cabang < 80%

@@ -315,6 +315,31 @@ location / {
 
 Port backend (8555) sengaja hanya diikat ke `127.0.0.1`, jadi tidak terjangkau dari luar VM.
 
+### Google Drive
+
+Provisioning folder proyek (saat SA di-assign), lock/unlock folder `Solutions` (SLA), dan buka akses
+`doc_ready` memakai **service account** Google. Konfigurasinya satu env: `GDRIVE_SERVICE_ACCOUNT_KEY`
+(JSON key dalam **satu baris**).
+
+Mengisi di Portainer: **Stacks → `sa-portal` → Environment variables** (atau Editor), tambahkan
+`GDRIVE_SERVICE_ACCOUNT_KEY` dengan isi JSON key satu baris, lalu **Update the stack** agar backend
+dibuat ulang dengan env baru. Pastikan `compose.yaml` yang dipakai stack sudah meneruskan variabel
+ini ke service `backend`.
+
+- **Kunci produksi TERPISAH dari kunci uji.** Verifikasi live memakai service account dan kunci
+  sendiri; jangan berbagi, dan jangan commit kunci apa pun (`.env.*` sudah di-ignore git, kecuali
+  `.env.example`).
+- Tanpa kunci: provisioning folder berstatus `failed` secara graceful (tidak crash); proyek tetap
+  bisa di-assign, dan folder dapat di-provision ulang (`POST /projects/{id}/provision-folder`) setelah
+  kunci diisi.
+- **Folder yang dibuat service account dimiliki service account itu** dan baru terlihat oleh user
+  setelah dibagikan lewat permission (itulah yang dilakukan provisioner). Email demo
+  `*@portal-sa.local` **ditolak Google** (bukan akun Google), jadi provisioning dengan user demo
+  akan gagal; gunakan akun Google nyata.
+- Penyiapan service account dan akun uji dipandu wizard
+  [`scripts/wizard-google-drive.sh`](scripts/wizard-google-drive.sh); cara menjalankan suite
+  verifikasinya ada di [`backend/README.md`](backend/README.md), bagian "Verifikasi Drive live".
+
 ### Troubleshooting (Portainer)
 
 #### Login Gagal (404)

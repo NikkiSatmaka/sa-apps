@@ -53,6 +53,7 @@ testpaths = ["tests"]
 addopts = "-m 'not integration'"
 markers = [
     "integration: test integrasi terhadap Postgres nyata (butuh TEST_DATABASE_URL; lihat backend/README.md)",
+    "drive_live: verifikasi terhadap Google Drive NYATA (#27); hanya berjalan dengan GDRIVE_LIVE_TEST=1, selain itu dideselect (lihat backend/README.md, Verifikasi Drive live)",
 ]
 
 # Cakupan: lihat CONSTRAINTS.md di root repo (gerbang baris >= 90%, cabang >= 80%).

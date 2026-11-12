@@ -20,8 +20,11 @@ BACKEND = Path(__file__).resolve().parents[1]
 DIR_LIVE = "tests/integration/drive_live"
 
 KUNCI = json.dumps(
-    {"type": "service_account", "client_email": "uji@p.iam.gserviceaccount.com",
-     "private_key": "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n"}
+    {
+        "type": "service_account",
+        "client_email": "uji@p.iam.gserviceaccount.com",
+        "private_key": "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n",
+    }
 )
 ENV_LENGKAP = {
     "GDRIVE_LIVE_TEST": "1",
@@ -79,7 +82,13 @@ def test_tanpa_env_marker_drive_live_eksplisit_tetap_dideselect():
 
 def test_env_aktif_tanpa_kredensial_error_konfigurasi_jelas():
     hasil = _pytest(
-        "-q", "-W", "ignore", "--collect-only", "-m", "drive_live", DIR_LIVE,
+        "-q",
+        "-W",
+        "ignore",
+        "--collect-only",
+        "-m",
+        "drive_live",
+        DIR_LIVE,
         env_tambahan={"GDRIVE_LIVE_TEST": "1"},
     )
 
@@ -93,7 +102,10 @@ def test_env_aktif_tanpa_kredensial_error_konfigurasi_jelas():
 def test_env_aktif_namun_marker_lain_tidak_memaksa_kredensial():
     # Operator yang meng-export GDRIVE_LIVE_TEST=1 tetap bisa menjalankan test unit biasa.
     hasil = _pytest(
-        "-q", "-W", "ignore", "tests/test_drive_live_helper.py",
+        "-q",
+        "-W",
+        "ignore",
+        "tests/test_drive_live_helper.py",
         env_tambahan={"GDRIVE_LIVE_TEST": "1"},
     )
 
@@ -102,7 +114,13 @@ def test_env_aktif_namun_marker_lain_tidak_memaksa_kredensial():
 
 def test_env_lengkap_collect_only_menampilkan_semua_skenario():
     hasil = _pytest(
-        "-q", "-W", "ignore", "--collect-only", "-m", "drive_live", DIR_LIVE,
+        "-q",
+        "-W",
+        "ignore",
+        "--collect-only",
+        "-m",
+        "drive_live",
+        DIR_LIVE,
         env_tambahan=ENV_LENGKAP,
     )
 

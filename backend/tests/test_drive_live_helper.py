@@ -28,8 +28,11 @@ from tests.integration.drive_live.konfigurasi import (
 from tests.integration.drive_live.verifikator import Verifikator
 
 KUNCI = json.dumps(
-    {"type": "service_account", "client_email": "uji@proyek.iam.gserviceaccount.com",
-     "private_key": "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n"}
+    {
+        "type": "service_account",
+        "client_email": "uji@proyek.iam.gserviceaccount.com",
+        "private_key": "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n",
+    }
 )
 
 
@@ -50,8 +53,16 @@ def env_lengkap(**ubah: str) -> dict[str, str]:
 # ----------------------------------------------------------------------------- keputusan deselect
 
 
-@pytest.mark.parametrize("env", [{}, {"GDRIVE_LIVE_TEST": ""}, {"GDRIVE_LIVE_TEST": "0"},
-                                 {"GDRIVE_LIVE_TEST": "true"}, {"GDRIVE_LIVE_TEST": " 1 x"}])
+@pytest.mark.parametrize(
+    "env",
+    [
+        {},
+        {"GDRIVE_LIVE_TEST": ""},
+        {"GDRIVE_LIVE_TEST": "0"},
+        {"GDRIVE_LIVE_TEST": "true"},
+        {"GDRIVE_LIVE_TEST": " 1 x"},
+    ],
+)
 def test_live_tidak_aktif_kecuali_persis_satu(env):
     assert live_aktif(env) is False
 
@@ -118,6 +129,19 @@ def test_satu_env_kurang_disebut_namanya(nama):
     assert [n for n in ENV_WAJIB if n != nama and n in str(err.value)] == []
 
 
+def test_email_peran_yang_sama_ditolak_karena_membuat_assertion_akses_ambigu():
+    with pytest.raises(KonfigurasiLiveError, match="harus berbeda") as err:
+        muat_konfigurasi(env_lengkap(DRIVE_LIVE_SALES_EMAIL="SA@uji.test"))
+
+    assert "DRIVE_LIVE_SA_EMAIL" in str(err.value)
+    assert "DRIVE_LIVE_SALES_EMAIL" in str(err.value)
+
+
+def test_email_peran_sama_dengan_service_account_ditolak():
+    with pytest.raises(KonfigurasiLiveError, match="service account"):
+        muat_konfigurasi(env_lengkap(DRIVE_LIVE_PMO_EMAIL="uji@proyek.iam.gserviceaccount.com"))
+
+
 def test_kunci_bukan_json_ditolak_tanpa_membocorkan_isi():
     with pytest.raises(KonfigurasiLiveError) as err:
         muat_konfigurasi(env_lengkap(GDRIVE_SERVICE_ACCOUNT_KEY="rahasia-bukan-json"))
@@ -126,9 +150,14 @@ def test_kunci_bukan_json_ditolak_tanpa_membocorkan_isi():
     assert "rahasia-bukan-json" not in str(err.value)
 
 
-@pytest.mark.parametrize("kunci", ["[]", json.dumps({"type": "service_account"}),
-                                   json.dumps({"type": "authorized_user", "client_email": "a",
-                                               "private_key": "b"})])
+@pytest.mark.parametrize(
+    "kunci",
+    [
+        "[]",
+        json.dumps({"type": "service_account"}),
+        json.dumps({"type": "authorized_user", "client_email": "a", "private_key": "b"}),
+    ],
+)
 def test_kunci_bukan_service_account_ditolak(kunci):
     with pytest.raises(KonfigurasiLiveError, match="service account"):
         muat_konfigurasi(env_lengkap(GDRIVE_SERVICE_ACCOUNT_KEY=kunci))
@@ -279,6 +308,13 @@ def test_peran_efektif_memperhitungkan_leluhur_dan_tidak_bocor_ke_saudara():
     assert v.peran_efektif("d", "sales@uji.test") is None
     assert v.peran_efektif("m", "sales@uji.test") is None
     assert v.peran_efektif("d", "sa@uji.test") == "writer"  # diwarisi dari master
+
+
+def test_link_publik_pada_leluhur_dihitung_sebagai_akses_efektif():
+    service = _pohon()
+    service.izin["m"].append({"type": "anyone", "role": "reader"})
+
+    assert Verifikator(service).peran_efektif("d", "sales@uji.test") == "reader"
 
 
 def test_anak_mengembalikan_nama_subfolder():

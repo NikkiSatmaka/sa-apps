@@ -459,3 +459,45 @@ async def test_rate_limit_pada_app_nyata_429_header_dan_reset(api, batas_rendah)
 
     batas_rendah.sekarang += 61
     assert (await api.client.get(url)).status_code == 200
+
+
+async def test_rate_limit_per_pengguna_dua_pengguna_satu_ip_tidak_saling_memblokir(
+    api, batas_rendah
+):
+    """Dua pengguna dari IP yang sama (peer sama) punya kuota sendiri-sendiri."""
+    ha = await api.login_demo("SA")
+    hb = await api.login_demo("Lead_SA")
+    url = f"{AUTH}/me"
+
+    assert [(await api.client.get(url, headers=ha)).status_code for _ in range(3)] == [
+        200,
+        200,
+        200,
+    ]
+    assert (await api.client.get(url, headers=ha)).status_code == 429
+    assert (await api.client.get(url, headers=hb)).status_code == 200
+
+
+async def test_rate_limit_anonim_per_ip_xff_dipalsukan_diabaikan_saat_hop_nol(
+    api, batas_rendah, monkeypatch
+):
+    monkeypatch.setattr(settings, "TRUSTED_PROXY_HOPS", 0)
+    url = f"{AUTH}/config"
+    for i in range(3):
+        resp = await api.client.get(url, headers={"X-Forwarded-For": f"10.0.0.{i}"})
+        assert resp.status_code == 200
+    assert (await api.client.get(url, headers={"X-Forwarded-For": "10.0.0.99"})).status_code == 429
+
+
+async def test_rate_limit_anonim_hop_satu_membedakan_klien_dari_entri_kanan(
+    api, batas_rendah, monkeypatch
+):
+    monkeypatch.setattr(settings, "TRUSTED_PROXY_HOPS", 1)
+    url = f"{AUTH}/config"
+    palsu = {"X-Forwarded-For": "6.6.6.6, 203.0.113.5"}
+    for _ in range(3):
+        assert (await api.client.get(url, headers=palsu)).status_code == 200
+    lain_kiri = {"X-Forwarded-For": "7.7.7.7, 203.0.113.5"}
+    assert (await api.client.get(url, headers=lain_kiri)).status_code == 429
+    klien_lain = {"X-Forwarded-For": "6.6.6.6, 203.0.113.6"}
+    assert (await api.client.get(url, headers=klien_lain)).status_code == 200

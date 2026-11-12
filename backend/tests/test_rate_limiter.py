@@ -3,17 +3,20 @@ Unit test `RateLimiterMiddleware` (tiket #55) dengan waktu terkendali: modul `ti
 `app.core.rate_limiter` diganti jam palsu sehingga tidak ada sleep/waktu nyata.
 """
 
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from hypothesis import given
 from hypothesis import settings as hy_settings
 from hypothesis import strategies as st
 
-from app.core.config import settings
+from app.core.config import Settings, settings
 from app.core.rate_limiter import RateLimiterMiddleware
+from tests._auth_support import buat_token
 
 
 class JamPalsu:
@@ -163,37 +166,55 @@ class TestHeaderRetryAfter:
                 assert c.get("/data").status_code == 200
 
 
-class TestPengidentifikasi:
-    def test_klien_berbeda_punya_kuota_terpisah(self, jam):
-        c = _klien(1)
-        a = {"X-Forwarded-For": "10.0.0.1"}
-        b = {"X-Forwarded-For": "10.0.0.2"}
-        assert c.get("/data", headers=a).status_code == 200
-        assert c.get("/data", headers=a).status_code == 429
-        assert c.get("/data", headers=b).status_code == 200
+def _jwt(sub="u-1", **kw) -> dict[str, str]:
+    return {"Authorization": f"Bearer {buat_token(sub, **kw)}"}
 
-    def test_x_forwarded_for_memakai_alamat_pertama(self, jam):
-        c = _klien(1)
-        assert (
-            c.get("/data", headers={"X-Forwarded-For": "10.0.0.1, 172.16.0.1"}).status_code == 200
-        )
-        assert (
-            c.get("/data", headers={"X-Forwarded-For": "10.0.0.1, 172.99.0.9"}).status_code == 429
-        )
+
+def _klien_ip(max_requests: int = 1, peer: str = "198.51.100.7") -> TestClient:
+    """Klien dengan alamat peer socket terkendali (bukan 'testclient')."""
+    app = FastAPI()
+    app.add_middleware(RateLimiterMiddleware, max_requests=max_requests)
+
+    @app.get("/data")
+    async def data():
+        return {"ok": True}
+
+    return TestClient(app, client=(peer, 50000))
+
+
+def _hops(monkeypatch, n: int) -> None:
+    monkeypatch.setattr(settings, "TRUSTED_PROXY_HOPS", n)
+
+
+def _id(headers: dict[str, str], peer: str = "198.51.100.7") -> str:
+    mw = RateLimiterMiddleware(app=None, max_requests=1)
+    req = SimpleNamespace(
+        state=SimpleNamespace(), client=SimpleNamespace(host=peer), headers=headers
+    )
+    return mw._get_user_identifier(req)
+
+
+class TestConfigHop:
+    def test_default_trusted_proxy_hops_nol(self):
+        assert Settings(_env_file=None).TRUSTED_PROXY_HOPS == 0
+
+    def test_dibaca_dari_environment(self, monkeypatch):
+        monkeypatch.setenv("TRUSTED_PROXY_HOPS", "2")
+        assert Settings(_env_file=None).TRUSTED_PROXY_HOPS == 2
+
+    def test_negatif_ditolak(self, monkeypatch):
+        monkeypatch.setenv("TRUSTED_PROXY_HOPS", "-1")
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)
+
+
+class TestPengidentifikasi:
+    """Anonim: IP klien. XFF hanya dibaca bila TRUSTED_PROXY_HOPS > 0 (entri ke-N dari KANAN)."""
 
     def test_tanpa_forwarded_memakai_ip_klien(self, jam):
         c = _klien(1)
         assert c.get("/data").status_code == 200
         assert c.get("/data").status_code == 429
-
-    def test_pengidentifikasi_user_terautentikasi_lebih_utama_dari_ip(self):
-        mw = RateLimiterMiddleware(app=None, max_requests=1)
-        req = SimpleNamespace(
-            state=SimpleNamespace(user_id="u-1"),
-            client=SimpleNamespace(host="1.2.3.4"),
-            headers={},
-        )
-        assert mw._get_user_identifier(req) == "user:u-1"
 
     def test_tanpa_info_klien_dipetakan_ke_unknown(self):
         mw = RateLimiterMiddleware(app=None, max_requests=1)
@@ -203,6 +224,145 @@ class TestPengidentifikasi:
     def test_retry_after_nol_bila_tak_ada_riwayat(self):
         mw = RateLimiterMiddleware(app=None, max_requests=1)
         assert mw._calculate_retry_after("ip:x", 1000.0) == 0
+
+    def test_hop_nol_mengabaikan_xff_sepenuhnya(self, jam, monkeypatch):
+        """Ganti perilaku lama (entri pertama XFF dipercaya): kini XFF diabaikan saat N=0,
+        sehingga klien tak bisa ganti identifier dengan memalsukan header."""
+        _hops(monkeypatch, 0)
+        c = _klien_ip(1)
+        assert c.get("/data", headers={"X-Forwarded-For": "10.0.0.1"}).status_code == 200
+        assert c.get("/data", headers={"X-Forwarded-For": "10.0.0.2"}).status_code == 429
+
+    def test_hop_nol_identifier_adalah_peer(self, monkeypatch):
+        _hops(monkeypatch, 0)
+        assert _id({"X-Forwarded-For": "10.0.0.1"}) == "ip:198.51.100.7"
+
+    def test_hop_satu_memakai_entri_terakhir(self, monkeypatch):
+        _hops(monkeypatch, 1)
+        assert _id({"X-Forwarded-For": "6.6.6.6, 203.0.113.5"}) == "ip:203.0.113.5"
+
+    def test_hop_dua_memakai_entri_kedua_dari_kanan(self, monkeypatch):
+        _hops(monkeypatch, 2)
+        xff = "6.6.6.6, 203.0.113.5, 172.68.0.1"
+        assert _id({"X-Forwarded-For": xff}) == "ip:203.0.113.5"
+
+    def test_memalsukan_entri_kiri_tidak_mengubah_identifier(self, monkeypatch):
+        _hops(monkeypatch, 2)
+        asli = _id({"X-Forwarded-For": "6.6.6.6, 203.0.113.5, 172.68.0.1"})
+        palsu = _id({"X-Forwarded-For": "9.9.9.9, 8.8.8.8, 203.0.113.5, 172.68.0.1"})
+        assert asli == palsu == "ip:203.0.113.5"
+
+    def test_pemalsuan_entri_kiri_tidak_menghindari_429(self, jam, monkeypatch):
+        _hops(monkeypatch, 1)
+        c = _klien_ip(1)
+        assert (
+            c.get("/data", headers={"X-Forwarded-For": "1.1.1.1, 203.0.113.5"}).status_code == 200
+        )
+        resp = c.get("/data", headers={"X-Forwarded-For": "2.2.2.2, 203.0.113.5"})
+        assert resp.status_code == 429
+
+    def test_klien_dari_ip_berbeda_kuota_terpisah(self, jam, monkeypatch):
+        _hops(monkeypatch, 1)
+        c = _klien_ip(1)
+        assert c.get("/data", headers={"X-Forwarded-For": "203.0.113.5"}).status_code == 200
+        assert c.get("/data", headers={"X-Forwarded-For": "203.0.113.5"}).status_code == 429
+        assert c.get("/data", headers={"X-Forwarded-For": "203.0.113.6"}).status_code == 200
+
+    @pytest.mark.parametrize(
+        "xff",
+        ["", "   ", "6.6.6.6", ",", "bukan-ip, tidak-valid", "203.0.113.5, bukan-ip"],
+        ids=["kosong", "spasi", "lebih-pendek", "koma", "tidak-valid", "entri-N-tidak-valid"],
+    )
+    def test_rantai_pendek_kosong_atau_tidak_valid_jatuh_ke_peer(self, monkeypatch, xff):
+        _hops(monkeypatch, 2)
+        assert _id({"X-Forwarded-For": xff}) == "ip:198.51.100.7"
+
+    def test_tanpa_header_xff_jatuh_ke_peer(self, monkeypatch):
+        _hops(monkeypatch, 2)
+        assert _id({}) == "ip:198.51.100.7"
+
+    def test_ipv6_valid_diterima(self, monkeypatch):
+        _hops(monkeypatch, 1)
+        assert _id({"X-Forwarded-For": "6.6.6.6, 2001:db8::1"}) == "ip:2001:db8::1"
+
+    def test_entri_dengan_spasi_dirapikan(self, monkeypatch):
+        _hops(monkeypatch, 1)
+        assert _id({"X-Forwarded-For": "6.6.6.6 ,   203.0.113.5  "}) == "ip:203.0.113.5"
+
+    def test_xff_tidak_valid_di_request_nyata_tidak_error(self, jam, monkeypatch):
+        _hops(monkeypatch, 3)
+        c = _klien_ip(5)
+        assert c.get("/data", headers={"X-Forwarded-For": "\x00??, ;;"}).status_code == 200
+
+
+class TestKuotaPerPengguna:
+    def test_identifier_dari_token_access_valid(self):
+        assert _id(_jwt("u-1")) == "user:u-1"
+
+    def test_token_menang_atas_ip_dan_xff(self, monkeypatch):
+        _hops(monkeypatch, 1)
+        h = {**_jwt("u-1"), "X-Forwarded-For": "203.0.113.5"}
+        assert _id(h) == "user:u-1"
+
+    def test_request_state_tidak_dipakai(self):
+        """user_id di request.state terisi SETELAH middleware; tidak boleh jadi sumber identifier."""
+        mw = RateLimiterMiddleware(app=None, max_requests=1)
+        req = SimpleNamespace(
+            state=SimpleNamespace(user_id="u-palsu"),
+            client=SimpleNamespace(host="1.2.3.4"),
+            headers={},
+        )
+        assert mw._get_user_identifier(req) == "ip:1.2.3.4"
+
+    def test_dua_pengguna_satu_ip_tidak_saling_memblokir(self, jam):
+        c = _klien_ip(2)
+        a, b = _jwt("user-a"), _jwt("user-b")
+        assert [c.get("/data", headers=a).status_code for _ in range(2)] == [200, 200]
+        assert c.get("/data", headers=a).status_code == 429
+        assert c.get("/data", headers=b).status_code == 200
+
+    def test_pengguna_sama_dari_ip_berbeda_berbagi_kuota(self, jam, monkeypatch):
+        _hops(monkeypatch, 1)
+        c = _klien_ip(1)
+        h = _jwt("user-a")
+        assert c.get("/data", headers={**h, "X-Forwarded-For": "1.1.1.1"}).status_code == 200
+        assert c.get("/data", headers={**h, "X-Forwarded-For": "2.2.2.2"}).status_code == 429
+
+    def test_kuota_anonim_terpisah_dari_kuota_pengguna(self, jam):
+        c = _klien_ip(1)
+        assert c.get("/data", headers=_jwt("user-a")).status_code == 200
+        assert c.get("/data").status_code == 200
+
+    @pytest.mark.parametrize(
+        "headers",
+        [
+            {"Authorization": "Bearer bukan.jwt.valid"},
+            {"Authorization": "Bearer "},
+            {"Authorization": "Basic abc"},
+            {"Authorization": "Bearer"},
+        ],
+        ids=["sampah", "kosong", "skema-lain", "tanpa-token"],
+    )
+    def test_token_tidak_valid_jatuh_ke_ip(self, headers):
+        assert _id(headers) == "ip:198.51.100.7"
+
+    def test_token_tanda_tangan_salah_jatuh_ke_ip(self):
+        assert _id(_jwt("u-1", secret="x" * 40)) == "ip:198.51.100.7"
+
+    def test_token_kedaluwarsa_jatuh_ke_ip(self):
+        assert _id(_jwt("u-1", berlaku=timedelta(hours=-1))) == "ip:198.51.100.7"
+
+    def test_refresh_token_tidak_dihitung_sebagai_pengguna(self):
+        assert _id(_jwt("u-1", tipe="refresh")) == "ip:198.51.100.7"
+
+    def test_token_tanpa_subject_jatuh_ke_ip(self):
+        assert _id(_jwt(None)) == "ip:198.51.100.7"
+
+    def test_token_palsu_tidak_memberi_kuota_baru(self, jam):
+        """Token sampah berganti-ganti tidak membuka bucket baru: tetap kuota IP."""
+        c = _klien_ip(1)
+        assert c.get("/data", headers={"Authorization": "Bearer a.b.c"}).status_code == 200
+        assert c.get("/data", headers={"Authorization": "Bearer d.e.f"}).status_code == 429
 
 
 class TestJalurDikecualikan:

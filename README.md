@@ -292,6 +292,12 @@ Lihat `.env.example` untuk daftar lengkap. Yang **wajib** dikonfigurasi:
 | `GEMINI_API_KEY` | Google Gemini API key |
 | `NEXT_PUBLIC_API_URL` | URL backend API (dari sisi browser) |
 
+Opsional (fitur terkait nonaktif secara graceful bila kosong):
+
+| Variable | Deskripsi |
+|----------|-----------|
+| `GDRIVE_SERVICE_ACCOUNT_KEY` | JSON key service account Google Drive (satu baris) untuk provisioning folder proyek. Kosong → provisioning folder berstatus `failed`, aplikasi tetap jalan. Kunci produksi terpisah dari kunci uji; jangan di-commit. Lihat [deployment.md](deployment.md), bagian Google Drive. |
+| `GMAIL_CREDENTIALS` | JSON key service account untuk email notifikasi (kosong → email di-skip, in-app tetap jalan) |
 ---
 
 ## Seed Demo Data

@@ -63,17 +63,36 @@ Checkout utama di root repo milik manusia, dan beberapa agen bisa berjalan paral
 ## Toolchain
 
 - Toolchain dikelola dengan [mise](https://mise.jdx.dev); versi di-pin di `mise.toml` pada root. Jalankan `mise install` untuk menyamakan versi lokal.
-- Saat ini: Python 3.12, Node 26, pnpm 12 (di-pin major) sebagai package manager frontend. PostgreSQL 18 via Docker Compose.
+- Saat ini: Python 3.14 (dikelola uv, lihat `backend/.python-version`), Node 26, pnpm 12 (di-pin major) sebagai package manager frontend. PostgreSQL 18 via Docker Compose.
 - Docker tetap sumber kebenaran untuk build produksi; jaga `mise.toml` dan Dockerfile selaras saat menaikkan versi. Detail di `CONTRIBUTING.md`.
+
+---
+
+## Test-first (wajib)
+
+Setiap perilaku baru **harus punya test yang ditulis lebih dulu** dan terbukti gagal sebelum kodenya ada. Tujuannya: saat PR masuk ke `main`, sudah jelas dan terbukti apa yang berfungsi dan apa syarat lulusnya. Gunakan skill `tdd` (red → green → refactor).
+
+- **Cakupan aturan:** setiap fungsi, method, endpoint, komponen, aturan bisnis, dan cabang kondisi (`if`/`else`, penanganan error) yang ditambah atau diubah perilakunya.
+- **Urutan kerja:** (1) tulis test untuk perilaku yang dimaksud dan jalankan sampai **gagal karena alasan yang benar**; (2) tulis kode seminimal mungkin sampai test hijau; (3) refaktor dengan test tetap hijau. Jangan menulis kode lalu menyusul test sesudahnya. Bila memungkinkan, commit test (merah) sebelum commit implementasi.
+- **Bug fix:** mulai dari test regresi yang mereproduksi bug (gagal), baru perbaiki.
+- **Refaktor murni (tanpa perubahan perilaku):** test yang ada harus tetap hijau tanpa diubah. Bila perilaku yang akan Anda sentuh belum terlindungi test, tulis test-nya dulu sebelum merefaktor.
+- **Perubahan schema:** wajib ada test migration (upgrade, downgrade, dan constraint) di test integrasi.
+- **Test perilaku, bukan implementasi:** tegaskan hasil yang terlihat (respons API, status akhir, data tersimpan, teks/peran di UI, efek samping lewat fake), bukan urutan pemanggilan internal.
+- **Pilih seam yang tepat:** logika murni → test unit; SQL, constraint, authz per peran, dan migration → test integrasi di Postgres sungguhan; UI → React Testing Library + MSW. Layanan eksternal (Gemini, Drive, Gmail, Calendar) di-fake di boundary, bukan dipanggil sungguhan.
+- **Pengecualian:** perubahan dokumentasi murni atau konfigurasi tanpa perilaku. Sebutkan alasannya di deskripsi PR. Kode yang sulit diuji bukan alasan; ubah desainnya agar bisa diuji.
+- **Dilarang:** menurunkan ambang cakupan, menambah `skip`/`xfail` tanpa issue, melemahkan atau menghapus assertion agar test lolos, dan menandai pekerjaan selesai bila test baru belum ada. Aturan lengkap: [`CONSTRAINTS.md`](CONSTRAINTS.md) bagian 2.
+- **Bukti di PR:** deskripsi PR memuat daftar perilaku baru beserta nama test yang melindunginya (checklist ada di template PR). Reviewer berhak menolak PR yang perilaku barunya tidak punya test.
+
+Gerbang yang ditegakkan CI saat ini: seluruh test lolos dan cakupan **total** baris ≥ 90% / cabang ≥ 80%. Gerbang itu belum menjamin bahwa *setiap perubahan* membawa test-nya sendiri (kode tak teruji dalam jumlah kecil tidak menggeser angka total), jadi aturan di atas tetap menjadi tanggung jawab author dan reviewer sampai gerbang per-perubahan tersedia.
 
 ---
 
 ## Verification gate
 
-Belum ada CI otomatis. Sebelum menandai pekerjaan selesai atau membuka PR, verifikasi manual (detail di `CONTRIBUTING.md`):
+CI otomatis (`.github/workflows/ci.yml`) menjalankan test unit, integrasi, dan frontend beserta gerbang cakupan; ruleset `Core` pada `main` mewajibkan check-nya hijau sebelum merge. Sebelum menandai pekerjaan selesai atau membuka PR, verifikasi sendiri lebih dulu (detail di `CONTRIBUTING.md`):
 
-- **Backend** — test suite lolos dan app bisa di-import/start bersih. Test di `backend/tests/`, setup di `backend/pyproject.toml`.
-- **Frontend** — lolos type-check dan build tanpa error. Script di `frontend/package.json`.
+- **Backend** — test unit dan integrasi lolos (`backend/README.md` menjelaskan cara menjalankannya) dan app bisa di-import/start bersih. Test di `backend/tests/`, setup di `backend/pyproject.toml`.
+- **Frontend** — lolos type-check, test, dan build tanpa error. Script di `frontend/package.json`.
 - **Full stack** — untuk perubahan runtime (migration, env var, service startup), konfirmasi stack naik via Docker Compose dan `/health` healthy.
 - Sebuah perubahan belum selesai hanya karena command keluar tanpa error. Verifikasi terhadap perilaku yang dimaksud.
 

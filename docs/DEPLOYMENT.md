@@ -36,9 +36,8 @@ Portal SA mendukung **Demo Mode** yang memungkinkan Anda menjalankan dan mencoba
 ### Kapan Beralih ke Production Mode:
 
 Setelah Anda siap dengan credentials:
-1. Login sebagai **Admin** → buka menu **Settings** (⚙️) → isi credentials
-2. Atau edit `.env` langsung di VM: set `DEMO_MODE=false` + isi Google credentials
-3. Restart: `docker compose restart backend`
+1. Edit `.env` langsung di VM: set `DEMO_MODE=false` + isi Google credentials
+2. Restart: `docker compose restart backend`
 
 ---
 
@@ -155,11 +154,11 @@ CORS_ORIGINS=*
 ```
 
 > **Catatan:** Dengan `DEMO_MODE=true`, Anda bisa langsung login tanpa Google OAuth.  
-> Google credentials, LLM API key, dll. bisa dikonfigurasi NANTI melalui Admin Settings di UI.
+> Google credentials, LLM API key, dll. bisa dikonfigurasi NANTI lewat `.env`/Portainer (tidak ada halaman pengaturan di UI).
 
 ### (Opsional) Credentials untuk Fitur Penuh:
 
-Kredensial berikut TIDAK WAJIB untuk demo. Bisa diisi nanti via halaman Admin Settings (`/admin/settings`) setelah login sebagai Admin:
+Kredensial berikut TIDAK WAJIB untuk demo. Bisa diisi nanti lewat `.env`/Portainer:
 
 ```env
 # Google OAuth (opsional — dibutuhkan untuk login via Google)
@@ -178,7 +177,7 @@ GDRIVE_SERVICE_ACCOUNT_KEY=
 GMAIL_CREDENTIALS=
 ```
 
-> **Tips:** Login sebagai **Admin** → buka menu **Settings** (⚙️) di sidebar → isi credentials kapanpun siap.
+> **Tips:** Isi credentials di `.env`/Portainer kapanpun siap, lalu restart backend.
 
 ---
 

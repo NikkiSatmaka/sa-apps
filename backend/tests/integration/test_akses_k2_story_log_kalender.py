@@ -2,8 +2,9 @@
 Akses Project Story, ringkasan AI, activity log, dan pemetaan kalender (tiket #89, spec #87).
 
 Matriks peran × aksi di Postgres nyata:
-- STORY (GET story, POST summarize): Lead_SA, Admin, SA ditugaskan, collaborator viewer+contributor.
-  Sales PIC TIDAK (spec Flow 3 + ADR 0002); pihak luar ditolak.
+- STORY (GET story, POST summarize): Lead_SA, Admin, SA ditugaskan, collaborator viewer+contributor,
+  dan Sales PIC proyek itu (keputusan pemilik produk 2026-11-10, membalik spec #87 / issue #74:
+  Sales perlu melihat progres). Sales bukan PIC dan pihak luar ditolak.
 - TULIS (POST /activity-logs, POST /calendar/map): Lead_SA, Admin, SA ditugaskan, contributor.
   Viewer, Sales PIC, SA tak ditugaskan, dan pihak luar ditolak.
 
@@ -27,8 +28,9 @@ HASIL_POLISH = {
     "action_items": [{"description": "Kirim BOQ", "pic": "Budi"}],
 }
 
-AKTOR_STORY_BERHAK = ["lead", "admin", "sa", "kolab_viewer", "kolab_contrib"]
-AKTOR_STORY_DITOLAK = ["sales_pic", "kolab_lain", "sales_luar", "sa_luar"]
+# Sales PIC kini berhak baca Story + ringkasan (keputusan 2026-11-10), tetapi TIDAK berhak TULIS.
+AKTOR_STORY_BERHAK = ["lead", "admin", "sa", "kolab_viewer", "kolab_contrib", "sales_pic"]
+AKTOR_STORY_DITOLAK = ["kolab_lain", "sales_luar", "sa_luar"]
 AKTOR_TULIS_BERHAK = ["lead", "admin", "sa", "kolab_contrib"]
 AKTOR_TULIS_DITOLAK = ["kolab_viewer", "sales_pic", "kolab_lain", "sales_luar", "sa_luar"]
 

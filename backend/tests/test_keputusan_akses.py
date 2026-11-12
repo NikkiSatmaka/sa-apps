@@ -55,9 +55,10 @@ MATRIKS = {
         "kolab_viewer",
         "kolab_contributor",
     },
-    # Story/ringkasan AI: Sales PIC tidak boleh
+    # Story/ringkasan AI: Sales PIC BOLEH (keputusan pemilik produk 2026-11-10; membalik spec #87)
     TingkatAkses.STORY: {
         "privileged",
+        "sales_pic",
         "sa_ditugaskan",
         "kolab_viewer",
         "kolab_contributor",
@@ -209,12 +210,29 @@ async def test_ensure_contributor_boleh_tulis():
     await ensure_project_access(SesiPalsu(kolab), _proyek(), user, tingkat=TingkatAkses.TULIS)
 
 
-async def test_ensure_sales_pic_ditolak_story_tapi_boleh_baca():
+async def test_ensure_sales_pic_boleh_story_tapi_ditolak_tulis():
+    """Keputusan 2026-11-10: Sales PIC boleh membaca Story; tingkat TULIS tidak berubah."""
     user = user_palsu("Sales")
     proyek = _proyek(sales_pic=user.id)
     await ensure_project_access(SesiPalsu(None), proyek, user)
-    with pytest.raises(HTTPException):
+    await ensure_project_access(SesiPalsu(None), proyek, user, tingkat=TingkatAkses.STORY)
+    with pytest.raises(HTTPException) as exc:
+        await ensure_project_access(SesiPalsu(None), proyek, user, tingkat=TingkatAkses.TULIS)
+    assert exc.value.status_code == 403
+
+
+async def test_ensure_sales_bukan_pic_ditolak_story():
+    user = user_palsu("Sales")
+    proyek = _proyek(sales_pic=uuid.uuid4())
+    with pytest.raises(HTTPException) as exc:
         await ensure_project_access(SesiPalsu(None), proyek, user, tingkat=TingkatAkses.STORY)
+    assert exc.value.status_code == 403
+
+
+async def test_ensure_sales_kolaborator_viewer_boleh_story_lewat_kolaborator():
+    user = user_palsu("Sales")
+    kolab = SimpleNamespace(user_id=user.id, role="viewer")
+    await ensure_project_access(SesiPalsu(kolab), _proyek(), user, tingkat=TingkatAkses.STORY)
 
 
 # ----------------------------------------------------- tingkat yang menggabungkan id DAN peran (#92)

@@ -270,7 +270,7 @@ class TestPengidentifikasi:
 
     @pytest.mark.parametrize(
         "xff",
-        ["", "   ", "6.6.6.6", ",", "bukan-ip, tidak-valid", "203.0.113.5, bukan-ip"],
+        ["", "   ", "6.6.6.6", ",", "bukan-ip, tidak-valid", "bukan-ip, 172.68.0.1"],
         ids=["kosong", "spasi", "lebih-pendek", "koma", "tidak-valid", "entri-N-tidak-valid"],
     )
     def test_rantai_pendek_kosong_atau_tidak_valid_jatuh_ke_peer(self, monkeypatch, xff):

@@ -80,3 +80,7 @@ coverage-*.xml
 cov-*.data
 cov-in/
 gerbang.txt
+
+# Secret lokal: env turunan (.env.local, .env.drive-live, dst.); template tetap di-track.
+.env.*
+!.env.example

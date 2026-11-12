@@ -4,7 +4,6 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { http, HttpResponse, server, api, successEnvelope } from "@/test";
-import { getSettings } from "./api/admin-settings";
 import { getNotifications } from "./api/notifications";
 import { createProject } from "./api/projects";
 import { apiRequest, fetcher } from "./fetcher";
@@ -21,11 +20,6 @@ describe("tanpa window (SSR)", () => {
     await expect(logout()).resolves.toBeUndefined();
     expect(hit).not.toHaveBeenCalled();
     expect(localStorage.getItem("access_token")).toBe("tok");
-  });
-
-  it("getSettings mengembalikan default", () => {
-    vi.stubGlobal("window", undefined);
-    expect(getSettings().llmProvider.provider).toBe("gemini");
   });
 
   it("antrean offline: kosong, enqueue tidak menyimpan, init mengembalikan cleanup no-op", () => {

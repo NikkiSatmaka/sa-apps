@@ -358,7 +358,7 @@ Setelah aplikasi berjalan:
 - **Search & Filter Proyek** — Search bar + dropdown filter status di halaman listing proyek
 - **Utilisasi SA per Bulan** — Tabel jam kerja per SA per bulan dengan filter tahun dan per individu
 - **Effort per Proyek** — Tabel total jam + personel SA per proyek di dashboard Lead SA
-- **Admin Settings** — Kategori Aktivitas (CRUD) + User & Role Management
+- **Pengguna (Admin)** — User & Role Management
 - **UI Cleanup** — Semua emoji dihapus, teks "Belum..." ditampilkan bold merah, menu Dokumen dihapus dari sidebar
 
 ---

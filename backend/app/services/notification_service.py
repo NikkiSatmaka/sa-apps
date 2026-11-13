@@ -244,6 +244,61 @@ class NotificationService:
         except Exception as e:  # noqa: BLE001 - email tidak boleh menggagalkan caller
             logger.error(f"Gagal menjadwalkan email {event_type.value}: {e}")
 
+    async def send_email_langsung(
+        self,
+        to: str,
+        event_type: NotificationEventType,
+        reference_id: Optional[str] = None,
+        metadata: Optional[dict] = None,
+        subject: Optional[str] = None,
+    ) -> bool:
+        """
+        Kirim email SAJA ke alamat yang tidak punya akun portal (mis. PMO/Delivery Lead, #76).
+
+        Tidak menulis `NotificationLog` karena kolom penerimanya wajib user portal. Email dikirim
+        di background dengan retry yang sama (`EMAIL_MAX_RETRIES`, jeda `EMAIL_RETRY_INTERVAL`);
+        kegagalan akhir hanya masuk application log. Tidak pernah raise.
+
+        Returns:
+            True bila pengiriman dijadwalkan, False bila Gmail belum dikonfigurasi.
+        """
+        if not self._is_gmail_configured():
+            logger.info(f"Email langsung ke {to} dilewati: Gmail belum dikonfigurasi.")
+            return False
+
+        task = asyncio.create_task(
+            self._kirim_email_langsung(to, event_type, reference_id, metadata, subject)
+        )
+        # Simpan referensi agar task tidak di-GC sebelum selesai.
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return True
+
+    async def _kirim_email_langsung(
+        self,
+        to: str,
+        event_type: NotificationEventType,
+        reference_id: Optional[str],
+        metadata: Optional[dict],
+        subject: Optional[str],
+    ) -> None:
+        for attempt in range(1, EMAIL_MAX_RETRIES + 1):
+            success = await self.send_email(
+                to=to,
+                subject=subject or self._get_default_subject(event_type),
+                template=event_type.value,
+                context={
+                    "event_type": event_type.value,
+                    "reference_id": reference_id,
+                    "metadata": metadata,
+                },
+            )
+            if success:
+                return
+            if attempt < EMAIL_MAX_RETRIES:
+                await asyncio.sleep(EMAIL_RETRY_INTERVAL)
+        logger.error(f"Email langsung gagal setelah {EMAIL_MAX_RETRIES} percobaan ke {to}")
+
     async def _send_email_with_retry(self, event: NotificationEvent) -> None:
         """
         Kirim email dengan retry mechanism (requirement 14.5).

@@ -4,7 +4,8 @@ Menangani transisi status proyek dengan validasi state machine,
 role-based access control, dan pencatatan audit log.
 
 Workflow valid:
-  New → Pending Assignment → Assigned → Ready → Closed-Win → Handover Complete
+  New → Pending Assignment → Assigned → Ready → Closed-Win
+  Closed-Win → Handover Complete hanya lewat POST /projects/{id}/handover (bukan endpoint ini)
 
 Status khusus:
   "Lost" — hanya Lead_SA, dari status manapun kecuali "Handover Complete"
@@ -44,7 +45,14 @@ VALID_FORWARD_TRANSITIONS: dict[str, str] = {
     "Pending Assignment": "Assigned",
     "Assigned": "Ready",
     "Ready": "Closed-Win",
-    "Closed-Win": "Handover Complete",
+    # `Closed-Win` → `Handover Complete` SENGAJA tidak ada di sini (issue #76): status itu hanya
+    # boleh dicapai lewat `POST /projects/{id}/handover`, yang memeriksa prasyarat (HLD Final,
+    # email PMO/Delivery, folder Drive), membuat folder, dan mengirim notifikasi.
+}
+
+# Status yang hanya dapat dicapai lewat endpoint khusus, bukan PATCH /status
+STATUS_VIA_ENDPOINT_KHUSUS: dict[str, str] = {
+    "Handover Complete": "POST /projects/{id}/handover",
 }
 
 # Status yang tidak bisa diubah ke "Lost"
@@ -200,6 +208,16 @@ async def update_project_status(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Hanya Lead_SA atau Admin yang dapat mengubah status proyek menjadi 'Lost'.",
+        )
+
+    # Status yang hanya boleh dicapai lewat endpoint khusus: arahkan, jangan hanya "tidak valid".
+    if new_status in STATUS_VIA_ENDPOINT_KHUSUS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Status '{new_status}' tidak dapat diubah lewat endpoint ini. "
+                f"Gunakan {STATUS_VIA_ENDPOINT_KHUSUS[new_status]}."
+            ),
         )
 
     # Validasi transisi menggunakan state machine

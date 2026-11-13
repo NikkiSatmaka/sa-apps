@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse, server } from "@/test";
@@ -202,5 +203,89 @@ describe("proxy — auth/callback", () => {
     server.use(http.get(`${BACKEND}/auth/callback/x`, () => HttpResponse.json({ user, tokens })));
     const res = await GET(req("/api/v1/auth/callback/x"), ctx("auth", "callback", "x"));
     expect(res.status).toBe(200);
+  });
+});
+
+describe("proxy — tidak membocorkan rahasia ke log server (#80)", () => {
+  const user = { id: "u1", email: "a@b.co", name: "Ana", role: "SA" };
+
+  /** Seluruh keluaran console proxy, dijadikan satu teks agar bisa dicari nilai rahasianya. */
+  const keluaran = () =>
+    (["log", "error", "warn", "info", "debug"] as const)
+      .flatMap((k) => vi.mocked(console[k]).mock.calls)
+      .map((args) => args.map((a) => (typeof a === "string" ? a : inspect(a, { depth: 5 }))).join(" "))
+      .join("\n");
+
+  beforeEach(() => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.spyOn(console, "debug").mockImplementation(() => {});
+  });
+
+  const callback = (query = "?code=abc") => GET(req(`/api/v1/auth/callback${query}`), ctx("auth", "callback"));
+
+  it("calendar flow: nilai gcal_token di header Location tidak ada di log, tetap diteruskan ke browser", async () => {
+    server.use(
+      http.get(
+        `${BACKEND}/auth/callback`,
+        () =>
+          new HttpResponse(null, {
+            status: 302,
+            headers: { Location: "http://localhost:3000/#gcal_token=GCAL-RAHASIA-123" },
+          }),
+      ),
+    );
+
+    const res = await callback();
+
+    expect(res.headers.get("location")).toContain("GCAL-RAHASIA-123");
+    expect(keluaran()).not.toContain("GCAL-RAHASIA-123");
+    expect(keluaran()).not.toContain("gcal_token");
+  });
+
+  it("login sukses: access/refresh token tidak ada di log", async () => {
+    server.use(
+      http.get(`${BACKEND}/auth/callback`, () =>
+        HttpResponse.json({ user, tokens: { access_token: "AT-RAHASIA", refresh_token: "RT-RAHASIA" } }),
+      ),
+    );
+
+    const res = await callback();
+
+    expect(res.headers.get("location")).toContain("AT-RAHASIA");
+    expect(keluaran()).not.toMatch(/AT-RAHASIA|RT-RAHASIA/);
+  });
+
+  it("query string (kode OAuth sekali pakai, state) tidak dicetak; hanya path dan status", async () => {
+    server.use(http.get(`${BACKEND}/auth/callback`, () => HttpResponse.json({ detail: "x" }, { status: 400 })));
+
+    await callback("?code=KODE-OAUTH-RAHASIA&state=STATE-RAHASIA");
+
+    expect(keluaran()).not.toMatch(/KODE-OAUTH-RAHASIA|STATE-RAHASIA/);
+  });
+
+  it("body 200 yang gagal di-parse: pesan galat JSON (memuat potongan body) tidak dicetak", async () => {
+    server.use(
+      http.get(`${BACKEND}/auth/callback`, () =>
+        HttpResponse.text('{"tokens":{"access_token":"AT-BOCOR"} x'),
+      ),
+    );
+
+    const res = await callback();
+
+    expect(res.status).toBe(200);
+    expect(keluaran()).not.toContain("AT-BOCOR");
+    expect(keluaran()).toContain("auth/callback"); // galatnya tetap tercatat, hanya tanpa isi body
+  });
+
+  it("request biasa tetap dicatat: method, path, dan status (tanpa query string)", async () => {
+    server.use(http.get(`${BACKEND}/projects`, () => HttpResponse.json({ ok: true })));
+
+    await GET(req("/api/v1/projects?q=rahasia-pencarian"), ctx("projects"));
+
+    const log = keluaran();
+    expect(log).toContain("GET /api/v1/projects");
+    expect(log).toContain("200");
+    expect(log).not.toContain("rahasia-pencarian");
   });
 });

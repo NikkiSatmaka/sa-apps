@@ -106,6 +106,25 @@ async def test_callback_user_baru_tersimpan_dengan_peran_dari_mapping(api, db_se
     assert me.json()["role"] == "Sales"
 
 
+async def test_callback_mapping_peran_tidak_valid_user_baru_jadi_sa_bukan_500(
+    api, db_session, monkeypatch
+):
+    """#80: peran asing di mapping tak boleh melanggar `chk_users_role` saat user baru disimpan."""
+    from app.services.auth_service import auth_service
+
+    monkeypatch.setattr(settings, "ALLOWED_DOMAINS", "perusahaan.id")
+    # Disetel langsung (melewati validator Settings) = mapping yang lolos dari fail-fast startup.
+    monkeypatch.setattr(settings, "ROLE_MAPPING", '{"*@perusahaan.id": "Superuser"}')
+    monkeypatch.setattr(auth_service, "_role_mapping", None)
+    pasang_google(monkeypatch)
+
+    resp = await api.client.get(f"{AUTH}/callback", params={"code": "kode-ok"})
+
+    assert resp.status_code == 200, resp.text
+    user = (await db_session.execute(select(User).where(User.google_id == "g-123"))).scalar_one()
+    assert user.role == "SA"
+
+
 async def test_callback_user_existing_diperbarui_peran_tetap(api, db_session, monkeypatch):
     from app.services.auth_service import auth_service
 

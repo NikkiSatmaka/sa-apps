@@ -9,6 +9,8 @@ Dokumen pelacakan untuk fitur yang dibutuhkan agar mencapai MVP yang layak. Stat
 > - **Guardrails** = hardening auth/keamanan dulu (default yang tidak aman untuk produksi), baru keamanan input/output LLM.
 > - **Urutan pengerjaan** = keamanan dulu, lalu menutup fitur yang partial, baru fitur baru.
 
+> **Arah produk dikoreksi (2026-11-13, sesi grill).** Portal SA adalah **ticketing / project tracker khusus SA**, bukan hanya funnel pre-sales. Keputusan: role `Product` dan flag `is_admin`, orang per project yang bisa diganti, multi-SA, model status dua field, dan inti tracker (subtask kaya, komentar, workload). Dilacak di **Fase 8A–8C dan Fase 9** (di bawah); ADR [0012](adr/0012-role-fungsional-tunggal-dan-flag-admin.md)–[0015](adr/0015-matriks-akses-drive-dan-gate-dq.md). **Fase 6 (BoQ compare) dikerjakan setelah Fase 9.** Nama status di bagian lama dokumen ini (`Closed-Win`, `Handover Complete`, `Ready`, `Pending Assignment`, dst.) adalah nama lama; peta ke nama baru ada di ADR 0013.
+
 ---
 
 ## Legenda Status
@@ -37,6 +39,9 @@ Dokumen pelacakan untuk fitur yang dibutuhkan agar mencapai MVP yang layak. Stat
 | 10 | BoQ compare vs Requirement | 🔴 Belum ada | Tidak ada fitur perbandingan; dokumen Requirement (summary turunan AI) belum di-generate — tipe `Requirement` sudah ada di enum (Fase 1.2), tapi kontennya belum disintesis |
 | 11 | Guardrails | ✅ Selesai | Guardrail LLM terpusat (size clamp, PII flag-and-log, mitigasi prompt-injection, validasi output) di tiga Call_Site; hardening default auth dilacak di fitur 1 / Fase 0 |
 | 12 | SLA DQ Number & gating (Flow 2) | 🟡 Partial | **Baru ditambahkan 2026-10-20** (rekonsiliasi spec). Kode SLA ada (`backend/app/services/sla_timer.py`, `backend/app/api/sla.py`) dan read-gating DQ ada (`backend/app/api/dq_number.py`), **tapi tidak di-wire end-to-end**: SLA timer tidak pernah di-start (B11), tidak ada scheduler (B12), sehingga auto-lock folder Solutions / reminder H+3 / eskalasi H+5 mati end-to-end. Dilacak di Fase 2A. |
+| 13 | Role Product, flag `is_admin`, orang per project, multi-SA | 🔴 Belum ada | Fase 8A, 8B. Spec §2.0, §2.5; ADR 0012, 0014 |
+| 14 | Model status dua field | 🔴 Belum ada | Fase 8C. Spec §2.0; ADR 0013 |
+| 15 | Inti tracker: subtask kaya, komentar, "tugas saya", workload, dashboard requester | 🔴 Belum ada | Fase 9. Spec §2.5 |
 
 > **Catatan penomoran:** fitur 1–11 dipertahankan apa adanya. Fitur **12 (SLA DQ Number & gating)** ditambahkan pada 2026-10-20 setelah audit rekonsiliasi menemukan Flow 2 (salah satu dari 4 flow inti spec) tidak punya "rumah" di daftar fitur, sehingga bug wiring SLA tidak punya tempat tercatat.
 
@@ -178,7 +183,7 @@ Ditemukan saat asesmen dan sebaiknya diperbaiki lebih awal — ini merusak fungs
 
 ---
 
-## Fase 6 — BoQ Compare vs Requirement (fitur 10)
+## Fase 6 — BoQ Compare vs Requirement (fitur 10) — ⏸ dikerjakan setelah Fase 9 (keputusan 2026-11-13)
 
 **Tujuan:** analisis gap bertenaga AI antara dokumen Requirement dan dokumen BoQ. **Fitur baru dengan kompleksitas tertinggi** — bergantung pada Fase 1.2 (tipe dokumen `Requirement` di enum), **Fase 5.5 (konten Requirement turunan AI di-generate dari MoM/RFP + field Sales)**, dan guardrails dari Fase 7. Catatan model: dokumen Requirement adalah summary turunan (lihat 5.5), bukan upload customer — jadi perbandingan selalu punya baseline terstruktur untuk dibandingkan, meski customer tidak memberi file requirement formal.
 
@@ -205,6 +210,66 @@ Ditemukan saat asesmen dan sebaiknya diperbaiki lebih awal — ini merusak fungs
 
 ---
 
+## Fase 8A — Role dan Akses (fitur 13)
+
+**Tujuan:** satu role fungsional per user plus flag `is_admin`, dan role `Product`. Prasyarat Fase 8B. Lihat [ADR 0012](adr/0012-role-fungsional-tunggal-dan-flag-admin.md).
+
+- [ ] 8A.1 Migration + model: `role` ∈ `Sales, Product, SA, Lead_SA`; kolom `is_admin` (default `false`); user berrole `Admin` dimigrasi ke `is_admin = true` dengan role fungsional yang dipilih. Test upgrade, downgrade, dan constraint.
+- [ ] 8A.2 `privileged` = `role == Lead_SA or is_admin`; semua cek `role in ("Lead_SA", "Admin")` dan `Admin` di backend (74 pemakaian `.role` di 21 file) dan frontend (~30 file) diganti; endpoint admin memakai `is_admin`.
+- [ ] 8A.3 Kandidat dan validasi `assigned_sa`: `SA` dan `Lead_SA` (satu himpunan; hapus `sa_user.role != "SA"`).
+- [ ] 8A.4 Role gate `POST /projects`: `Sales`, `Product`, `Lead_SA`, `is_admin`; `SA` ditolak (menyelesaikan poin #96).
+- [ ] 8A.5 `Product` memakai tingkat izin yang sama dengan `Sales` di `_ATURAN`.
+
+**Kriteria selesai:** dev bisa ditugaskan sebagai SA dengan `is_admin`; Product bisa membuat dan memantau project; tidak ada nilai `Admin` di enum role.
+
+---
+
+## Fase 8B — Orang per Project dan Multi-SA (fitur 13)
+
+**Tujuan:** `product_pic` wajib, `sales_pic` opsional, `lead_sa`, `created_by`, SA tambahan, dan akses Drive/SLA/notifikasi yang mengikuti orang yang ditugaskan. Lihat [ADR 0014](adr/0014-orang-per-project-dan-multi-sa.md) dan [ADR 0015](adr/0015-matriks-akses-drive-dan-gate-dq.md). Sebaiknya dikerjakan setelah verifikasi Drive nyata (#27).
+
+- [ ] 8B.1 Migration + model: `created_by`, `product_pic` (wajib), `sales_pic` nullable, `lead_sa`; tabel `ProjectAssignments`. Test migration.
+- [ ] 8B.2 Pembuatan project mengisi `created_by`/`product_pic`; Sales memilih Product; `lead_sa` terisi saat assign.
+- [ ] 8B.3 Endpoint Lead_SA/Admin untuk mengganti `product_pic`/`sales_pic`/`lead_sa` dan menambah, melepas, mengganti SA utama/tambahan; aturan "minimal satu SA setelah `Assigned`"; audit log.
+- [ ] 8B.4 `_ATURAN` per hubungan (id) pada semua field orang dan `ProjectAssignments`; "SA ditugaskan" = SA utama atau tambahan; hak SA tambahan setara SA utama.
+- [ ] 8B.5 Drive: Viewer `Inventory` untuk Sales **dan Product**; Viewer `Solutions` untuk keduanya setelah DQ terisi; penggantian orang mencabut dan memberi akses; cek apakah contributor saat ini mendapat Editor.
+- [ ] 8B.6 SLA dan notifikasi: reminder H+3 ke Sales dan Product (Product saja bila tanpa Sales); eskalasi H+5 ke `lead_sa` dan semua `is_admin`; `Need Clarification` ke `created_by`, `product_pic`, `sales_pic`; notifikasi "buat HLD" ke semua SA; DQ boleh diisi Sales, Product, Lead_SA; validasi format `dq_number` di PATCH (#96).
+- [ ] 8B.7 Subtask: assignee harus SA project (utama/tambahan) atau Lead_SA.
+
+**Kriteria selesai:** project tanpa Sales berjalan penuh; dua SA bisa bekerja di satu project dengan hak setara; mengganti orang memindahkan akses Drive dan timer SLA tidak direset.
+
+---
+
+## Fase 8C — Model Status (fitur 14)
+
+**Tujuan:** menerapkan [ADR 0013](adr/0013-model-status-dua-field.md): `status` siklus kerja + `qualification_state`. Dikerjakan setelah 8A dan 8B karena menyentuh `workflow.py` dan `_ATURAN` yang sama.
+
+- [ ] 8C.1 Migration + model: enum `status` baru, `qualification_state`, `previous_status`, `lost_reason`; pemetaan data lama; test upgrade, downgrade, dan constraint.
+- [ ] 8C.2 State machine dan hak per transisi sesuai tabel spec §2.0 (`Submitted` butuh PropTek/BOQ/Mandays ≥ `Reviewed`; `Handed Over` hanya lewat handover; `Closed`/`Lost` read-only; buka kembali hanya `is_admin`).
+- [ ] 8C.3 `In Progress` otomatis dari activity log atau subtask `in_progress` pertama.
+- [ ] 8C.4 `On Hold` dan lanjut; timer SLA berhenti selama `On Hold`.
+- [ ] 8C.5 `scoring_engine.apply_threshold` dan notifikasi memakai `qualification_state`; `Won` memicu notifikasi HLD ke semua SA; `Closed` membuat subtask dan log read-only.
+- [ ] 8C.6 Frontend: badge, filter, dan aksi status mengikuti nama dan hak baru.
+
+**Kriteria selesai:** tidak ada nama status lama di kode atau UI; semua transisi di spec §2.0 punya test.
+
+---
+
+## Fase 9 — Inti Tracker dan Workload (fitur 15)
+
+**Tujuan:** menjadikan portal tracker yang berguna untuk manajemen project sehari-hari. Lihat spec §2.5.
+
+- [ ] 9.1 Subtask: `description`, `due_date`, `estimate_hours` (migration + API + UI).
+- [ ] 9.2 Komentar project (`ProjectComments`): tulis oleh orang yang ditugaskan dan Admin, baca semua pengguna, notifikasi komentar baru.
+- [ ] 9.3 "Tugas saya" lintas project untuk SA/Lead_SA.
+- [ ] 9.4 Dashboard requester bersama untuk Sales dan Product.
+- [ ] 9.5 Filter `involved=me` untuk semua peran di daftar proyek (menggantikan `sales_pic=me`/`assigned_to=me`; revisi issue #109).
+- [ ] 9.6 Tampilan Lead_SA: beban SA, due date, project macet, project yang butuh aksi.
+
+**Kriteria selesai:** Lead_SA dapat menjawab "siapa yang overload" dan "apa yang terlambat atau butuh aksi" dari satu layar; Sales/Product bisa bertanya ke SA lewat komentar.
+
+---
+
 ## Usulan Urutan Pengerjaan (urutan dependensi)
 
 ```
@@ -222,7 +287,13 @@ Fase 5A (kuesioner) → 5B (Requirement) ──┘  ← 5B butuh Source document
       │
 Fase 7 (guardrails LLM)          ← sebelum Fase 6 (penggunaan LLM yang berat dokumen)
       │
-Fase 6 (BoQ vs Requirement)      ← terakhir; butuh tipe Requirement (1.2) + konten Requirement turunan (5B / 5.5) + guardrails (7)
+#27 verifikasi Drive nyata      ← sebelum 8B (perubahan permission)
+      │
+Fase 8A (role) → 8B (orang & multi-SA) → 8C (status)   ← berurutan; menyentuh `_ATURAN` dan `workflow.py`
+      │
+Fase 9 (inti tracker & workload)
+      │
+Fase 6 (BoQ vs Requirement)      ← ditunda ke akhir; butuh tipe Requirement (1.2) + konten Requirement turunan (5B / 5.5) + guardrails (7)
 ```
 
 > Catatan dependensi: dokumen Requirement adalah **konten turunan AI** (di-generate di Fase 5.5 dari MoM/RFP + field Sales), bukan upload customer. Karena itu Fase 6 kini bergantung pada Fase 5, bukan hanya pada penambahan tipe enum di Fase 1.2.
@@ -231,7 +302,7 @@ Fase 6 (BoQ vs Requirement)      ← terakhir; butuh tipe Requirement (1.2) + ko
 
 ## Rekomendasi Lintas-Fitur (tidak memblokir MVP, tapi layak dilacak)
 
-- [ ] **Verifikasi Google Drive nyata** ([#27](https://github.com/NikkiSatmaka/sa-apps/issues/27)): `GDRIVE_SERVICE_ACCOUNT_KEY` belum dikonfigurasi/didokumentasikan; seluruh pekerjaan Drive Fase 2/2A baru terbukti lewat mock. Gerbang untuk persistensi MoM/RFP ke Drive.
+- [ ] **Verifikasi Google Drive nyata — prioritas naik, dikerjakan sebelum Fase 8B (keputusan 2026-11-13; kriteria permission mengikuti ADR 0015)** ([#27](https://github.com/NikkiSatmaka/sa-apps/issues/27)): `GDRIVE_SERVICE_ACCOUNT_KEY` belum dikonfigurasi/didokumentasikan; seluruh pekerjaan Drive Fase 2/2A baru terbukti lewat mock. Gerbang untuk persistensi MoM/RFP ke Drive.
 - [x] Tambah CI (test backend + frontend, gerbang cakupan 90/80) — selesai (spec #49/#50; PR #84, #85). Lint belum ada: `next lint` rusak di Next 16 dan backend punya banyak temuan `ruff` lama; dilacak terpisah. Job CI dijadikan *required check* lewat ruleset `Core` pada `main`.
 - [x] Tambah test frontend — selesai (Vitest + RTL + MSW, 1029 test, cakupan 99,6% baris / 95,4% cabang). Playwright E2E belum: tahap terpisah dengan penyedia LLM palsu di backend.
 - [x] Perluas coverage test backend — selesai (2484 test unit + integrasi di Postgres 18, cakupan gabungan 99,9% baris / 99,1% cabang). Temuan dari pengerjaan ini dilacak sebagai issue #72–#83.
@@ -269,4 +340,7 @@ Ditemukan saat rekonsiliasi 2026-10-20. Per aturan ground truth (`spec = intent`
 - [x] **D2. Taksonomi `ActivityLogs.subtask_category` kode ≠ contoh spec.** Spec mencontohkan subtask seperti `"Create HLD"`, `"Peer Review"`, `"Meeting Pre-Implementation"`. Kode memakai enum berbeda total (`Assessment, Internal Meeting, Customer Meeting, Principal Meeting, Commercial Document, Technical Document, Document Review, Training, Self-Lab, Self-Learning, Exam, Internal Presentation, External Presentation`). **✅ Diputuskan (sesi grill, 2026-10-21):** dua konsep dipisahkan — `Subtask` = work item yang bisa ditugaskan (status `open → in_progress → done`, contoh "Create HLD", "Peer Review"); `ActivityCategory` = taksonomi pengelompokan `ActivityLog` (enum kode di atas = ground truth). Spec dikoreksi untuk membedakan keduanya eksplisit. Lihat [`GLOSSARY.md`](../GLOSSARY.md). Kaitkan dengan Fase 4 (subtask yang bisa di-assign).
 - [x] **D3. Pre-filled OLA/Mandays (Flow 1 langkah 2) — belum diimplementasi, belum dilacak.** Spec menyebut AI juga menyusun pre-filled OLA/Mandays internal untuk SA dari hasil parsing. **✅ Diputuskan (sesi grill, 2026-10-21):** **ditunda keluar dari MVP** (backlog pasca-MVP). Deskripsi fitur tetap ada di spec sebagai *intent*, dengan catatan bahwa implementasinya di luar scope MVP; tidak ada item roadmap MVP untuk ini.
 - [x] **D4. Akses Backup SA ke Project Story (Flow 3 langkah 4) — belum dipetakan eksplisit.** Spec: Project Story harus dapat diakses Backup SA untuk handover saat SA cuti. **✅ Diputuskan (sesi grill, 2026-10-21):** dipenuhi oleh fitur **Project Collaboration** — "Backup SA" = collaborator dengan akses baca Project Story, **bukan** entity/peran baru. Spec dikoreksi untuk menyatakan pemetaan ini eksplisit. Lihat [`docs/adr/0002-backup-sa-via-project-collaboration.md`](adr/0002-backup-sa-via-project-collaboration.md).
+- [x] **D6. Role dan orang per project.** Spec lama hanya punya `Sales`, `SA`, `Lead_SA`, `Admin`, satu `sales_pic` wajib, dan satu `assigned_sa`. **✅ Diputuskan (2026-11-13):** role `Product`, flag `is_admin`, `product_pic` wajib/`sales_pic` opsional/`lead_sa`/`created_by`, multi-SA. Spec dikoreksi (§2.0, §2.5, §3). Lihat ADR [0012](adr/0012-role-fungsional-tunggal-dan-flag-admin.md) dan [0014](adr/0014-orang-per-project-dan-multi-sa.md). Dikerjakan di Fase 8A–8B.
+- [x] **D7. Model status.** **✅ Diputuskan (2026-11-13):** dua field (`status` + `qualification_state`) dengan nama baru; menggantikan D1/ADR 0001. Lihat [ADR 0013](adr/0013-model-status-dua-field.md). Dikerjakan di Fase 8C.
+- [x] **D8. Akses Drive Sales dan Product.** **✅ Diputuskan (2026-11-13):** gate DQ tetap; Sales dan Product Viewer `Inventory` dan Viewer `Solutions` setelah DQ terisi; PMO/Delivery satu-satunya pengecualian. Lihat [ADR 0015](adr/0015-matriks-akses-drive-dan-gate-dq.md).
 - [x] **D5. Hak baca proyek.** Spec #87 membatasi baca ke pihak terkait. **✅ Diputuskan 2026-11-10:** semua proyek dapat dibaca semua pengguna terautentikasi; hanya akses tulis yang dibatasi. Lihat [`docs/adr/0011-baca-proyek-terbuka-tulis-dibatasi.md`](adr/0011-baca-proyek-terbuka-tulis-dibatasi.md).

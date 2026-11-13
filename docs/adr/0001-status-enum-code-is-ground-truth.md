@@ -1,5 +1,7 @@
 # Enum `Projects.status` mengikuti kode; `Pending DQ` dihapus dari spec
 
+> **Digantikan oleh [ADR 0013](0013-model-status-dua-field.md) (2026-11-13).** Enum status operasional di bawah diganti model dua field (`status` + `qualification_state`). Keputusan bahwa `Pending DQ` tidak ada tetap berlaku. Isi di bawah dipertahankan sebagai riwayat.
+
 Spec awal mendefinisikan `New, Assigned, Pending DQ, Ready, Closed-Win, Lost`, sedangkan kode punya status operasional tambahan (`Pending Assignment, Handover Complete, Need Clarification, Scoring Pending, Manual Review Required`) dan menghilangkan `Pending DQ`. Kami memutuskan status operasional kode menjadi ground truth baru (spec dikoreksi) karena mereka nyata dan dipakai oleh flow AI scoring + handover yang sudah berjalan — bukan penyimpangan niat, melainkan detail yang spec awal tidak antisipasi. Mengubah enum status sulit dibalik (menyentuh CheckConstraint DB + migration + state machine), sehingga keputusan ini dicatat agar enum yang "aneh" tidak di-"rapikan" kembali ke spec lama.
 
 ## Pembaruan 2026-11-10: `Pending DQ` dihapus

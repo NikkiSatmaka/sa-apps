@@ -5,7 +5,6 @@ read-gating dokumen Solutions.
 Pasangan unit: `tests/test_dokumen_workflow_handover_unit.py`.
 """
 
-import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
@@ -208,11 +207,8 @@ async def test_dq_pertama_menghentikan_timer_sla_dan_membuka_kunci_solutions(
     sla = bangun_sla(
         proyek.id_project, is_locked=True, locked_at=datetime(2025, 1, 6, tzinfo=timezone.utc)
     )
-    # Audit unlock SLA memakai "system user" UUID nol sebagai `performed_by` (FK ke users), tetapi
-    # tidak ada migration/seed yang membuat baris itu: tanpa baris ini unlock gagal dengan
-    # FK violation (temuan dilaporkan di tiket #59; perbaikannya milik modul SLA).
-    sistem = bangun_user(id=uuid.UUID(int=0), role="Admin", email="sistem@portal-sa.local")
-    await simpan(db_session, sistem, sla)
+    # Audit unlock SLA ditulis dengan `performed_by` NULL (aksi otomatis; tanpa user sistem, #77).
+    await simpan(db_session, sla)
 
     resp = await _input_dq(api, proyek.id_project, DQ, dunia.header["Sales"])
 
@@ -228,6 +224,7 @@ async def test_dq_pertama_menghentikan_timer_sla_dan_membuka_kunci_solutions(
         .all()
     )
     assert [(a.entity_type, a.action) for a in audit] == [("folder", "unlock")]
+    assert audit[0].performed_by is None
 
 
 async def test_dq_pertama_tanpa_kunci_hanya_menghentikan_timer_tanpa_menyentuh_drive(

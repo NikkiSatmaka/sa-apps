@@ -69,6 +69,12 @@ class SLATracking(Base):
         comment="Waktu folder Solutions di-unlock",
     )
 
+    escalated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Waktu eskalasi H+5 dikirim (sekali per tracker)",
+    )
+
     # Constraints
     __table_args__ = (
         CheckConstraint(

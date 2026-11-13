@@ -7,6 +7,7 @@ import logging
 import random
 import string
 import uuid
+from typing import Optional
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
@@ -176,6 +177,27 @@ async def _trigger_folder_provisioner(
     except Exception as e:  # noqa: BLE001 - background task tidak boleh meledak keluar
         logger.error(
             f"[FolderProvisioner] Error tidak terduga saat provisioning proyek {project_id}: {e}"
+        )
+
+
+async def _pindahkan_akses_drive_sa(
+    master_folder_id: str, sa_lama_email: Optional[str], sa_baru_email: str
+) -> None:
+    """
+    Background task: pindahkan akses Editor folder master dari SA lama ke SA baru (reassign, #77).
+
+    Tidak memakai database, sehingga tidak butuh sesi sendiri. Graceful: kegagalan Drive (setelah
+    retry internal) hanya dicatat; reassign di portal sudah tersimpan dan akses dapat dirapikan
+    manual atau lewat provisioning ulang.
+    """
+    try:
+        await folder_provisioner.reassign_sa_access(
+            master_folder_id, sa_lama_email, sa_baru_email
+        )
+    except Exception as e:  # noqa: BLE001 - background task tidak boleh meledak keluar
+        logger.error(
+            f"[FolderProvisioner] Gagal memindahkan akses SA pada folder {master_folder_id} "
+            f"({sa_lama_email or '-'} -> {sa_baru_email}): {e}"
         )
 
 
@@ -790,6 +812,7 @@ async def assign_sa_to_project(
 async def reassign_sa_to_project(
     project_id: str,
     body: AssignRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -798,10 +821,15 @@ async def reassign_sa_to_project(
 
     Flow:
     1. Validasi role Lead_SA atau Admin
-    2. Validasi proyek ada dan berstatus 'Assigned' atau 'Ready'
+    2. Validasi proyek ada dan berstatus 'Assigned', 'Ready', atau 'Pending Assignment'
     3. Validasi SA baru ada dan role-nya 'SA'
     4. Update proyek: assigned_sa ke SA baru
     5. Insert notifikasi ke SA baru
+    6. Drive: SA baru diberi akses Editor, SA lama dicabut (bila folder sudah ada)
+    7. Dari 'Pending Assignment': mulai timer SLA + provisioning folder (setara assign)
+
+    Timer SLA yang sudah berjalan TIDAK direset (keputusan 2026-11-10) dan subtask tidak
+    dipindahkan dari SA lama.
     """
     _require_lead_sa(current_user)
 
@@ -847,13 +875,27 @@ async def reassign_sa_to_project(
     # === 3. Update proyek ===
     now = datetime.now(timezone.utc)
     old_sa_id = project.assigned_sa
+    dari_pending = project.status == "Pending Assignment"
     project.assigned_sa = body.sa_id
     project.assigned_at = now
     project.updated_at = now
 
-    # Jika status masih Pending Assignment, ubah ke Assigned
-    if project.status == "Pending Assignment":
+    # Email SA lama (untuk mencabut akses Drive). FK `projects.assigned_sa` menjamin user ada.
+    sa_lama_email: Optional[str] = None
+    if old_sa_id is not None and old_sa_id != body.sa_id:
+        sa_lama_email = (
+            await db.execute(select(User.email).where(User.id == old_sa_id))
+        ).scalar_one()
+
+    # Jika status masih Pending Assignment, ubah ke Assigned (setara assign: tandai provisioning)
+    sales_email: Optional[str] = None
+    if dari_pending:
         project.status = "Assigned"
+        # FK `projects.sales_pic` (NOT NULL) menjamin Sales ada, berbeda dari assign yang defensif.
+        sales_email = (
+            await db.execute(select(User.email).where(User.id == project.sales_pic))
+        ).scalar_one()
+        project.folder_provisioning_status = "pending"
 
     # === 4. Insert notifikasi ke SA baru ===
     notification = NotificationLog(
@@ -886,7 +928,28 @@ async def reassign_sa_to_project(
         f"oleh {current_user.email} (sebelumnya: {old_sa_id})"
     )
 
-    # === 5. Build response ===
+    # === 5. Dari Pending Assignment: timer SLA + provisioning folder (setara assign) ===
+    if dari_pending:
+        try:
+            await sla_timer.start_timer(
+                project_id=project_id, assigned_at=project.assigned_at, db=db
+            )
+        except Exception as e:
+            logger.warning(f"Gagal memulai SLA timer untuk proyek {project_id}: {e}")
+        background_tasks.add_task(
+            _trigger_folder_provisioner,
+            project_id,
+            sa_user.email,
+            current_user.email,
+            sales_email,
+        )
+    elif project.gdrive_folder_id:
+        # Folder sudah ada: pindahkan akses Editor dari SA lama ke SA baru.
+        background_tasks.add_task(
+            _pindahkan_akses_drive_sa, project.gdrive_folder_id, sa_lama_email, sa_user.email
+        )
+
+    # === 6. Build response ===
     return success_response(
         data={
             "id_project": project.id_project,

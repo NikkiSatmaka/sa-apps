@@ -28,7 +28,9 @@ Portal ini menggabungkan manajemen proyek (request Sales ke SA) dan manajemen ut
 1. **Work Stream SA:** Normalnya SA mulai bekerja setelah DQ Number diisi Sales, sama seperti informasi lain yang diisi Sales. Pada kasus urgent yang jarang terjadi, SA yang ditugaskan boleh bekerja sebelum DQ terisi (prerogatif); portal tidak memblokirnya. SA mengerjakan *Technical Proposal*, *BOQ (AWS Calc)*, dan *Mandays* di folder `Solutions`. (Dokumen HLD ditunda hingga *Closed-Win*).
 2. **DQ Number Gating (SLA 5 Hari):**
    - **< 5 Hari:** Jika Sales sudah input DQ, saat dokumen SA berstatus `Reviewed`, link Google Drive akan **terbuka otomatis** untuk Sales beserta notifikasi email.
-   - **> 5 Hari:** Jika DQ belum diinput, link dokumen akan **terkunci (Hidden/Locked)**. Sistem mengirimkan reminder (H+3) dan eskalasi ke Sales Manager (H+5).
+   - **> 5 Hari:** Jika DQ belum diinput, link dokumen akan **terkunci (Hidden/Locked)**. Sistem mengirimkan reminder (H+3) dan eskalasi (H+5) ke **Lead SA dan Admin**.
+
+   > **Catatan divergensi (keputusan 2026-11-10, issue #77):** (1) Peran "Sales Manager" **tidak ada** di portal (enum peran hanya Sales, SA, Lead_SA, Admin); penerima eskalasi H+5 adalah semua Lead SA dan Admin, plus pemberitahuan ke Sales PIC bahwa folder Solutions dikunci. (2) Eskalasi dikirim **sekali** per proyek. Bila penguncian folder di Drive gagal, hanya penguncian yang dicoba lagi pada siklus berikutnya (tiap jam). (3) Penguncian/pembukaan otomatis dicatat di audit log dengan pelaku kosong (aksi sistem; tidak ada user sistem). (4) Bila pembukaan kunci gagal saat DQ diinput, timer tetap berhenti dan pembukaan dicoba lagi pada siklus berikutnya sampai berhasil. (5) **Reassign SA:** timer SLA **berlanjut** (tidak direset); akses Editor folder Drive SA lama dicabut dan SA baru diberi; subtask tidak otomatis dipindahkan; reassign dari `Pending Assignment` menjalankan alur assign penuh (timer SLA + provisioning folder).
 
 ### Flow 3: Activity Mapping & Project Story (Aplikasi 2)
 1. **GCalendar Sync:** Sistem menarik data acara (*events*) dari Google Calendar SA secara *real-time*.

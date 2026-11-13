@@ -356,6 +356,13 @@ class TestStopTimer:
 # =============================================================================
 
 
+def _tanpa_unlock_tertunda():
+    """Hasil query tracker berhenti yang masih terkunci: kosong (tidak ada unlock tertunda)."""
+    hasil = MagicMock()
+    hasil.scalars.return_value.all.return_value = []
+    return hasil
+
+
 class TestProcessSLAActions:
     """Test cron job proses SLA harian."""
 
@@ -390,7 +397,7 @@ class TestProcessSLAActions:
         project_result = MagicMock()
         project_result.scalar_one_or_none.return_value = mock_project
 
-        mock_session.execute.side_effect = [sla_list_result, project_result]
+        mock_session.execute.side_effect = [sla_list_result, project_result, _tanpa_unlock_tertunda()]
         mock_session.commit = AsyncMock()
         mock_session.add = MagicMock()
 
@@ -417,6 +424,7 @@ class TestProcessSLAActions:
         sla_record.started_at = started_at
         sla_record.current_status = "yellow"
         sla_record.is_locked = False
+        sla_record.escalated_at = None  # belum pernah dieskalasi
         sla_record.days_elapsed = 4
 
         mock_project = MagicMock()
@@ -454,10 +462,10 @@ class TestProcessSLAActions:
             project_result,  # Query project
             manager_result,  # Query managers (eskalasi)
             sales_result,  # Query sales user (lock)
+            _tanpa_unlock_tertunda(),  # Query tracker berhenti yang masih terkunci
         ]
         mock_session.commit = AsyncMock()
         mock_session.add = MagicMock()
-        mock_session.begin_nested = MagicMock()  # SAVEPOINT penulisan audit log
 
         with (
             patch(

@@ -387,7 +387,16 @@ class TestAuditLog:
         await simpan(db_session, a)
         assert (a.old_value, a.new_value) == ({"s": "New"}, {"s": "Ready"})
 
-    @pytest.mark.parametrize("kolom", ["entity_type", "entity_id", "action", "performed_by"])
+    async def test_performed_by_null_diizinkan_untuk_aksi_otomatis_sistem(self, db_session):
+        """#77: aksi otomatis (lock/unlock SLA) tidak punya pelaku; tidak ada user sistem."""
+        user = bangun_user()
+        await simpan(db_session, user)
+        a = bangun_audit(user.id)
+        a.performed_by = None
+        await simpan(db_session, a)
+        assert a.performed_by is None
+
+    @pytest.mark.parametrize("kolom", ["entity_type", "entity_id", "action"])
     async def test_kolom_wajib_tidak_boleh_null(self, db_session, kolom):
         user = bangun_user()
         await simpan(db_session, user)

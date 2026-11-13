@@ -42,7 +42,7 @@ flowchart TD
         B6["Dokumen berstatus Reviewed →<br/>link GDrive terbuka otomatis untuk Sales<br/>+ notifikasi email"]
         B7["Folder Solutions terkunci (Hidden/Locked)"]
         B8["Reminder H+3 ke Sales"]
-        B9["Eskalasi H+5 ke Sales Manager"]
+        B9["Eskalasi H+5 ke Lead SA & Admin"]
         B1 --> B2 --> B3 --> B4
         B4 -- "Ya" --> B6
         B4 -- "Belum" --> B5
@@ -90,10 +90,10 @@ flowchart TD
 | Aktor | Peran dalam alur |
 | :--- | :--- |
 | **Sales** | Membuat opportunity, unggah MoM/RFP, input DQ Number, menerima akses dokumen |
-| **Lead SA** | Menerima New Opportunity, meng-assign SA, memantau utilisasi |
+| **Lead SA** | Menerima New Opportunity, meng-assign SA, memantau utilisasi; menerima eskalasi SLA DQ Number (H+5) |
 | **SA** | Mengerjakan dokumen teknis, mapping aktivitas, membuat HLD |
 | **Backup SA** | Mengakses Project Story saat SA utama cuti (handover) |
-| **Sales Manager** | Menerima eskalasi SLA DQ Number (H+5) |
+| **Admin** | Mengelola user/peran; menerima eskalasi SLA DQ Number (H+5) |
 | **PMO Lead & Delivery Lead** | Menerima handover pasca Closed-Win untuk Project Charter & LLD |
 | **Gemini AI** | BANT scoring, polishing activity notes, RAG recommendation |
 

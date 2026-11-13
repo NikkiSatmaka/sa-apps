@@ -383,8 +383,11 @@ async def test_reassign_diizinkan_pada_assigned_dan_ready(dunia, api, status):
     assert (p.status, p.assigned_sa) == (status, dunia.sa2.id)
 
 
-async def test_reassign_pada_pending_assignment_menjadikan_assigned_dan_seed_subtask(dunia, api):
+async def test_reassign_pada_pending_assignment_menjadikan_assigned_dan_seed_subtask(
+    dunia, api, monkeypatch
+):
     proyek = await dunia.buat_proyek()
+    rekam_background(monkeypatch)
 
     resp = await api.client.post(
         REASSIGN.format(proyek.id_project),
@@ -396,6 +399,139 @@ async def test_reassign_pada_pending_assignment_menjadikan_assigned_dan_seed_sub
     p = await ambil_proyek(dunia.db, proyek.id_project)
     assert (p.status, p.assigned_sa) == ("Assigned", dunia.sa.id)
     assert len(await daftar_subtask(dunia.db, proyek.id_project)) == 4
+
+
+async def test_reassign_dari_pending_assignment_memulai_timer_sla_dan_provisioning_folder(
+    dunia, api, fake_drive, monkeypatch
+):
+    """#77: reassign dari Pending Assignment setara assign: tracker SLA + folder Drive dibuat."""
+    proyek = await dunia.buat_proyek()
+    pid = proyek.id_project
+    tugas = rekam_background(monkeypatch)
+    assert await ambil_sla(dunia.db, pid) is None
+
+    resp = await api.client.post(
+        REASSIGN.format(pid), json={"sa_id": str(dunia.sa.id)}, headers=dunia.h["lead"]
+    )
+
+    assert resp.status_code == 200, resp.text
+    p = await ambil_proyek(dunia.db, pid)
+    sla = await ambil_sla(dunia.db, pid)
+    assert sla is not None and sla.started_at == p.assigned_at
+    assert (sla.current_status, sla.is_locked, sla.stopped_at) == ("green", False, None)
+    assert p.folder_provisioning_status == "pending"
+    assert tugas == [(pid, dunia.sa.email, dunia.lead.email, dunia.sales.email)]
+
+    await jalankan_provisioning(dunia.db, tugas[0])
+
+    p = await ambil_proyek(dunia.db, pid)
+    assert p.folder_provisioning_status == "provisioned"
+    assert fake_drive.peran(p.gdrive_folder_id, dunia.sa.email) == "writer"
+
+
+async def test_reassign_dari_pending_tetap_berhasil_walau_timer_gagal_dimulai(
+    dunia, api, monkeypatch
+):
+    proyek = await dunia.buat_proyek()
+    rekam_background(monkeypatch)
+
+    async def _gagal(*a, **k):
+        raise RuntimeError("timer rusak")
+
+    monkeypatch.setattr(sla_timer, "start_timer", _gagal)
+
+    resp = await api.client.post(
+        REASSIGN.format(proyek.id_project),
+        json={"sa_id": str(dunia.sa.id)},
+        headers=dunia.h["lead"],
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert (await ambil_proyek(dunia.db, proyek.id_project)).status == "Assigned"
+    assert await ambil_sla(dunia.db, proyek.id_project) is None
+
+
+async def _assign_dan_provision(api, dunia, fake_drive, monkeypatch):
+    """Proyek Assigned ke `dunia.sa` dengan folder Drive sungguh-sungguh dibuat (fake)."""
+    proyek = await dunia.buat_proyek()
+    tugas = rekam_background(monkeypatch)
+    resp = await api.client.post(
+        ASSIGN.format(proyek.id_project), json={"sa_id": str(dunia.sa.id)}, headers=dunia.h["lead"]
+    )
+    assert resp.status_code == 200, resp.text
+    await jalankan_provisioning(dunia.db, tugas[0])
+    return (await ambil_proyek(dunia.db, proyek.id_project)).gdrive_folder_id, proyek.id_project
+
+
+async def test_reassign_memindahkan_akses_drive_sa_baru_diberi_sa_lama_dicabut(
+    dunia, api, fake_drive, monkeypatch
+):
+    """#77: SA baru mendapat Editor di folder master, SA lama dicabut; Lead_SA tetap."""
+    master, pid = await _assign_dan_provision(api, dunia, fake_drive, monkeypatch)
+    assert fake_drive.peran(master, dunia.sa.email) == "writer"
+
+    resp = await api.client.post(
+        REASSIGN.format(pid), json={"sa_id": str(dunia.sa2.id)}, headers=dunia.h["lead"]
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert fake_drive.peran(master, dunia.sa2.email) == "writer"
+    assert fake_drive.peran(master, dunia.sa.email) is None
+    assert fake_drive.peran(master, dunia.lead.email) == "writer"
+    [panggilan] = fake_drive.panggilan_operasi("reassign_sa_access")
+    assert panggilan.argumen == {
+        "master_folder_id": master,
+        "old_sa_email": dunia.sa.email,
+        "new_sa_email": dunia.sa2.email,
+    }
+
+
+async def test_reassign_tetap_berhasil_walau_drive_gagal(dunia, api, fake_drive, monkeypatch):
+    master, pid = await _assign_dan_provision(api, dunia, fake_drive, monkeypatch)
+    fake_drive.fail_always("reassign_sa_access")
+
+    resp = await api.client.post(
+        REASSIGN.format(pid), json={"sa_id": str(dunia.sa2.id)}, headers=dunia.h["lead"]
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert (await ambil_proyek(dunia.db, pid)).assigned_sa == dunia.sa2.id
+    # Drive gagal: akses lama belum dicabut (dapat dirapikan dengan provision ulang / manual).
+    assert fake_drive.peran(master, dunia.sa.email) == "writer"
+
+
+async def test_reassign_tanpa_folder_tidak_menyentuh_drive(dunia, api, fake_drive):
+    proyek = await dunia.buat_proyek(status="Assigned", assigned_sa=dunia.sa.id)
+
+    resp = await api.client.post(
+        REASSIGN.format(proyek.id_project),
+        json={"sa_id": str(dunia.sa2.id)},
+        headers=dunia.h["lead"],
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert fake_drive.panggilan_operasi("reassign_sa_access") == []
+    assert fake_drive.panggilan_operasi("provision_project_folder") == []
+
+
+async def test_reassign_sla_melanjutkan_hitungan_dan_subtask_tidak_dipindahkan(
+    dunia, api, monkeypatch
+):
+    """#77: timer SLA TIDAK direset (started_at tetap) dan subtask SA lama tetap miliknya."""
+    pid = await _assign(api, dunia, monkeypatch)
+    sla_awal = await ambil_sla(dunia.db, pid)
+
+    resp = await api.client.post(
+        REASSIGN.format(pid), json={"sa_id": str(dunia.sa2.id)}, headers=dunia.h["lead"]
+    )
+
+    assert resp.status_code == 200, resp.text
+    p = await ambil_proyek(dunia.db, pid)
+    sla = await ambil_sla(dunia.db, pid)
+    assert sla.id == sla_awal.id and sla.started_at == sla_awal.started_at
+    assert sla.started_at < p.assigned_at  # assigned_at mencatat SA saat ini, bukan awal SLA
+    assert (sla.stopped_at, sla.is_locked) == (None, False)
+    assert {s.assigned_sa for s in await daftar_subtask(dunia.db, pid)} == {dunia.sa.id}
 
 
 @pytest.mark.parametrize(

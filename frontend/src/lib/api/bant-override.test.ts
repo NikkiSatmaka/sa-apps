@@ -3,18 +3,31 @@ import { http, HttpResponse, server, api, errorEnvelope } from "@/test";
 import { canOverrideBANT, OVERRIDE_ALLOWED_STATUSES, overrideBANT } from "./bant-override";
 
 describe("canOverrideBANT", () => {
-  it.each(["Lead_SA", "Admin"])("%s boleh override pada status yang relevan", (role) => {
-    for (const status of OVERRIDE_ALLOWED_STATUSES) expect(canOverrideBANT(role, status)).toBe(true);
+  it.each([
+    { role: "Lead_SA" },
+    { role: "SA", is_admin: true }, // admin = flag pada role fungsional (ADR 0012)
+    { role: "Sales", is_admin: true },
+  ])("%j boleh override pada status yang relevan", (user) => {
+    for (const status of OVERRIDE_ALLOWED_STATUSES) expect(canOverrideBANT(user, status)).toBe(true);
   });
 
-  it.each(["Sales", "SA", "", undefined, null])("peran %s tidak boleh override", (role) => {
-    expect(canOverrideBANT(role, "Need Clarification")).toBe(false);
+  it.each([
+    { role: "Sales" },
+    { role: "Product" },
+    { role: "SA" },
+    { role: "SA", is_admin: false },
+    { role: "" },
+    { role: undefined },
+    null,
+    undefined,
+  ])("%j tidak boleh override", (user) => {
+    expect(canOverrideBANT(user, "Need Clarification")).toBe(false);
   });
 
   it.each(["New", "Pending Assignment", "Scoring Pending", "Closed Win"])(
     "Lead_SA tidak boleh override pada status %s",
     (status) => {
-      expect(canOverrideBANT("Lead_SA", status)).toBe(false);
+      expect(canOverrideBANT({ role: "Lead_SA" }, status)).toBe(false);
     }
   );
 });

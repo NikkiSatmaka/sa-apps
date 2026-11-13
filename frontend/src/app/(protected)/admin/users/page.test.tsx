@@ -21,10 +21,17 @@ const sectionOf = (title: string) => screen.getByRole("heading", { name: title }
 afterEach(() => vi.useRealTimers());
 
 describe("Manajemen Pengguna Admin — hak akses", () => {
-  it.each(["Sales", "SA", "Lead_SA"] as const)("%s dialihkan ke '/' dan halaman tidak dirender", (role) => {
+  it.each(["Sales", "Product", "SA", "Lead_SA"] as const)("%s (bukan admin) dialihkan ke '/' dan halaman tidak dirender", (role) => {
     const { container } = renderWithProviders(<AdminUsersPage />, { role });
     expect(router.push).toHaveBeenCalledWith("/");
     expect(container).toBeEmptyDOMElement();
+  });
+
+  it("Lead_SA dengan is_admin melihat halaman (hak berbasis flag, bukan role)", () => {
+    seedAuth("Lead_SA", { is_admin: true });
+    renderWithProviders(<AdminUsersPage />);
+    expect(screen.getByRole("heading", { level: 1, name: "Pengguna" })).toBeInTheDocument();
+    expect(router.push).not.toHaveBeenCalled();
   });
 
   it("Admin melihat halaman dan tidak dialihkan", () => {
@@ -93,13 +100,19 @@ describe("Manajemen Pengguna Admin", () => {
     );
     renderAdmin();
     const table = await within(um()).findByRole("table");
-    expect(within(table).getAllByRole("row")).toHaveLength(5);
-    expect(within(table).getByText("admin@example.com")).toBeInTheDocument();
-    expect(within(table).getByText("Admin")).toHaveClass("bg-purple-100");
-    expect(within(table).getByText("Lead_SA")).toHaveClass("bg-blue-100");
-    expect(within(table).getByText("SA")).toHaveClass("bg-green-100");
-    expect(within(table).getByText("Sales")).toHaveClass("bg-neutral-100");
-    expect(within(table).getAllByRole("button", { name: "Ubah Role" })).toHaveLength(4);
+    const baris = (email: string) => within(table).getByText(email).closest("tr") as HTMLElement;
+    expect(within(table).getAllByRole("row")).toHaveLength(6); // header + 5 user
+    // Role fungsional dan flag admin tampil terpisah; admin menempel pada role (ADR 0012).
+    expect(within(baris("admin@example.com")).getByText("SA")).toHaveClass("bg-green-100");
+    expect(within(baris("admin@example.com")).getByText("Admin")).toHaveClass("bg-purple-100");
+    expect(within(baris("lead@example.com")).getByText("Lead_SA")).toHaveClass("bg-blue-100");
+    expect(within(baris("lead@example.com")).queryByText("Admin")).not.toBeInTheDocument();
+    expect(within(baris("sales@example.com")).getByText("Sales")).toHaveClass("bg-neutral-100");
+    expect(within(baris("product@example.com")).getByText("Product")).toHaveClass("bg-neutral-100");
+    expect(within(table).getAllByRole("button", { name: "Ubah Role" })).toHaveLength(5);
+    // Aksi flag: cabut untuk admin, jadikan admin untuk yang lain
+    expect(within(baris("admin@example.com")).getByRole("button", { name: "Cabut Admin" })).toBeInTheDocument();
+    expect(within(baris("lead@example.com")).getByRole("button", { name: "Jadikan Admin" })).toBeInTheDocument();
   });
 
   it("ubah role: modal terisi role sekarang, PATCH terkirim, toast sukses, daftar dimuat ulang", async () => {
@@ -122,6 +135,12 @@ describe("Manajemen Pengguna Admin", () => {
     expect(screen.getByText("Sales Demo (sales@example.com)")).toBeInTheDocument();
     const select = within(screen.getByRole("heading", { name: "Ubah Role" }).closest("div.fixed") as HTMLElement).getByRole("combobox");
     expect(select).toHaveValue("Sales");
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "Sales",
+      "Product",
+      "SA",
+      "Lead_SA",
+    ]);
     await user.selectOptions(select, "SA");
     const modal = screen.getByRole("heading", { name: "Ubah Role" }).closest("div.fixed") as HTMLElement;
     await user.click(within(modal).getByRole("button", { name: "Simpan" }));
@@ -147,20 +166,82 @@ describe("Manajemen Pengguna Admin", () => {
     expect(patched).toBe(0);
   });
 
-  it("penolakan backend (mis. Admin terakhir) menampilkan pesan server dan modal tetap terbuka", async () => {
+  it("penolakan backend menampilkan pesan server dan modal tetap terbuka", async () => {
     server.use(
       http.patch(api("/admin/users/:id/role"), () =>
-        HttpResponse.json({ status: "error", data: null, message: "Admin terakhir tidak dapat di-demote" }, { status: 409 }),
+        HttpResponse.json({ status: "error", data: null, message: "Role tidak valid" }, { status: 400 }),
       ),
     );
     const { user } = renderAdmin();
     const tombol = await within(um()).findAllByRole("button", { name: "Ubah Role" });
-    await user.click(tombol[1]);
+    await user.click(tombol[2]);
     const modal = screen.getByRole("heading", { name: "Ubah Role" }).closest("div.fixed") as HTMLElement;
     await user.selectOptions(within(modal).getByRole("combobox"), "Sales");
     await user.click(within(modal).getByRole("button", { name: "Simpan" }));
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Admin terakhir tidak dapat di-demote"));
     expect(screen.getByRole("heading", { name: "Ubah Role" })).toBeInTheDocument();
+  });
+});
+
+describe("Manajemen Pengguna Admin — flag admin", () => {
+  const um = () => sectionOf("User & Role Management");
+  const barisDari = async (email: string) => {
+    const table = await within(um()).findByRole("table");
+    return within(table).getByText(email).closest("tr") as HTMLElement;
+  };
+
+  it("Jadikan Admin: PATCH /admin/users/:id/admin {is_admin:true}, toast sukses, daftar dimuat ulang", async () => {
+    let patched: unknown = null;
+    let gets = 0;
+    server.use(
+      http.get(api("/admin/users"), () => {
+        gets++;
+        return HttpResponse.json(successEnvelope(makeAdminUsers()));
+      }),
+      http.patch(api("/admin/users/:id/admin"), async ({ request, params }) => {
+        patched = { id: params.id, body: await request.json() };
+        return HttpResponse.json(successEnvelope(null));
+      }),
+    );
+    const { user } = renderAdmin();
+
+    await user.click(within(await barisDari("sales@example.com")).getByRole("button", { name: "Jadikan Admin" }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Sales Demo dijadikan admin."));
+    expect(patched).toEqual({ id: "00000000-0000-4000-8000-000000000001", body: { is_admin: true } });
+    await waitFor(() => expect(gets).toBeGreaterThanOrEqual(2));
+  });
+
+  it("Cabut Admin: PATCH {is_admin:false} dan toast sukses", async () => {
+    let body: unknown = null;
+    server.use(
+      http.patch(api("/admin/users/:id/admin"), async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(successEnvelope(null));
+      }),
+    );
+    const { user } = renderAdmin();
+
+    await user.click(within(await barisDari("admin@example.com")).getByRole("button", { name: "Cabut Admin" }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Flag admin Admin Demo dicabut."));
+    expect(body).toEqual({ is_admin: false });
+  });
+
+  it("penolakan backend (admin terakhir) menampilkan pesan server", async () => {
+    server.use(
+      http.patch(api("/admin/users/:id/admin"), () =>
+        HttpResponse.json(
+          { status: "error", data: null, message: "Admin terakhir tidak dapat dicabut." },
+          { status: 409 },
+        ),
+      ),
+    );
+    const { user } = renderAdmin();
+
+    await user.click(within(await barisDari("admin@example.com")).getByRole("button", { name: "Cabut Admin" }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Admin terakhir tidak dapat dicabut."));
   });
 });

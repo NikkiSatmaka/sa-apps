@@ -125,7 +125,8 @@ export function makeProjectUtilization() {
 /** GET /admin/users. */
 export function makeAdminUsers() {
   return [
-    { id: "00000000-0000-4000-8000-000000000001", name: "Sales Demo", email: "sales@example.com", role: "Sales" },
-    { id: "00000000-0000-4000-8000-000000000004", name: "Admin Demo", email: "admin@example.com", role: "Admin" },
+    { id: "00000000-0000-4000-8000-000000000001", name: "Sales Demo", email: "sales@example.com", role: "Sales", is_admin: false },
+    { id: "00000000-0000-4000-8000-000000000005", name: "Product Demo", email: "product@example.com", role: "Product", is_admin: false },
+    { id: "00000000-0000-4000-8000-000000000004", name: "Admin Demo", email: "admin@example.com", role: "SA", is_admin: true },
   ];
 }

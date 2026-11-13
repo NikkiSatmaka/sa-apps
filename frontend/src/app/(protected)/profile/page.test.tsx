@@ -23,6 +23,12 @@ describe("ProfilePage", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
+  it("peran fungsional dan flag admin ditampilkan bersama", () => {
+    renderWithProviders(<ProfilePage />, { role: "Admin" });
+    const dl = screen.getByText("Nama").closest("dl")!;
+    expect(dl).toHaveTextContent("SA · Admin");
+  });
+
   it("Keluar membersihkan sesi, memanggil /auth/logout, dan mengarahkan ke /login", async () => {
     const loc = stubLocation();
     let called = false;

@@ -187,7 +187,7 @@ describe("Detail proyek — status BANT", () => {
 });
 
 describe("Detail proyek — kontrol per peran dan status", () => {
-  it.each(["Sales", "SA"] as const)("%s tidak melihat Hapus, Assign SA, Reassign, maupun Override", async (role) => {
+  it.each(["Sales", "Product", "SA"] as const)("%s tidak melihat Hapus, Assign SA, Reassign, maupun Override", async (role) => {
     setup(role, { status: "Pending Assignment" });
     await screen.findByRole("heading", { level: 1 });
     expect(screen.queryByRole("button", { name: "Hapus" })).not.toBeInTheDocument();
@@ -404,7 +404,13 @@ describe("Detail proyek — handover Closed-Win", () => {
     expect(screen.queryByRole("dialog", { name: "stub handover" })).not.toBeInTheDocument();
   });
 
-  it.each(["Sales", "Lead_SA", "Admin"] as const)("%s tidak melihat modal handover", async (role) => {
+  it("Admin (SA dengan is_admin) tetap melihat modal handover sebagai SA", async () => {
+    serveHandover({ pmo_email: "pmo@x", delivery_email: "d@x" });
+    setup("Admin", { status: "Closed-Win" });
+    expect(await screen.findByRole("dialog", { name: "stub handover" })).toBeInTheDocument();
+  });
+
+  it.each(["Sales", "Product", "Lead_SA"] as const)("%s tidak melihat modal handover", async (role) => {
     serveHandover({ pmo_email: "pmo@x", delivery_email: "d@x" });
     setup(role, { status: "Closed-Win" });
     await screen.findByRole("heading", { level: 1 });

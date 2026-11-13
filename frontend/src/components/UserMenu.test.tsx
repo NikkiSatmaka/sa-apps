@@ -59,7 +59,8 @@ describe("UserMenu", () => {
   it("showDetails menampilkan nama dan peran di samping avatar", () => {
     renderWithProviders(<UserMenu showDetails placement="up" align="left" className="x" />, { role: "Admin" });
     expect(screen.getByText("Admin Demo")).toBeInTheDocument();
-    expect(screen.getByText("Admin")).toBeInTheDocument();
+    // Admin = flag pada role fungsional: label menampilkan keduanya
+    expect(screen.getByText("SA · Admin")).toBeInTheDocument();
   });
 
   it("tanpa user: avatar 'U', nama 'User', peran '—'", async () => {

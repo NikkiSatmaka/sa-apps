@@ -21,6 +21,7 @@ import {
   makeQualificationView,
 } from "@/test/fixtures/opportunity";
 import type { Role } from "@/test";
+import { users } from "@/test/fixtures/users";
 import EditProjectPage from "./page";
 
 const ID = "22222222-2222-4222-8222-222222222222";
@@ -222,6 +223,17 @@ describe("EditProjectPage — kunci edit jawaban kuesioner per peran dan status"
     await tungguHalaman();
     expect(await screen.findByText(/Menyimpan akan menghitung ulang skor BANT/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Anggaran bulanan/)).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Simpan Jawaban & Hitung Ulang Skor" })).toBeInTheDocument();
+  });
+
+  it("Product PIC saat Need Clarification: bisa edit dengan hitung ulang skor (setara Sales)", async () => {
+    arrange(makeProjectDetail({ status: "Need Clarification" }));
+    setParams({ id: ID });
+    // PIC tercatat di `sales_pic` sampai product_pic ada (#117): Product pembuat = PIC.
+    seedAuth("Product", { id: users.Sales.id });
+    renderWithProviders(<EditProjectPage />);
+    await tungguHalaman();
+    expect(await screen.findByText(/Menyimpan akan menghitung ulang skor BANT/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Simpan Jawaban & Hitung Ulang Skor" })).toBeInTheDocument();
   });
 

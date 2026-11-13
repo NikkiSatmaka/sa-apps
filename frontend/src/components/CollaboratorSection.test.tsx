@@ -95,7 +95,7 @@ describe("CollaboratorSection — daftar", () => {
 });
 
 describe("CollaboratorSection — hak akses per peran", () => {
-  it.each<Role>(["SA", "Sales", "Lead_SA", "Admin"])("%s melihat tombol tambah dan hapus", async (role) => {
+  it.each<Role>(["SA", "Sales", "Product", "Lead_SA", "Admin"])("%s melihat tombol tambah dan hapus", async (role) => {
     setup(role);
     await screen.findByText("Citra Dewi");
     expect(screen.getByRole("button", { name: "+ Tambah" })).toBeInTheDocument();
@@ -119,11 +119,11 @@ describe("CollaboratorSection — hak akses per peran", () => {
     expect(screen.queryByRole("button", { name: /Lina Lead/ })).not.toBeInTheDocument();
   });
 
-  it("Sales: keterangan batasan dan hanya kandidat Sales yang muncul", async () => {
+  it.each<Role>(["Sales", "Product"])("%s: keterangan batasan dan hanya kandidat Sales/Product yang muncul", async (role) => {
     useSearchPool();
-    const { user } = setup("Sales");
+    const { user } = setup(role);
     await openFormAndSearch(user, "sa");
-    expect(screen.getByText("Sebagai Sales, Anda hanya dapat menambahkan sesama Sales.")).toBeInTheDocument();
+    expect(screen.getByText("Sebagai Sales/Product, Anda hanya dapat menambahkan sesama Sales/Product.")).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /Sari Sales/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Dani SA/ })).not.toBeInTheDocument();
   });

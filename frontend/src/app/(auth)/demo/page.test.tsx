@@ -8,6 +8,7 @@ import DemoPage from "./page";
 
 const roles: [Role, string][] = [
   ["Sales", "Login sebagai Sales"],
+  ["Product", "Login sebagai Product"],
   ["SA", "Login sebagai SA"],
   ["Lead_SA", "Login sebagai Lead SA"],
   ["Admin", "Login sebagai Admin"],
@@ -26,7 +27,7 @@ describe("halaman /demo — guard demo mode", () => {
     expect(screen.queryByText("Pilih role untuk demo login")).not.toBeInTheDocument();
   });
 
-  it("demo_mode aktif: menampilkan banner, 4 tombol peran, dan tautan ke /login", async () => {
+  it("demo_mode aktif: menampilkan banner, 5 tombol peran (Admin = SA dengan flag admin), dan tautan ke /login", async () => {
     await renderReady();
     expect(screen.getByRole("status")).toHaveTextContent("Demo Mode");
     for (const [, label] of roles) expect(screen.getByRole("button", { name: label })).toBeEnabled();
@@ -79,7 +80,12 @@ describe("halaman /demo — login per peran", () => {
     expect(localStorage.getItem("refresh_token")).toBe(`refresh-${role}`);
     const state = useAuthStore.getState();
     expect(state.isAuthenticated).toBe(true);
-    expect(state.user).toMatchObject({ role, full_name: loginResponse(role).user.name });
+    const dariBackend = loginResponse(role).user;
+    expect(state.user).toMatchObject({
+      role: dariBackend.role,
+      is_admin: dariBackend.is_admin,
+      full_name: dariBackend.name,
+    });
   });
 
   it("keadaan memuat: tombol yang diklik menampilkan 'Memproses...' dan semua tombol dinonaktifkan", async () => {

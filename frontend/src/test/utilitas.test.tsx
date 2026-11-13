@@ -14,10 +14,12 @@ function Projects() {
 }
 
 describe("utilitas test", () => {
-  it.each(["Sales", "SA", "Lead_SA", "Admin"] as const)("seedAuth mengisi store untuk peran %s", (role) => {
+  it.each(["Sales", "Product", "SA", "Lead_SA", "Admin"] as const)("seedAuth mengisi store untuk peran %s", (role) => {
     seedAuth(role);
     const { user, isAuthenticated, isLoading } = useAuthStore.getState();
-    expect(user?.role).toBe(role);
+    // Persona Admin = SA dengan is_admin (ADR 0012)
+    expect(user?.role).toBe(role === "Admin" ? "SA" : role);
+    expect(user?.is_admin).toBe(role === "Admin");
     expect(isAuthenticated).toBe(true);
     expect(isLoading).toBe(false);
     expect(localStorage.getItem("access_token")).toBe(`access-${role}`);

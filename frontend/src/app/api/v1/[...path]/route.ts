@@ -66,7 +66,9 @@ async function proxyRequest(
   const queryString = searchParams ? `?${searchParams}` : "";
   const backendUrl = `${BACKEND_URL}/api/v1/${path}${queryString}`;
 
-  console.log(`[API Proxy] ${method} /api/v1/${path} → ${backendUrl}`);
+  // Log hanya method + path. Jangan cetak query string (kode OAuth sekali pakai, state), header
+  // Location, atau body: semuanya bisa memuat token (#80).
+  console.log(`[API Proxy] ${method} /api/v1/${path}`);
 
   try {
     // Build headers — forward semua kecuali host
@@ -88,7 +90,7 @@ async function proxyRequest(
 
     const response = await fetch(backendUrl, fetchOptions);
 
-    console.log(`[API Proxy] ← ${response.status} ${response.statusText}`);
+    console.log(`[API Proxy] ← ${response.status} ${response.statusText} (${method} /api/v1/${path})`);
 
     // Forward response headers
     const responseHeaders = new Headers();
@@ -115,7 +117,8 @@ async function proxyRequest(
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get("location");
         if (location) {
-          console.log(`[API Proxy] ← auth/callback redirect (calendar flow) → ${location}`);
+          // Location memuat #gcal_token=...: diteruskan ke browser, tetapi tidak dicatat.
+          console.log(`[API Proxy] ← auth/callback redirect (calendar flow)`);
           return NextResponse.redirect(location);
         }
       }

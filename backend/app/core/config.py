@@ -7,11 +7,15 @@ Format .env untuk list fields:
 - CORS_ORIGINS=http://localhost:3000,http://example.com  (comma-separated)
 """
 
+import json
+
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 # Placeholder lama yang tidak boleh dipakai sebagai secret produksi.
 _INSECURE_JWT_PLACEHOLDER = "change-this-secret-key-in-production"
+# Peran user yang valid; harus selaras dengan CHECK `chk_users_role` (app/models/user.py).
+VALID_ROLES = ("Sales", "SA", "Lead_SA", "Admin")
 # Nilai ENVIRONMENT yang valid.
 _VALID_ENVIRONMENTS = {"development", "staging", "production"}
 
@@ -120,6 +124,35 @@ class Settings(BaseSettings):
                 f"ENVIRONMENT tidak valid: harus salah satu dari {sorted(_VALID_ENVIRONMENTS)}."
             )
         return normalized
+
+    @field_validator("ROLE_MAPPING")
+    @classmethod
+    def _validate_role_mapping(cls, v: str) -> str:
+        """
+        Fail fast bila ada nilai peran di luar VALID_ROLES. Peran asing melanggar CHECK
+        `chk_users_role` saat user baru disimpan dan membuat login 500.
+
+        Hanya NILAI PERAN pada objek JSON yang diperiksa. Kosong, JSON rusak, atau bukan objek
+        tetap diterima (dianggap mapping kosong oleh `AuthService.role_mapping`); compose.yaml
+        meneruskan string kosong bila variabel tidak diisi.
+        """
+        try:
+            dimuat = json.loads(v)
+        except (json.JSONDecodeError, TypeError):
+            return v
+        if not isinstance(dimuat, dict):
+            return v
+        salah = [
+            f"{kunci!r}: {peran!r}"
+            for kunci, peran in dimuat.items()
+            if not isinstance(peran, str) or peran not in VALID_ROLES
+        ]
+        if salah:
+            raise ValueError(
+                f"ROLE_MAPPING berisi peran tidak valid ({'; '.join(salah)}). "
+                f"Peran yang valid: {', '.join(VALID_ROLES)} (huruf besar-kecil harus sama)."
+            )
+        return v
 
     @field_validator("JWT_SECRET_KEY")
     @classmethod

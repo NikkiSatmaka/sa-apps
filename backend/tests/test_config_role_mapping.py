@@ -42,7 +42,8 @@ def test_semua_entri_tidak_valid_dilaporkan_sekaligus(monkeypatch):
     with pytest.raises(ValidationError) as exc:
         _settings(monkeypatch, mapping)
 
-    pesan = str(exc.value)
+    # `str(ValidationError)` ikut memuat nilai input mentah; periksa hanya pesan validator.
+    pesan = exc.value.errors()[0]["msg"]
     assert "a@b.com" in pesan and "Superuser" in pesan
     assert "c@d.com" in pesan and "Root" in pesan
     assert "e@f.com" not in pesan

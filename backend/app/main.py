@@ -19,6 +19,7 @@ from app.api.documents import router as documents_router
 from app.api.dq_number import router as dq_number_router
 from app.api.handover import router as handover_router
 from app.api.notifications import router as notifications_router
+from app.api.orang import router as orang_router
 from app.api.projects import router as projects_router
 from app.api.qualification import router as qualification_router
 from app.api.requirement import router as requirement_router
@@ -83,6 +84,7 @@ app.include_router(scoring_router, prefix="/api/v1")
 app.include_router(requirement_router, prefix="/api/v1")
 app.include_router(assignment_router, prefix="/api/v1")
 app.include_router(projects_router, prefix="/api/v1")
+app.include_router(orang_router, prefix="/api/v1")
 app.include_router(workflow_router, prefix="/api/v1")
 app.include_router(documents_router, prefix="/api/v1")
 app.include_router(dq_number_router, prefix="/api/v1")

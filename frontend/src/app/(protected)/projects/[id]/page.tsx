@@ -10,6 +10,7 @@ import { LoadError } from "@/components/LoadError";
 import { HandoverConfigForm } from "@/components/HandoverConfigForm";
 import { AssignmentModal } from "@/components/AssignmentModal";
 import { ReassignModal } from "@/components/ReassignModal";
+import { PeopleSection } from "@/components/PeopleSection";
 import { CollaboratorSection } from "@/components/CollaboratorSection";
 import { SubtaskSection } from "@/components/SubtaskSection";
 import { TimSASection } from "@/components/TimSASection";
@@ -56,6 +57,7 @@ interface ProjectDetail {
   product_pic?: { id: string | null; name: string | null; email: string | null } | null;
   /** Opsional (ADR 0014): project boleh tanpa Sales. */
   sales_pic: { id: string | null; name: string | null; email: string | null } | null;
+  lead_sa?: { id: string | null; name: string | null; email: string | null } | null;
   assigned_sa: { id: string | null; name: string | null; email: string | null } | null;
   collaborators: {
     id: string;
@@ -87,7 +89,7 @@ export default function ProjectDetailPage() {
   const [showReassignModal, setShowReassignModal] = useState(false);
 
   // Fetch detail proyek
-  const { data: project, error: projError, isLoading } = useSWR<ProjectDetail>(
+  const { data: project, error: projError, isLoading, mutate: mutateProject } = useSWR<ProjectDetail>(
     `/projects/${projectId}`,
     fetcher
   );
@@ -230,6 +232,7 @@ export default function ProjectDetailPage() {
               <InfoRow label="Dibuat oleh" value={project.created_by?.name || "—"} />
               <InfoRow label="Product PIC" value={project.product_pic?.name || "—"} />
               <InfoRow label="Sales PIC" value={project.sales_pic?.name || "—"} />
+              <InfoRow label="Lead SA" value={project.lead_sa?.name || "Belum ada"} />
               <InfoRow label="SA Ditugaskan" value={project.assigned_sa?.name || "Belum di-assign"} />
               <InfoRow label="DQ Number" value={project.dq_number || "Belum diinput"} mono={!!project.dq_number} />
               <InfoRow
@@ -258,6 +261,9 @@ export default function ProjectDetailPage() {
               </div>
             )}
           </div>
+
+          {/* Section: Ganti orang (hanya Lead_SA/Admin; dijaga di dalam komponen) */}
+          <PeopleSection project={project} onChanged={() => mutateProject()} />
 
           {/* Section: Quick Actions — icon + text style sederhana */}
           <div className="flex gap-4">

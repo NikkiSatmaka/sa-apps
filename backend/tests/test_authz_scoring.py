@@ -25,6 +25,7 @@ from app.core.dependencies import get_current_user
 from app.main import app
 from app.models.project_collaborator import ProjectCollaborator
 from app.schemas.scoring import BANTResult, BANTSubScores
+from tests._auth_support import terapkan_persona
 
 # =============================================================================
 # Fixtures & Helpers
@@ -37,7 +38,7 @@ def _make_user(role: str = "SA", user_id: uuid.UUID | None = None):
     user.id = user_id or uuid.uuid4()
     user.email = f"{role.lower()}@company.com"
     user.name = f"Test {role}"
-    user.role = role
+    terapkan_persona(user, role)
     return user
 
 

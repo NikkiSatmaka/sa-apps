@@ -454,6 +454,7 @@ class TestSkemaRingan:
             email="a@x.com",
             name="A",
             role="SA",
+            is_admin=False,
             created_at=SEKARANG,
             updated_at=SEKARANG,
         )

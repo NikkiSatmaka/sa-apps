@@ -21,6 +21,7 @@ from sqlalchemy.dialects import postgresql
 from app.main import app
 from app.models.document import Document
 from app.models.project import INCLUDE_DELETED, Project, _filter_soft_deleted
+from tests._auth_support import terapkan_persona
 
 
 # =============================================================================
@@ -72,7 +73,7 @@ def _user(role: str):
     user = MagicMock()
     user.id = uuid.uuid4()
     user.email = f"{role.lower()}@company.com"
-    user.role = role
+    terapkan_persona(user, role)
     return user
 
 

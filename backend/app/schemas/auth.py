@@ -35,6 +35,7 @@ class UserResponse(BaseModel):
     email: str
     name: str
     role: str
+    is_admin: bool
     avatar_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime

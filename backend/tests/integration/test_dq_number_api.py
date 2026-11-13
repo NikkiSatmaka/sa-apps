@@ -20,6 +20,7 @@ from tests.integration.b6_support import (  # noqa: F401
     komit_sesi_request,
     muat,
     siapkan_dunia,
+    user_baru,
 )
 from tests.integration.model_helpers import bangun_sla, bangun_user, simpan
 
@@ -318,6 +319,21 @@ async def test_sales_tanpa_dq_tidak_melihat_dokumen_solutions(api, db_session):
 
     assert resp.status_code == 200
     assert resp.json()["data"] == {"documents": [], "total": 0, "dq_required": True}
+
+
+async def test_pemilik_flag_admin_berrole_sales_melihat_solutions_tanpa_dq(api, db_session):
+    """Gating Sales tidak berlaku bagi pemilik flag admin (admin sebelumnya bukan Sales)."""
+    dunia = await siapkan_dunia(api, db_session)
+    proyek = await buat_proyek(db_session, dunia)
+    final = await buat_dokumen(db_session, proyek, dunia, status="Final")
+    admin, header = await user_baru(db_session, "Sales")
+    admin.is_admin = True
+    await db_session.commit()
+
+    resp = await _solutions(api, proyek.id_project, header)
+
+    assert resp.status_code == 200, resp.text
+    assert [d["id_doc"] for d in resp.json()["data"]["documents"]] == [final.id_doc]
 
 
 async def test_sales_dengan_dq_hanya_melihat_solutions_reviewed_atau_final(api, db_session):

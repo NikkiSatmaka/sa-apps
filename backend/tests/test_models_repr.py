@@ -22,7 +22,7 @@ U = uuid.uuid4()
 @pytest.mark.parametrize(
     "objek,harus_memuat",
     [
-        (bangun_user(email="a@x.com", role="Admin"), ["a@x.com", "Admin"]),
+        (bangun_user(email="a@x.com", role="Product"), ["a@x.com", "Product"]),
         (
             bangun_project(U, id_project="PRJ-9", project_name="Nama", status="Lost"),
             ["PRJ-9", "Nama", "Lost"],

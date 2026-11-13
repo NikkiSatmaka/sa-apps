@@ -16,12 +16,12 @@ from app.core.config import VALID_ROLES
 from app.core.database import get_db
 from app.core.dependencies import (
     PeranUser,
-    get_current_user,
     hubungan_proyek,
     require_admin,
     require_privileged,
 )
 from app.core.exceptions import register_exception_handlers
+from app.services.dq_akses import FOLDER_SOLUTIONS, dokumen_terlihat
 from tests._auth_support import SesiPalsu, buat_token, user_palsu
 
 
@@ -88,3 +88,19 @@ def test_gerbang_privileged_dan_admin(role, is_admin, jalur, status):
     user = user_palsu(role, is_admin=is_admin)
     klien, header = _app(user)
     assert klien.get(jalur, headers=header).status_code == status
+
+
+@pytest.mark.parametrize(
+    ("is_admin", "terlihat"),
+    [(False, False), (True, True)],
+    ids=["sales-biasa-bukan-pic-tanpa-dq", "sales-dengan-flag-admin"],
+)
+def test_gating_link_solutions_untuk_sales_tidak_berlaku_bagi_pemilik_flag_admin(
+    is_admin, terlihat
+):
+    """Admin sebelumnya bukan Sales sehingga lolos gating; flag admin mempertahankan itu."""
+    user = user_palsu("Sales", is_admin=is_admin)
+    proyek = SimpleNamespace(sales_pic=uuid.uuid4(), dq_number=None)
+    dokumen = SimpleNamespace(folder_type=FOLDER_SOLUTIONS, status="Draft")
+
+    assert dokumen_terlihat(user, proyek, dokumen) is terlihat

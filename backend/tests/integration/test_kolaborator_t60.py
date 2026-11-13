@@ -198,7 +198,7 @@ async def test_tambah_admin_boleh_dan_contributor_untuk_lead_sa_dan_admin(api, d
     _, _, proyek = await _skenario(db_session)
     admin = await buat_user(db_session, "Admin")
     lead = await buat_user(db_session, "Lead_SA")
-    admin2 = await buat_user(db_session, "Admin")
+    admin2 = await buat_user(db_session, "Lead_SA", is_admin=True)
 
     for target in (lead, admin2):
         resp = await api.client.post(
@@ -207,6 +207,19 @@ async def test_tambah_admin_boleh_dan_contributor_untuk_lead_sa_dan_admin(api, d
             headers=bearer(admin),
         )
         assert resp.status_code == 200, resp.text
+
+
+async def test_pemilik_flag_admin_berrole_sales_boleh_menambah_role_apa_pun(api, db_session):
+    """Aturan "Sales hanya menambah sesama Sales" tidak berlaku bagi pemilik flag admin."""
+    _, _, proyek = await _skenario(db_session)
+    admin = await buat_user(db_session, "Sales", is_admin=True)
+    peer_sa = await buat_user(db_session, "SA")
+
+    resp = await api.client.post(
+        _url(proyek.id_project), json={"user_id": str(peer_sa.id)}, headers=bearer(admin)
+    )
+
+    assert resp.status_code == 200, resp.text
 
 
 async def test_tambah_sales_ke_sa_ditolak_403_tanpa_baris(api, db_session):

@@ -43,6 +43,7 @@ from app.services.sla_timer import (
     SLAStatus,
     SLATimer,
 )
+from tests._auth_support import terapkan_persona
 
 PROJECT_ID = "PRJ-20260101-FLOW02"
 
@@ -55,7 +56,7 @@ PROJECT_ID = "PRJ-20260101-FLOW02"
 def _make_user(role: str, user_id: uuid.UUID | None = None, email: str | None = None):
     user = MagicMock()
     user.id = user_id or uuid.uuid4()
-    user.role = role
+    terapkan_persona(user, role)
     user.email = email or f"{role.lower()}@company.com"
     user.name = f"Test {role}"
     return user
@@ -153,9 +154,9 @@ class _FakeFlow2Session:
     @staticmethod
     def _is_list_query(statement):
         # Query by project_id / id memakai WHERE pada kolom unik → single.
-        # Query manager (role IN ...) dan active SLA (stopped_at IS NULL) → list.
+        # Query manager (role = Lead_SA OR is_admin) dan active SLA (stopped_at IS NULL) → list.
         text = str(statement).lower()
-        return "in (" in text or "is null" in text
+        return "in (" in text or "is null" in text or " or " in text
 
     def add(self, obj):
         self._pending.append(obj)

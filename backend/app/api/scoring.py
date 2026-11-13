@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import ensure_project_access, get_current_user, require_role
+from app.core.dependencies import ensure_project_access, get_current_user, require_privileged
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.response import success_response
@@ -32,7 +32,7 @@ async def score_manual(
     project_id: str,
     body: BANTOverrideInput,
     background_tasks: BackgroundTasks,
-    current_user: User = Depends(require_role("Lead_SA", "Admin")),
+    current_user: User = Depends(require_privileged),
     db: AsyncSession = Depends(get_db),
 ):
     """

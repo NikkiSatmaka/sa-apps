@@ -20,6 +20,7 @@ from app.models.document import Document
 from app.services.llm_provider import LLMResponse
 from tests.test_requirement_generate_api import ITEMS, _bg_session, _Ctx, llm_ok, _source
 from tests.test_projects_questionnaire_api import _result
+from tests._auth_support import terapkan_persona
 
 PRJ = "PRJ-20250101-XYZ789"
 URL = f"/api/v1/projects/{PRJ}/requirement/regenerate"
@@ -29,7 +30,7 @@ LIST_URL = f"/api/v1/projects/{PRJ}/documents"
 def _user(role, uid=None):
     u = MagicMock()
     u.id = uid or uuid.uuid4()
-    u.role = role
+    terapkan_persona(u, role)
     u.name = role
     return u
 

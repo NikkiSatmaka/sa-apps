@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import ensure_project_access, get_current_user
+from app.core.dependencies import adalah_privileged, ensure_project_access, get_current_user
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.response import success_response
@@ -101,7 +101,7 @@ async def process_sla(
     Hanya bisa diakses oleh Admin atau Lead_SA.
     """
     # Hanya Admin atau Lead_SA yang boleh trigger manual
-    if current_user.role not in ("Admin", "Lead_SA"):
+    if not adalah_privileged(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Hanya Admin atau Lead_SA yang dapat memicu SLA processing.",

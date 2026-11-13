@@ -28,7 +28,12 @@ from sqlalchemy import asc, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import TingkatAkses, ensure_project_access, get_current_user
+from app.core.dependencies import (
+    TingkatAkses,
+    adalah_privileged,
+    ensure_project_access,
+    get_current_user,
+)
 from app.models.project import Project
 from app.models.project_collaborator import ProjectCollaborator
 from app.models.sla_tracking import SLATracking
@@ -488,7 +493,7 @@ async def delete_project(
     (data utilisasi SA), dan SLA mengacu ke proyek via FK tanpa cascade.
     """
     # Cek role
-    if current_user.role not in ("Lead_SA", "Admin"):
+    if not adalah_privileged(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Hanya Lead SA dan Admin yang dapat menghapus proyek.",
@@ -556,7 +561,7 @@ async def update_qualification_answers(
         TingkatAkses.EDIT_KUESIONER,
         pesan="Anda tidak memiliki akses untuk mengubah jawaban kuesioner proyek ini.",
     )
-    is_privileged = current_user.role in ("Lead_SA", "Admin")
+    is_privileged = adalah_privileged(current_user)
 
     if project.qualification_answers is None:
         raise HTTPException(

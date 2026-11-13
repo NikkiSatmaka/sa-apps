@@ -32,7 +32,7 @@ def _app(db: SesiPalsu) -> TestClient:
     async def saya(request: Request, user=Depends(get_current_user)):
         return {"id": str(user.id), "state_user_id": request.state.user_id}
 
-    @app.get("/lead", dependencies=[Depends(require_role("Lead_SA", "Admin"))])
+    @app.get("/lead", dependencies=[Depends(require_role("Lead_SA"))])
     async def lead():
         return {"ok": True}
 
@@ -110,13 +110,13 @@ class TestGetCurrentUser:
 
 
 class TestRequireRole:
-    @pytest.mark.parametrize("role", ["Lead_SA", "Admin"])
-    def test_peran_diizinkan(self, role):
+    def test_peran_diizinkan(self):
+        role = "Lead_SA"
         user = user_palsu(role)
         resp = _app(SesiPalsu(user)).get("/lead", headers=_bearer(buat_token(user.id)))
         assert resp.status_code == 200
 
-    @pytest.mark.parametrize("role", ["Sales", "SA"])
+    @pytest.mark.parametrize("role", ["Sales", "Product", "SA"])
     def test_peran_lain_403(self, role):
         user = user_palsu(role)
         resp = _app(SesiPalsu(user)).get("/lead", headers=_bearer(buat_token(user.id)))
@@ -137,9 +137,10 @@ def _proyek(sales_pic=None, assigned_sa=None) -> SimpleNamespace:
 
 
 class TestEnsureProjectAccess:
-    @pytest.mark.parametrize("role", ["Lead_SA", "Admin"])
-    async def test_peran_privileged_selalu_boleh(self, role):
-        await ensure_project_access(SesiPalsu(None), _proyek(), user_palsu(role))
+    @pytest.mark.parametrize(("role", "is_admin"), [("Lead_SA", False), ("SA", True)])
+    async def test_peran_privileged_selalu_boleh(self, role, is_admin):
+        user = user_palsu(role, is_admin=is_admin)
+        await ensure_project_access(SesiPalsu(None), _proyek(), user)
 
     async def test_sales_pic_boleh(self):
         user = user_palsu("Sales")

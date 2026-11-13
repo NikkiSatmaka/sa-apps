@@ -17,7 +17,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import TingkatAkses, ensure_project_access, get_current_user
+from app.core.dependencies import (
+    TingkatAkses,
+    adalah_privileged,
+    ensure_project_access,
+    get_current_user,
+)
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.handover import HandoverConfigInput, HandoverReadiness, HandoverResponse
@@ -101,7 +106,7 @@ async def configure_handover(
     Hanya bisa diakses oleh Lead_SA atau Admin (requirement 17.6).
     """
     # Validasi role — hanya Lead_SA dan Admin
-    if current_user.role not in ("Lead_SA", "Admin"):
+    if not adalah_privileged(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Hanya Lead_SA atau Admin yang dapat mengkonfigurasi handover.",

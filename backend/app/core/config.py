@@ -15,7 +15,7 @@ from pydantic_settings import BaseSettings
 # Placeholder lama yang tidak boleh dipakai sebagai secret produksi.
 _INSECURE_JWT_PLACEHOLDER = "change-this-secret-key-in-production"
 # Peran user yang valid; harus selaras dengan CHECK `chk_users_role` (app/models/user.py).
-VALID_ROLES = ("Sales", "SA", "Lead_SA", "Admin")
+VALID_ROLES = ("Sales", "Product", "SA", "Lead_SA")
 # Nilai ENVIRONMENT yang valid.
 _VALID_ENVIRONMENTS = {"development", "staging", "production"}
 
@@ -73,7 +73,9 @@ class Settings(BaseSettings):
     JWT_EXPIRE_HOURS: int = 24
     JWT_REFRESH_EXPIRE_HOURS: int = 168  # 7 hari untuk refresh token
     ALLOWED_DOMAINS: str = ""  # Comma-separated: "domain1.com,domain2.com"
-    ROLE_MAPPING: str = "{}"  # JSON string: {"email@domain.com": "Admin", "*@domain.com": "SA"}
+    ROLE_MAPPING: str = "{}"  # JSON string: {"email@domain.com": "Lead_SA", "*@domain.com": "SA"}
+    # Email (comma-separated, tanpa wildcard) yang menjadi admin (`is_admin`) saat pertama login.
+    ADMIN_EMAILS: str = ""
 
     # Frontend
     FRONTEND_URL: str = "http://localhost:3000"  # URL frontend untuk redirect setelah OAuth
@@ -179,6 +181,11 @@ class Settings(BaseSettings):
         Hard block: produksi selalu False apa pun flag DEMO_MODE.
         """
         return self.DEMO_MODE and self.ENVIRONMENT != "production"
+
+    @property
+    def admin_emails_list(self) -> list[str]:
+        """Parse ADMIN_EMAILS comma-separated menjadi list email huruf kecil."""
+        return [e.strip().lower() for e in self.ADMIN_EMAILS.split(",") if e.strip()]
 
     @property
     def allowed_domains_list(self) -> list[str]:

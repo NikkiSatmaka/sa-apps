@@ -69,8 +69,10 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI}
       ALLOWED_DOMAINS: ${ALLOWED_DOMAINS}
-      # JSON email/wildcard -> role. Kosong = semua user baru jadi SA (tanpa Admin).
+      # JSON email/wildcard -> role fungsional. Kosong = semua user baru jadi SA.
       ROLE_MAPPING: ${ROLE_MAPPING:-}
+      # Email (koma) yang menjadi admin (is_admin) saat login pertama. Kosong = tanpa admin awal.
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       LLM_PROVIDER: ${LLM_PROVIDER}
       LLM_MODEL_NAME: ${LLM_MODEL_NAME:-gemini-3.8-flash}
       GEMINI_API_KEY: ${GEMINI_API_KEY}

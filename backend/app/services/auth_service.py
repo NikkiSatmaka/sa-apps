@@ -157,7 +157,8 @@ class AuthService:
     def _determine_role(self, email: str) -> str:
         """
         Tentukan role user berdasarkan ROLE_MAPPING.
-        Format mapping: {"email@domain.com": "Admin", "*@domain.com": "SA"}
+        Format mapping: {"email@domain.com": "Lead_SA", "*@domain.com": "SA"}
+        (admin tidak diatur di sini, lihat ADMIN_EMAILS)
         Default role: SA
 
         Peran di mapping yang tidak ada di VALID_ROLES diabaikan (jatuh ke default) dengan
@@ -224,6 +225,7 @@ class AuthService:
                 email=profile.email,
                 name=profile.name,
                 role=role,
+                is_admin=profile.email.lower() in settings.admin_emails_list,
                 google_id=profile.google_id,
                 avatar_url=profile.avatar_url,
                 created_at=datetime.now(timezone.utc),
@@ -245,6 +247,7 @@ class AuthService:
             "sub": str(user.id),
             "email": user.email,
             "role": user.role,
+            "is_admin": user.is_admin,
             "type": "access",
             "iat": now,
             "exp": access_expire,

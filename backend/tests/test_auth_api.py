@@ -100,7 +100,7 @@ class TestDemoLogin:
         assert resp.status_code == 403
         assert "Demo mode tidak aktif" in resp.json()["message"]
 
-    @pytest.mark.parametrize("role", ["Sales", "SA", "Lead_SA", "Admin"])
+    @pytest.mark.parametrize("role", ["Sales", "Product", "SA", "Lead_SA", "Admin"])
     def test_produksi_memblok_demo_untuk_semua_peran(self, klien, monkeypatch, role):
         """Hard block: ENVIRONMENT=production menolak demo login meski DEMO_MODE=true."""
         monkeypatch.setattr(settings, "DEMO_MODE", True)
@@ -118,37 +118,41 @@ class TestDemoLogin:
         assert klien().post(f"{P}/demo-login", json={"role": "SA"}).status_code == 200
 
     @pytest.mark.parametrize(
-        ("role", "email"),
+        ("persona", "email", "role", "is_admin"),
         [
-            ("Sales", "demo-sales@portal-sa.local"),
-            ("SA", "demo-sa@portal-sa.local"),
-            ("Lead_SA", "demo-lead@portal-sa.local"),
-            ("Admin", "demo-admin@portal-sa.local"),
+            ("Sales", "demo-sales@portal-sa.local", "Sales", False),
+            ("Product", "demo-product@portal-sa.local", "Product", False),
+            ("SA", "demo-sa@portal-sa.local", "SA", False),
+            ("Lead_SA", "demo-lead@portal-sa.local", "Lead_SA", False),
+            # Persona "Admin" = SA dengan flag admin (admin selalu menempel pada satu role).
+            ("Admin", "demo-admin@portal-sa.local", "SA", True),
         ],
     )
     def test_user_demo_baru_dibuat_dengan_id_deterministik_dan_token_valid(
-        self, klien, monkeypatch, role, email
+        self, klien, monkeypatch, persona, email, role, is_admin
     ):
         monkeypatch.setattr(settings, "DEMO_MODE", True)
         db = SesiPalsu(None)
 
-        resp = klien(db).post(f"{P}/demo-login", json={"role": role})
+        resp = klien(db).post(f"{P}/demo-login", json={"role": persona})
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["user"]["email"] == email
         assert body["user"]["role"] == role
+        assert body["user"]["is_admin"] is is_admin
         assert body["user"]["id"] == str(uuid.UUID(hashlib.md5(email.encode()).hexdigest()))
         assert len(db.ditambahkan) == 1 and db.jumlah_commit == 1
         assert body["tokens"]["token_type"] == "bearer"
         # token benar-benar bisa dipakai di endpoint terproteksi
         from app.services.auth_service import auth_service
 
-        assert auth_service.verify_access_token(body["tokens"]["access_token"])["role"] == role
+        klaim = auth_service.verify_access_token(body["tokens"]["access_token"])
+        assert (klaim["role"], klaim["is_admin"]) == (role, is_admin)
 
     def test_user_demo_existing_tidak_dibuat_ulang(self, klien, monkeypatch):
         monkeypatch.setattr(settings, "DEMO_MODE", True)
-        ada = user_palsu("Admin", email="demo-admin@portal-sa.local")
+        ada = user_palsu("SA", is_admin=True, email="demo-admin@portal-sa.local")
         db = SesiPalsu(ada)
         resp = klien(db).post(f"{P}/demo-login", json={"role": "Admin"})
         assert resp.status_code == 200
@@ -365,11 +369,12 @@ class TestLogout:
 
 class TestMe:
     def test_mengembalikan_user_login(self, klien):
-        user = user_palsu("Admin")
+        user = user_palsu("SA", is_admin=True)
         resp = klien(SesiPalsu(user)).get(f"{P}/me", headers=_auth(buat_token(user.id)))
         assert resp.status_code == 200
         assert resp.json()["id"] == str(user.id)
-        assert resp.json()["role"] == "Admin"
+        assert resp.json()["role"] == "SA"
+        assert resp.json()["is_admin"] is True
 
     def test_tanpa_token_401(self, klien):
         assert klien().get(f"{P}/me").status_code == 401

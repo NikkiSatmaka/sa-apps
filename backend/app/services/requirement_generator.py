@@ -26,7 +26,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
-from app.core.dependencies import HubunganProyek, TingkatAkses, izinkan
+from app.core.dependencies import HubunganProyek, TingkatAkses, adalah_privileged, izinkan
 from app.models.document import Document
 from app.models.project import Project
 from app.models.source_document import SourceDocument
@@ -403,7 +403,7 @@ def can_manage_requirement(project: Project, user: Any) -> bool:
     # hanya untuk bendera UI, penegakan rute lewat ensure_project_access.
     return izinkan(
         HubunganProyek(
-            privileged=user.role in ("Lead_SA", "Admin"),
+            privileged=adalah_privileged(user),
             sa_ditugaskan=project.assigned_sa is not None and project.assigned_sa == user.id,
             peran=user.role,
         ),

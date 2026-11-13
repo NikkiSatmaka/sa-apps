@@ -21,7 +21,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import TingkatAkses, ensure_project_access, get_current_user
+from app.core.dependencies import (
+    TingkatAkses,
+    adalah_privileged,
+    ensure_project_access,
+    get_current_user,
+)
 from app.models.audit_log import AuditLog
 from app.models.project import Project
 from app.models.user import User
@@ -59,10 +64,10 @@ STATUS_VIA_ENDPOINT_KHUSUS: dict[str, str] = {
 LOST_EXCLUDED_STATUSES = ("Handover Complete", "Lost")
 
 
-def _get_valid_next_statuses(current_status: str, user_role: str) -> list[str]:
+def _get_valid_next_statuses(current_status: str, privileged: bool) -> list[str]:
     """
     Mendapatkan daftar status yang valid dari status saat ini.
-    Mempertimbangkan role user untuk status khusus (Lost).
+    Mempertimbangkan hak privileged (Lead_SA/admin) untuk status khusus (Lost).
     """
     valid = []
 
@@ -72,15 +77,15 @@ def _get_valid_next_statuses(current_status: str, user_role: str) -> list[str]:
         valid.append(next_status)
 
     # Status "Lost" — hanya Lead_SA/Admin, dari status manapun kecuali "Handover Complete" dan "Lost" sendiri
-    if user_role in ("Lead_SA", "Admin") and current_status not in LOST_EXCLUDED_STATUSES:
+    if privileged and current_status not in LOST_EXCLUDED_STATUSES:
         valid.append("Lost")
 
     return valid
 
 
-def _is_valid_transition(current_status: str, new_status: str, user_role: str) -> bool:
+def _is_valid_transition(current_status: str, new_status: str, privileged: bool) -> bool:
     """Validasi apakah transisi status yang diminta valid."""
-    valid_statuses = _get_valid_next_statuses(current_status, user_role)
+    valid_statuses = _get_valid_next_statuses(current_status, privileged)
     return new_status in valid_statuses
 
 
@@ -204,7 +209,7 @@ async def update_project_status(
     new_status = body.new_status
 
     # Khusus status "Lost" — hanya Lead_SA/Admin yang bisa
-    if new_status == "Lost" and current_user.role not in ("Lead_SA", "Admin"):
+    if new_status == "Lost" and not adalah_privileged(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Hanya Lead_SA atau Admin yang dapat mengubah status proyek menjadi 'Lost'.",
@@ -221,8 +226,8 @@ async def update_project_status(
         )
 
     # Validasi transisi menggunakan state machine
-    if not _is_valid_transition(old_status, new_status, current_user.role):
-        valid_next = _get_valid_next_statuses(old_status, current_user.role)
+    if not _is_valid_transition(old_status, new_status, adalah_privileged(current_user)):
+        valid_next = _get_valid_next_statuses(old_status, adalah_privileged(current_user))
         valid_str = ", ".join(f"'{s}'" for s in valid_next) if valid_next else "tidak ada (status terminal)"
 
         raise HTTPException(

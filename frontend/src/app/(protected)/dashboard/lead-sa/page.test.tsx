@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { http, HttpResponse, api, renderWithProviders, router, server, successEnvelope } from "@/test";
+import { http, HttpResponse, api, gagalLaluBerhasil, renderWithProviders, router, server, successEnvelope } from "@/test";
 import {
   makeAvailableSA,
   makeMonthlyUtilization,
@@ -388,12 +388,6 @@ describe("Dashboard Lead SA — effort per proyek", () => {
     expect(await within(section("Effort per Proyek")).findByText("Belum ada data activity log per proyek.")).toBeInTheDocument();
   });
 
-  it("error: diperlakukan seperti kosong (tidak ada UI error khusus)", async () => {
-    fail("/utilization/projects");
-    renderWithProviders(<LeadSADashboard />, { role: "Lead_SA" });
-    expect(await within(section("Effort per Proyek")).findByText("Belum ada data activity log per proyek.")).toBeInTheDocument();
-  });
-
   it("berisi: baris proyek dengan jam dan personel; klik baris membuka detail, link tidak menggandakan navigasi", async () => {
     ok("/utilization/projects", makeProjectUtilization());
     const { user } = renderWithProviders(<LeadSADashboard />, { role: "Lead_SA" });
@@ -415,5 +409,61 @@ describe("Dashboard Lead SA — effort per proyek", () => {
     ok("/utilization/projects", [{ ...makeProjectUtilization()[0], status: "Aneh" }]);
     renderWithProviders(<LeadSADashboard />, { role: "Lead_SA" });
     expect(await within(section("Effort per Proyek")).findByText("Aneh")).toHaveClass("bg-neutral-100");
+  });
+});
+
+describe("Dashboard Lead SA — error pemuatan dibedakan dari keadaan kosong (#82)", () => {
+  it("antrian assignment: pesan error (bukan 'Tidak ada proyek'), penghitung tak tampil, coba lagi memuat ulang", async () => {
+    server.use(gagalLaluBerhasil("/projects/pending-assignment", [makePendingProject({ project_name: "Pulih" })]));
+    const { user } = renderWithProviders(<LeadSADashboard />, { role: "Lead_SA" });
+    const s = section("Antrian Assignment");
+
+    expect(await within(s).findByRole("alert")).toHaveTextContent("Gagal memuat antrian assignment.");
+    expect(within(s).queryByText("Tidak ada proyek yang menunggu assignment saat ini.")).not.toBeInTheDocument();
+    expect(within(s).queryByText(/menunggu$/)).not.toBeInTheDocument();
+
+    await user.click(within(s).getByRole("button", { name: "Coba lagi" }));
+
+    expect(await within(s).findByText("Pulih")).toBeInTheDocument();
+    expect(within(s).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("overview proyek aktif: pesan error (bukan 'Belum ada data proyek'), coba lagi memuat ulang", async () => {
+    server.use(gagalLaluBerhasil("/projects/status-summary", [{ status: "Assigned", count: 3 }]));
+    const { user } = renderWithProviders(<LeadSADashboard />, { role: "Lead_SA" });
+    const s = section("Overview Proyek Aktif");
+
+    expect(await within(s).findByRole("alert")).toHaveTextContent("Gagal memuat ringkasan proyek aktif.");
+    expect(within(s).queryByText("Belum ada data proyek.")).not.toBeInTheDocument();
+
+    await user.click(within(s).getByRole("button", { name: "Coba lagi" }));
+
+    expect(await within(s).findByText("Total Aktif")).toBeInTheDocument();
+  });
+
+  it("utilisasi SA: pesan error (bukan 'Belum ada SA terdaftar'), coba lagi memuat ulang", async () => {
+    server.use(gagalLaluBerhasil("/sa/available", [makeAvailableSA({ name: "Pulih" })]));
+    const { user } = renderWithProviders(<LeadSADashboard />, { role: "Lead_SA" });
+    const s = section("Utilisasi SA");
+
+    expect(await within(s).findByRole("alert")).toHaveTextContent("Gagal memuat utilisasi SA.");
+    expect(within(s).queryByText("Belum ada SA terdaftar.")).not.toBeInTheDocument();
+
+    await user.click(within(s).getByRole("button", { name: "Coba lagi" }));
+
+    expect(await within(s).findByText("Pulih")).toBeInTheDocument();
+  });
+
+  it("effort per proyek: pesan error (bukan 'Belum ada data activity log'), coba lagi memuat ulang", async () => {
+    server.use(gagalLaluBerhasil("/utilization/projects", makeProjectUtilization()));
+    const { user } = renderWithProviders(<LeadSADashboard />, { role: "Lead_SA" });
+    const s = section("Effort per Proyek");
+
+    expect(await within(s).findByRole("alert")).toHaveTextContent("Gagal memuat effort per proyek.");
+    expect(within(s).queryByText("Belum ada data activity log per proyek.")).not.toBeInTheDocument();
+
+    await user.click(within(s).getByRole("button", { name: "Coba lagi" }));
+
+    expect(await within(s).findByRole("link", { name: "Proyek Effort" })).toBeInTheDocument();
   });
 });

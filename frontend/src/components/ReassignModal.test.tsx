@@ -1,6 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { HttpResponse, api, errorEnvelope, http, renderWithProviders, server, successEnvelope } from "@/test";
+import { HttpResponse, api, errorEnvelope, gagalLaluBerhasil, http, renderWithProviders, server, successEnvelope } from "@/test";
 import { makeAvailableSA } from "@/test/fixtures/operations";
 import { ReassignModal } from "./ReassignModal";
 
@@ -61,6 +61,20 @@ describe("ReassignModal", () => {
     server.use(http.get(api("/sa/available"), () => HttpResponse.json(successEnvelope([]))));
     setup();
     expect(await screen.findByText("Tidak ada SA yang tersedia saat ini.")).toBeInTheDocument();
+  });
+
+  it("daftar SA gagal dimuat: pesan error (bukan 'Tidak ada SA'), coba lagi memuat ulang, konfirmasi tetap nonaktif", async () => {
+    server.use(gagalLaluBerhasil("/sa/available", [makeAvailableSA({ name: "Pulih Santoso" })]));
+    const { user } = setup();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat daftar SA.");
+    expect(screen.queryByText("Tidak ada SA yang tersedia saat ini.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Konfirmasi Reassign" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+
+    expect(await screen.findByText("Pulih Santoso")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("mengirim sa_id baru ke endpoint reassign lalu memanggil onSuccess", async () => {

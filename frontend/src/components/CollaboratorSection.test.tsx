@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { HttpResponse, api, errorEnvelope, http, renderWithProviders, server, successEnvelope, type Role } from "@/test";
+import { HttpResponse, api, errorEnvelope, gagalLaluBerhasil, http, renderWithProviders, server, successEnvelope, type Role } from "@/test";
 import { makeCollaborator, makeUserSearchResult } from "@/test/fixtures/operations";
 import { CollaboratorSection } from "./CollaboratorSection";
 
@@ -57,11 +57,40 @@ describe("CollaboratorSection — daftar", () => {
     expect(await screen.findByText("Belum ada kolaborator di proyek ini.")).toBeInTheDocument();
   });
 
-  it("menampilkan keadaan kosong (tanpa pesan error) bila daftar gagal dimuat (perilaku nyata)", async () => {
+  it("daftar gagal dimuat: pesan error (bukan 'Belum ada kolaborator'), coba lagi memuat ulang", async () => {
+    server.use(gagalLaluBerhasil("/projects/:id/collaborators", { items: [makeCollaborator({ user_name: "Pulih Dewi" })], total: 1 }));
+    const { user } = setup();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat daftar kolaborator.");
+    expect(screen.queryByText("Belum ada kolaborator di proyek ini.")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+
+    expect(await screen.findByText("Pulih Dewi")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("daftar gagal dimuat tetapi ada initialCollaborators: daftar awal tetap tampil bersama pesan error", async () => {
     server.use(http.get(api("/projects/:id/collaborators"), () => HttpResponse.json(errorEnvelope("gagal"), { status: 500 })));
-    setup();
-    expect(await screen.findByText("Belum ada kolaborator di proyek ini.")).toBeInTheDocument();
-    expect(screen.queryByText("gagal")).not.toBeInTheDocument();
+    setup("SA", { initialCollaborators: [makeCollaborator({ user_name: "Awal Dulu" }) as never] });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat daftar kolaborator.");
+    expect(screen.getByText("Awal Dulu")).toBeInTheDocument();
+  });
+
+  it("pencarian user gagal: pesan error (bukan 'Tidak ada user yang cocok'), coba lagi memuat ulang hasil", async () => {
+    server.use(gagalLaluBerhasil("/projects/users/search", SEARCH_POOL));
+    const { user } = setup();
+    await screen.findByText("Citra Dewi");
+    await openFormAndSearch(user, "da");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Gagal mencari user.");
+    expect(screen.queryByText(/Tidak ada user yang cocok/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+
+    expect(await screen.findByText("Dani SA")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 

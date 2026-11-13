@@ -1,6 +1,6 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { HttpResponse, api, errorEnvelope, http, renderWithProviders, server, successEnvelope } from "@/test";
+import { HttpResponse, api, gagalLaluBerhasil, http, renderWithProviders, server, successEnvelope } from "@/test";
 import { GCAL_EVENTS_URL } from "@/test/msw/handlers/operations";
 import { makeProject } from "@/test/fixtures/projects";
 import CalendarSyncPage from "./page";
@@ -53,11 +53,16 @@ describe("CalendarSyncPage", () => {
     expect(screen.getByText("Tidak ada proyek tersedia untuk di-mapping.")).toBeInTheDocument();
   });
 
-  it("error memuat proyek: panel tetap tampil dengan daftar proyek kosong (perilaku nyata)", async () => {
-    server.use(http.get(api("/projects"), () => HttpResponse.json(errorEnvelope("gagal"), { status: 500 })));
+  it("error memuat proyek: pesan error menggantikan panel, coba lagi memuat ulang", async () => {
+    server.use(gagalLaluBerhasil("/projects", [makeProject({ id_project: "p-1", project_name: "Migrasi Cloud" })]));
     const { user } = renderWithProviders(<CalendarSyncPage />, { role: "SA" });
-    await screen.findByRole("button", { name: "Sync Calendar" });
-    await openMappingModal(user);
-    expect(screen.getByText("Tidak ada proyek tersedia untuk di-mapping.")).toBeInTheDocument();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat daftar proyek.");
+    expect(screen.queryByRole("button", { name: "Sync Calendar" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+
+    expect(await screen.findByRole("button", { name: "Sync Calendar" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

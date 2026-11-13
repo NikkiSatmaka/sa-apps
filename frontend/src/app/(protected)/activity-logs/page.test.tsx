@@ -1,6 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { HttpResponse, api, errorEnvelope, http, renderWithProviders, server, setSearchParams, successEnvelope, type Role } from "@/test";
+import { HttpResponse, api, gagalLaluBerhasil, http, renderWithProviders, server, setSearchParams, successEnvelope, type Role } from "@/test";
 import { makeProject } from "@/test/fixtures/projects";
 import ActivityLogsPage from "./page";
 
@@ -57,11 +57,18 @@ describe("ActivityLogsPage", () => {
     expect(screen.queryByRole("option", { name: "Migrasi Cloud" })).not.toBeInTheDocument();
   });
 
-  it("error memuat proyek: form tetap tampil dengan daftar kosong (tidak ada pesan error — perilaku nyata)", async () => {
-    server.use(http.get(api("/projects"), () => HttpResponse.json(errorEnvelope("gagal"), { status: 500 })));
-    renderWithProviders(<ActivityLogsPage />, { role: "SA" });
+  it("error memuat proyek: pesan error menggantikan form (daftar proyek kosong tak berguna), coba lagi memuat ulang", async () => {
+    server.use(gagalLaluBerhasil("/projects", [makeProject({ id_project: "p-1", project_name: "Migrasi Cloud", status: "New" })]));
+    const { user } = renderWithProviders(<ActivityLogsPage />, { role: "SA" });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat daftar proyek.");
+    expect(screen.queryByRole("form", { name: "Form activity log" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+
     expect(await screen.findByRole("form", { name: "Form activity log" })).toBeInTheDocument();
-    expect(screen.queryByText("gagal")).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Migrasi Cloud" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it.each<Role>(["SA", "Sales", "Lead_SA", "Admin"])("halaman dapat diakses peran %s (tanpa pembatasan peran)", async (role) => {

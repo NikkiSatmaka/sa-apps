@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor, within } from "@testing-library/react";
-import { http, HttpResponse, api, renderWithProviders, router, seedAuth, server, successEnvelope } from "@/test";
+import { http, HttpResponse, api, gagalLaluBerhasil, renderWithProviders, router, seedAuth, server, successEnvelope } from "@/test";
 import { ToastContainer } from "@/components/Toast";
 import { useAuthStore } from "@/store/auth";
 import { makeAdminUsers } from "@/test/fixtures/shell";
@@ -66,10 +66,17 @@ describe("Manajemen Pengguna Admin", () => {
     expect(await within(um()).findByText("Belum ada user terdaftar.")).toBeInTheDocument();
   });
 
-  it("error: diperlakukan sebagai kosong (tidak ada UI error khusus)", async () => {
-    server.use(http.get(api("/admin/users"), () => HttpResponse.json({ message: "x" }, { status: 500 })));
-    renderAdmin();
-    expect(await within(um()).findByText("Belum ada user terdaftar.")).toBeInTheDocument();
+  it("error: pesan error (bukan 'Belum ada user terdaftar'), coba lagi memuat ulang tabel", async () => {
+    server.use(gagalLaluBerhasil("/admin/users", makeAdminUsers()));
+    const { user } = renderAdmin();
+
+    expect(await within(um()).findByRole("alert")).toHaveTextContent("Gagal memuat daftar user.");
+    expect(within(um()).queryByText("Belum ada user terdaftar.")).not.toBeInTheDocument();
+
+    await user.click(within(um()).getByRole("button", { name: "Coba lagi" }));
+
+    expect(await within(um()).findByRole("table")).toBeInTheDocument();
+    expect(within(um()).queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("berisi: tabel user dengan peran dan aksi Ubah Role", async () => {

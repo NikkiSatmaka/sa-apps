@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { api, errorEnvelope, http, HttpResponse, renderWithProviders, server, successEnvelope, type Role } from "@/test";
+import { api, errorEnvelope, gagalLaluBerhasil, http, HttpResponse, renderWithProviders, server, successEnvelope, type Role } from "@/test";
 import { users } from "@/test/fixtures/users";
 import { makeSubtask } from "@/test/fixtures/project-detail";
 import { SubtaskSection } from "./SubtaskSection";
@@ -126,11 +126,18 @@ describe("SubtaskSection — keadaan data", () => {
     expect(await screen.findByText("Belum ada subtask yang ditugaskan kepada Anda.")).toBeInTheDocument();
   });
 
-  it("error memuat: tidak ada daftar dan tidak crash (tampil keadaan kosong)", async () => {
-    server.use(http.get(api("/projects/p1/subtasks"), () => HttpResponse.json(errorEnvelope("boom"), { status: 500 })));
-    setup("Lead_SA");
-    // Perilaku nyata: error fetch tidak ditampilkan; komponen jatuh ke teks kosong.
-    expect(await screen.findByText("Belum ada subtask di proyek ini.")).toBeInTheDocument();
+  it.each<Role>(["Lead_SA", "SA"])("%s: error memuat tampil sebagai pesan error (bukan keadaan kosong) dan bisa dicoba ulang", async (role) => {
+    server.use(gagalLaluBerhasil("/projects/p1/subtasks", { items: semua, total: semua.length }));
+    const { user } = setup(role);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat daftar subtask.");
+    expect(screen.queryByText("Belum ada subtask di proyek ini.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Belum ada subtask yang ditugaskan kepada Anda.")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+
+    expect(await screen.findByText("Milik SA")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 

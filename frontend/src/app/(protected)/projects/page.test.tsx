@@ -135,6 +135,21 @@ describe("Daftar proyek — memuat, kosong, error", () => {
   });
 });
 
+describe("Daftar proyek — skor BANT pada kartu (#83)", () => {
+  it("meneruskan bant_score ke kartu: Passed bila >= 60, not passed bila < 60, tanpa label bila null", async () => {
+    serve([
+      makeProject({ id_project: "id-1", project_name: "Lulus", customer_name: "PT L", bant_score: 72 }),
+      makeProject({ id_project: "id-2", project_name: "Gagal", customer_name: "PT G", bant_score: 40 }),
+      makeProject({ id_project: "id-3", project_name: "Belum", customer_name: "PT B", bant_score: null }),
+    ]);
+    setup("Lead_SA");
+
+    expect(await screen.findByText("BANT Passed")).toBeInTheDocument();
+    expect(screen.getByText("BANT not passed")).toBeInTheDocument();
+    expect(screen.getAllByText(/^BANT/)).toHaveLength(2);
+  });
+});
+
 describe("Daftar proyek — filter", () => {
   it("menampilkan kartu berisi nama, customer, status, DQ, dan badge Menunggu DQ", async () => {
     serve();

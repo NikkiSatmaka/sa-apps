@@ -19,11 +19,13 @@ import { CalendarSync } from "@/components/CalendarSync";
 interface ProjectItem {
   id_project: string;
   project_name: string;
+  status?: string;
 }
 
 interface Project {
   id: string;
   project_name: string;
+  status?: string;
 }
 
 export default function CalendarSyncPage() {
@@ -42,6 +44,7 @@ export default function CalendarSyncPage() {
   const projects: Project[] = (rawProjects || []).map((p) => ({
     id: p.id_project,
     project_name: p.project_name,
+    status: p.status,
   }));
 
   return (

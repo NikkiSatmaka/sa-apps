@@ -5,20 +5,29 @@
  *
  * Menampilkan:
  * - Banner "Anda sedang offline" saat koneksi terputus
- * - Badge "Menunggu Sinkronisasi" dengan jumlah item di queue
+ * - Badge "Menunggu Sinkronisasi" dengan jumlah item yang masih akan dikirim
+ * - Peringatan untuk item gagal permanen (ditolak server / melewati batas percobaan), dengan
+ *   tombol "Buang" — data tidak dibuang diam-diam
  */
 
 import { useEffect, useState } from "react";
-import { getQueuedItems, isOnline } from "@/lib/offline-queue";
+import {
+  discardFailedItems,
+  getFailedItems,
+  getPendingItems,
+  isOnline,
+} from "@/lib/offline-queue";
 
 export function OfflineIndicator() {
   const [online, setOnline] = useState(true);
   const [queueCount, setQueueCount] = useState(0);
+  const [failedCount, setFailedCount] = useState(0);
 
   useEffect(() => {
     // Set state awal
     setOnline(isOnline());
-    setQueueCount(getQueuedItems().length);
+    setQueueCount(getPendingItems().length);
+    setFailedCount(getFailedItems().length);
 
     // Listen perubahan koneksi
     const handleOnline = () => setOnline(true);
@@ -26,7 +35,8 @@ export function OfflineIndicator() {
 
     // Listen perubahan queue
     const handleQueueUpdate = () => {
-      setQueueCount(getQueuedItems().length);
+      setQueueCount(getPendingItems().length);
+      setFailedCount(getFailedItems().length);
     };
 
     window.addEventListener("online", handleOnline);
@@ -66,6 +76,23 @@ export function OfflineIndicator() {
             </svg>
             Anda sedang offline — perubahan akan disinkronkan saat koneksi kembali
           </span>
+        </div>
+      )}
+
+      {/* Item gagal permanen: butuh perhatian pengguna */}
+      {failedCount > 0 && (
+        <div
+          role="alert"
+          className="fixed bottom-16 left-4 z-40 bg-red-50 border border-red-300 text-red-800 rounded-lg px-3 py-2 text-sm font-medium shadow-md flex items-center gap-3"
+        >
+          <span>{failedCount} item gagal disinkronkan</span>
+          <button
+            type="button"
+            onClick={discardFailedItems}
+            className="px-2 py-1 rounded border border-red-300 bg-white text-red-700 hover:bg-red-100 min-h-[32px]"
+          >
+            Buang
+          </button>
         </div>
       )}
 

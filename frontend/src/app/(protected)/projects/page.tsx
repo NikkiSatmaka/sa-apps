@@ -218,7 +218,7 @@ export default function ProjectsPage() {
                   status={project.status}
                   dqNumber={project.dq_number}
                   lastUpdated={project.updated_at || ""}
-                  bantScore={null}
+                  bantScore={project.bant_score}
                   onClick={() => router.push(`/projects/${project.id_project}`)}
                 />
               ))}

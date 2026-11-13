@@ -303,8 +303,7 @@ describe("NewProjectPage — pengiriman", () => {
   it("mengirim multipart dengan field header, jawaban kuesioner (JSON), dan file+tipe; token disertakan", async () => {
     useSchema();
     const captured = captureFetchPost(makeCreateProjectResponse({ scoring_triggered: true, bant_score: null, sub_scores: null }));
-    // scoring_triggered memasang setTimeout(router.push, 2000) yang tidak dibersihkan saat unmount;
-    // jam palsu memastikan timer itu dibuang di afterEach dan tidak bocor ke test berikutnya.
+    // scoring_triggered memasang timer redirect 2 detik; jam palsu menjaga test tetap deterministik.
     const user = setup({ fake: true });
     await isiLangkah1(user, { dq: " DQ-2025-001 " });
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
@@ -408,7 +407,7 @@ describe("NewProjectPage — pengiriman", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Perlu klarifikasi tambahan");
   });
 
-  it("skor tersedia tetapi tanpa rincian sub-skor, status Pending Assignment: toast sukses, form tetap tampil", async () => {
+  it("skor tersedia tanpa rincian sub-skor, Pending Assignment: toast sukses + layar 'terkirim' dengan tautan ke detail; form tidak bisa dikirim lagi (#83)", async () => {
     useSchema();
     capturePost(() => created({ status: "Pending Assignment", bant_score: 65, sub_scores: null, scoring_triggered: false }));
     const user = setup();
@@ -416,11 +415,20 @@ describe("NewProjectPage — pengiriman", () => {
     await lanjut(user);
     await isiKuesioner(user);
     await user.click(screen.getByRole("button", { name: "Submit Request" }));
+
     expect(await screen.findByRole("status")).toHaveTextContent("BANT Score: 65 — Proyek masuk antrian assignment!");
+    expect(screen.getByRole("heading", { name: "Request SA terkirim" })).toBeInTheDocument();
+    expect(screen.getByText(/proyek masuk antrian assignment/)).toBeInTheDocument();
     expect(screen.queryByText("Hasil Scoring BANT")).not.toBeInTheDocument();
+    // Form hilang: tidak ada tombol submit sehingga proyek duplikat tidak mungkin terbuat.
+    expect(screen.queryByRole("button", { name: /^Submit Request/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Nama Proyek/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Lihat Proyek" }));
+    expect(router.push).toHaveBeenCalledWith("/projects/11111111-1111-4111-8111-111111111111");
   });
 
-  it("skor tanpa rincian sub-skor, status lain: toast error perlu klarifikasi", async () => {
+  it("skor tanpa rincian sub-skor, status lain: toast error + layar 'terkirim' (perlu klarifikasi), form tidak bisa dikirim lagi (#83)", async () => {
     useSchema();
     capturePost(() => created({ status: "Need Clarification", bant_score: 30, sub_scores: null, scoring_triggered: false }));
     const user = setup();
@@ -428,7 +436,44 @@ describe("NewProjectPage — pengiriman", () => {
     await lanjut(user);
     await isiKuesioner(user);
     await user.click(screen.getByRole("button", { name: "Submit Request" }));
+
     expect(await screen.findByRole("status")).toHaveTextContent("BANT Score: 30 — Perlu klarifikasi tambahan.");
+    expect(screen.getByRole("heading", { name: "Request SA terkirim" })).toBeInTheDocument();
+    expect(screen.getByText(/perlu klarifikasi tambahan/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Submit Request/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Lihat Proyek" })).toBeInTheDocument();
+  });
+
+  it("dengan file (scoring berjalan): selama jeda sebelum redirect, form sudah tidak bisa dikirim ulang (#83)", async () => {
+    useSchema();
+    capturePost(() => created({ scoring_triggered: true, bant_score: null, sub_scores: null, status: "Scoring Pending" }));
+    const user = setup({ fake: true });
+    await isiLangkah1(user);
+    await lanjut(user);
+    await isiKuesioner(user);
+    await user.click(screen.getByRole("button", { name: "Submit Request" }));
+
+    expect(await screen.findByRole("heading", { name: "Request SA terkirim" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Submit Request/ })).not.toBeInTheDocument();
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
+  it("timer redirect dibersihkan saat unmount: berpindah halaman sebelum 2 detik tidak memicu router.push (#83)", async () => {
+    useSchema();
+    capturePost(() => created({ scoring_triggered: true, bant_score: null, sub_scores: null, status: "Scoring Pending" }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    const { unmount } = renderWithProviders(<NewProjectPage />, { role: "Sales" });
+    await isiLangkah1(user);
+    await lanjut(user);
+    await isiKuesioner(user);
+    await user.click(screen.getByRole("button", { name: "Submit Request" }));
+    await screen.findByText("Proyek berhasil dibuat! File sedang diproses untuk scoring.");
+
+    unmount();
+    await act(() => vi.advanceTimersByTimeAsync(5000));
+
+    expect(router.push).not.toHaveBeenCalled();
   });
 
   it("dengan file (analisis AI berjalan): toast sukses lalu diarahkan ke detail setelah 2 detik; toast hilang setelah 3 detik", async () => {

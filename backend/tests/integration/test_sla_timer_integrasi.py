@@ -399,6 +399,34 @@ async def test_unlock_yang_terus_gagal_dicoba_tiap_siklus_tanpa_error_dan_tanpa_
     assert len(await daftar_audit(dunia.db, proyek.id_project, "unlock")) == 1
 
 
+async def test_error_unlock_ulang_satu_proyek_tidak_menghentikan_proyek_lain(
+    dunia, jam, fake_drive, monkeypatch
+):
+    p_rusak = await proyek_aktif_sla(dunia, fake_drive, project_name="Rusak")
+    p_sehat = await proyek_aktif_sla(dunia, fake_drive, project_name="Sehat")
+    jam.ke(T0 + timedelta(days=6))
+    await _proses(dunia.db)
+    fake_drive.fail_next("unlock_solutions_folder", times=2)
+    await sla_timer.stop_timer(p_rusak.id_project, dunia.db)
+    await sla_timer.stop_timer(p_sehat.id_project, dunia.db)
+    asli = sla_timer._buka_kunci_dan_catat
+
+    async def _buka(project_id, sla, now, db):
+        if project_id == p_rusak.id_project:
+            raise RuntimeError("unlock rusak")
+        return await asli(project_id=project_id, sla=sla, now=now, db=db)
+
+    monkeypatch.setattr(sla_timer, "_buka_kunci_dan_catat", _buka)
+    jam.ke(T0 + timedelta(days=6, hours=1))
+
+    stats = await _proses(dunia.db)
+
+    assert stats["unlocks_retried"] == 1
+    assert len(stats["errors"]) == 1 and p_rusak.id_project in stats["errors"][0]
+    assert (await ambil_sla(dunia.db, p_sehat.id_project)).is_locked is False
+    assert (await ambil_sla(dunia.db, p_rusak.id_project)).is_locked is True
+
+
 async def test_stop_timer_idempoten_dan_tanpa_tracker_mengembalikan_none(dunia, jam):
     proyek = await proyek_aktif_sla(dunia)
     jam.ke(T0 + timedelta(days=1))

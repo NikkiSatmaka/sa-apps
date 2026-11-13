@@ -96,7 +96,7 @@ async def process_sla(
 
     Aksi yang di-trigger:
     - H+3: Kirim reminder ke Sales
-    - H+5: Kirim eskalasi ke Sales Manager + auto-lock folder Solutions
+    - H+5: Kirim eskalasi (sekali) ke Lead SA dan Admin + auto-lock folder Solutions
 
     Hanya bisa diakses oleh Admin atau Lead_SA.
     """

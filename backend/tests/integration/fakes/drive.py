@@ -158,6 +158,4 @@ class FakeDrive:
 
     def pasang(self, monkeypatch: pytest.MonkeyPatch) -> None:
         for operasi in OPERASI:
-            monkeypatch.setattr(
-                folder_provisioner, operasi, getattr(self, operasi), raising=False
-            )
+            monkeypatch.setattr(folder_provisioner, operasi, getattr(self, operasi))

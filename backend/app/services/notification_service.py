@@ -57,7 +57,7 @@ class NotificationEventType(str, Enum):
     ASSIGNMENT = "assignment"  # SA ditugaskan ke proyek
     STATUS_CHANGE = "status_change"  # Status proyek berubah
     SLA_REMINDER = "sla_reminder"  # H+3 DQ Number reminder
-    SLA_ESCALATION = "sla_escalation"  # H+5 eskalasi ke Sales Manager
+    SLA_ESCALATION = "sla_escalation"  # H+5 eskalasi ke Lead SA dan Admin
     HANDOVER = "handover"  # Handover ke PMO/Delivery
     DOC_READY = "doc_ready"  # Dokumen siap review
 

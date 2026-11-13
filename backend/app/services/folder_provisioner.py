@@ -374,6 +374,66 @@ class FolderProvisioner:
             solutions=solutions_id,
         )
 
+    async def reassign_sa_access(
+        self,
+        master_folder_id: str,
+        old_sa_email: Optional[str],
+        new_sa_email: str,
+    ) -> None:
+        """
+        Pindahkan akses Editor folder master dari SA lama ke SA baru (reassign, issue #77).
+
+        SA baru diberi `writer` (dilewati bila sudah punya), lalu akses SA lama dicabut. Izin
+        Editor pada folder master diwarisi subfolder, jadi cukup menyentuh folder master.
+        Urutannya sengaja beri-dulu-baru-cabut agar proyek tidak pernah tanpa SA bila gagal di
+        tengah. Tidak melakukan apa pun bila SA lama dan baru adalah orang yang sama.
+
+        Args:
+            master_folder_id: ID folder master proyek (`gdrive_folder_id`)
+            old_sa_email: Email SA lama, atau None bila tidak ada
+            new_sa_email: Email SA baru
+
+        Raises:
+            FolderProvisioningError: Jika gagal setelah 3x retry
+        """
+        if old_sa_email and old_sa_email.lower() == new_sa_email.lower():
+            return
+
+        logger.info(
+            f"Memindahkan akses SA pada folder {master_folder_id}: "
+            f"{old_sa_email or '-'} -> {new_sa_email}"
+        )
+
+        sudah_punya = await self._execute_with_retry(
+            "find_new_sa_permission",
+            self._find_permission_sync,
+            master_folder_id,
+            new_sa_email,
+        )
+        if not sudah_punya:
+            await self._execute_with_retry(
+                "set_permission_new_sa",
+                self._set_permission_sync,
+                master_folder_id,
+                new_sa_email,
+                "writer",
+            )
+
+        if old_sa_email:
+            permission_id = await self._execute_with_retry(
+                "find_old_sa_permission",
+                self._find_permission_sync,
+                master_folder_id,
+                old_sa_email,
+            )
+            if permission_id:
+                await self._execute_with_retry(
+                    "remove_old_sa_permission",
+                    self._remove_permission_sync,
+                    master_folder_id,
+                    permission_id,
+                )
+
     async def lock_solutions_folder(self, solutions_folder_id: str, sales_email: str) -> None:
         """
         Hapus akses Sales dari folder Solutions (SLA auto-lock H+5).

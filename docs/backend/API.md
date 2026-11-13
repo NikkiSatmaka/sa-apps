@@ -75,7 +75,7 @@ Referensi lengkap API backend Portal SA. Disusun dari router di `backend/app/api
 | `GET /utilization/projects` | Lead_SA/Admin | — | jam + personel per proyek | Effort distribution antar proyek. |
 | `GET /utilization/summary` | Lead_SA/Admin | query `year?` | agregasi work_type & project_phase | Ringkasan dua dimensi untuk dashboard. |
 | `POST /projects/{project_id}/assign` | Lead_SA/Admin | `AssignRequest` (`sa_id`) | `AssignmentResponse` | Assign SA ke proyek `Pending Assignment` → `Assigned`, notifikasi SA, trigger folder provisioning (stub, B2). **Notifikasi gagal karena B1 (`metadata=`).** |
-| `POST /projects/{project_id}/reassign` | Lead_SA/Admin | `AssignRequest` (`sa_id`) | detail SA baru | Reassign SA pada proyek `Assigned`/`Ready`/`Pending Assignment`. **`event_type="reassignment"` melanggar CheckConstraint + B1.** |
+| `POST /projects/{project_id}/reassign` | Lead_SA/Admin | `AssignRequest` (`sa_id`) | detail SA baru | Reassign SA pada proyek `Assigned`/`Ready`/`Pending Assignment`. Timer SLA berlanjut (tidak direset); bila folder Drive sudah ada, SA baru diberi Editor dan SA lama dicabut (background, graceful); subtask tidak dipindahkan. Dari `Pending Assignment`: status → `Assigned`, timer SLA dimulai, dan provisioning folder dijadwalkan (setara `assign`). |
 
 ---
 
@@ -132,7 +132,7 @@ Referensi lengkap API backend Portal SA. Disusun dari router di `backend/app/api
 | Method & Path | Auth / Role | Request | Response | Purpose |
 |---|---|---|---|---|
 | `GET /projects/{project_id}/sla-status` | `get_current_user` | — | `{status, days_elapsed, is_locked, is_active}` | Status SLA proyek (badge green/yellow/red). 404 jika tracker belum ada. |
-| `POST /sla/process` | `get_current_user` (Admin/Lead_SA) | — | statistik proses | Trigger SLA processing semua proyek aktif (reminder H+3, eskalasi + lock H+5). Untuk cron/manual. |
+| `POST /sla/process` | `get_current_user` (Admin/Lead_SA) | — | statistik proses (`total_checked`, `reminders_sent`, `escalations_sent`, `locks_performed`, `unlocks_retried`, `errors`) | Trigger SLA processing semua proyek aktif (reminder H+3, eskalasi sekali + lock H+5 yang dicoba ulang tiap siklus, ulangi unlock yang gagal). Untuk cron/manual. |
 
 ---
 

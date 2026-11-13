@@ -429,6 +429,28 @@ async def test_reassign_dari_pending_assignment_memulai_timer_sla_dan_provisioni
     assert fake_drive.peran(p.gdrive_folder_id, dunia.sa.email) == "writer"
 
 
+async def test_reassign_dari_pending_tetap_berhasil_walau_timer_gagal_dimulai(
+    dunia, api, monkeypatch
+):
+    proyek = await dunia.buat_proyek()
+    rekam_background(monkeypatch)
+
+    async def _gagal(*a, **k):
+        raise RuntimeError("timer rusak")
+
+    monkeypatch.setattr(sla_timer, "start_timer", _gagal)
+
+    resp = await api.client.post(
+        REASSIGN.format(proyek.id_project),
+        json={"sa_id": str(dunia.sa.id)},
+        headers=dunia.h["lead"],
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert (await ambil_proyek(dunia.db, proyek.id_project)).status == "Assigned"
+    assert await ambil_sla(dunia.db, proyek.id_project) is None
+
+
 async def _assign_dan_provision(api, dunia, fake_drive, monkeypatch):
     """Proyek Assigned ke `dunia.sa` dengan folder Drive sungguh-sungguh dibuat (fake)."""
     proyek = await dunia.buat_proyek()

@@ -40,11 +40,11 @@ class AuditLog(Base):
         nullable=False,
         comment="Aksi yang dilakukan (create, update, delete, dll)",
     )
-    performed_by: Mapped[uuid.UUID] = mapped_column(
+    performed_by: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id"),
-        nullable=False,
-        comment="FK ke user yang melakukan aksi",
+        nullable=True,
+        comment="FK ke user yang melakukan aksi (NULL untuk aksi otomatis sistem)",
     )
     old_value: Mapped[Optional[dict]] = mapped_column(
         JSONB,

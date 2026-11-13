@@ -5,7 +5,8 @@ Mengelola countdown SLA sejak proyek di-assign ke SA.
 Logic:
 - Hari 0-2: Badge hijau (normal)
 - Hari 3-4: Badge kuning + reminder ke Sales (trigger di hari ke-3)
-- Hari 5+:  Badge merah + eskalasi ke Sales Manager + auto-lock folder Solutions
+- Hari 5+:  Badge merah + eskalasi (sekali) ke Lead SA dan Admin + auto-lock folder Solutions
+            (lock dicoba ulang tiap siklus cron sampai berhasil)
 
 Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8
 """
@@ -17,7 +18,6 @@ from enum import Enum
 from typing import Optional
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -191,10 +191,14 @@ class SLATimer:
 
         Aksi yang di-trigger:
         - Hari ke-3: Kirim reminder ke Sales (status → yellow)
-        - Hari ke-5: Kirim eskalasi ke Sales Manager + auto-lock folder Solutions
+        - Hari ke-5: Kirim eskalasi (SEKALI) ke Lead SA dan Admin + auto-lock folder Solutions.
+          Bila lock gagal, hanya lock yang dicoba lagi di siklus berikutnya.
+        - Tracker yang sudah berhenti (DQ diinput) tetapi foldernya masih terkunci karena unlock
+          gagal: unlock dicoba lagi.
 
         Returns:
-            dict: Ringkasan hasil proses (jumlah proyek diproses, reminder, eskalasi)
+            dict: Ringkasan hasil proses (jumlah proyek diproses, reminder, eskalasi, lock,
+            unlock yang berhasil dicoba ulang)
         """
         async with AsyncSessionLocal() as db:
             # Ambil semua SLA tracker yang masih aktif (belum stopped)
@@ -206,6 +210,7 @@ class SLATimer:
                 "reminders_sent": 0,
                 "escalations_sent": 0,
                 "locks_performed": 0,
+                "unlocks_retried": 0,
                 "errors": [],
             }
 
@@ -244,10 +249,14 @@ class SLATimer:
 
                     # === Trigger eskalasi + auto-lock di hari ke-5 (red) ===
                     if days_elapsed >= SLA_RED_THRESHOLD and not sla.is_locked:
-                        await self._send_sla_escalation(
-                            project=project, days_elapsed=days_elapsed, db=db
-                        )
-                        stats["escalations_sent"] += 1
+                        # Eskalasi hanya sekali; bila lock gagal terus, siklus berikutnya hanya
+                        # mengulang lock (tanpa membanjiri Lead SA/Admin/Sales dengan notifikasi).
+                        if sla.escalated_at is None:
+                            await self._send_sla_escalation(
+                                project=project, days_elapsed=days_elapsed, db=db
+                            )
+                            sla.escalated_at = now
+                            stats["escalations_sent"] += 1
 
                         # Auto-lock folder Solutions
                         lock_success = await self._lock_solutions_with_retry(
@@ -262,6 +271,9 @@ class SLATimer:
                     stats["errors"].append(error_msg)
 
             await db.commit()
+
+            # === Coba lagi unlock yang gagal saat DQ diinput (timer berhenti, folder terkunci) ===
+            await self._coba_ulang_unlock_tertunda(db=db, now=now, stats=stats)
 
         logger.info(
             f"SLA processing selesai: {stats['total_checked']} dicek, "
@@ -300,31 +312,10 @@ class SLATimer:
         now = datetime.now(timezone.utc)
         sla.stopped_at = now
 
-        # Jika folder di-lock, lakukan auto-unlock
+        # Jika folder di-lock, lakukan auto-unlock. Bila gagal, timer tetap berhenti dan folder
+        # tetap terkunci; `process_sla_actions` mencoba lagi pada siklus cron berikutnya.
         if sla.is_locked:
-            unlock_success = await self._unlock_solutions_with_retry(
-                project_id=project_id, sla=sla, db=db
-            )
-            if unlock_success:
-                sla.is_locked = False
-                sla.unlocked_at = now
-
-                # Catat audit log untuk unlock
-                await self._create_audit_log(
-                    entity_type="folder",
-                    entity_id=project_id,
-                    action="unlock",
-                    old_value={
-                        "is_locked": True,
-                        "locked_at": sla.locked_at.isoformat() if sla.locked_at else None,
-                    },
-                    new_value={
-                        "is_locked": False,
-                        "unlocked_at": now.isoformat(),
-                        "delay_days": sla.days_elapsed,
-                    },
-                    db=db,
-                )
+            await self._buka_kunci_dan_catat(project_id=project_id, sla=sla, now=now, db=db)
 
         await db.commit()
         await db.refresh(sla)
@@ -337,6 +328,53 @@ class SLATimer:
         return sla
 
     # === Private helper methods ===
+
+    async def _buka_kunci_dan_catat(
+        self, project_id: str, sla: SLATracking, now: datetime, db: AsyncSession
+    ) -> bool:
+        """Unlock folder Solutions; bila berhasil perbarui tracker dan tulis audit. Return sukses."""
+        if not await self._unlock_solutions_with_retry(project_id=project_id, sla=sla, db=db):
+            return False
+
+        sla.is_locked = False
+        sla.unlocked_at = now
+        await self._create_audit_log(
+            entity_type="folder",
+            entity_id=project_id,
+            action="unlock",
+            old_value={
+                "is_locked": True,
+                "locked_at": sla.locked_at.isoformat() if sla.locked_at else None,
+            },
+            new_value={
+                "is_locked": False,
+                "unlocked_at": now.isoformat(),
+                "delay_days": sla.days_elapsed,
+            },
+            db=db,
+        )
+        return True
+
+    async def _coba_ulang_unlock_tertunda(
+        self, db: AsyncSession, now: datetime, stats: dict
+    ) -> None:
+        """Ulangi unlock untuk tracker yang sudah berhenti tetapi foldernya masih terkunci."""
+        result = await db.execute(
+            select(SLATracking).where(
+                SLATracking.stopped_at.is_not(None), SLATracking.is_locked.is_(True)
+            )
+        )
+        for sla in result.scalars().all():
+            try:
+                if await self._buka_kunci_dan_catat(
+                    project_id=sla.project_id, sla=sla, now=now, db=db
+                ):
+                    stats["unlocks_retried"] += 1
+            except Exception as e:  # noqa: BLE001 - satu proyek tak boleh menghentikan yang lain
+                error_msg = f"Error unlock ulang untuk proyek {sla.project_id}: {e}"
+                logger.error(error_msg)
+                stats["errors"].append(error_msg)
+        await db.commit()
 
     async def _send_sla_reminder(
         self, project: Project, days_elapsed: int, db: AsyncSession
@@ -384,7 +422,8 @@ class SLATimer:
         self, project: Project, days_elapsed: int, db: AsyncSession
     ) -> None:
         """
-        Kirim notifikasi eskalasi SLA ke Sales Manager.
+        Kirim notifikasi eskalasi SLA ke Lead SA dan Admin (penerima eskalasi; peran "Sales
+        Manager" tidak ada di portal).
 
         Juga kirim notifikasi ke Sales yang bersangkutan bahwa
         folder Solutions akan di-lock.
@@ -394,8 +433,7 @@ class SLATimer:
             days_elapsed: Jumlah hari elapsed
             db: Database session
         """
-        # Cari Sales Manager (Lead_SA atau Admin) untuk eskalasi
-        # Fallback: kirim ke semua Lead_SA jika Sales Manager spesifik belum dikonfigurasi
+        # Penerima eskalasi: semua Lead_SA dan Admin
         manager_result = await db.execute(select(User).where(User.role.in_(["Lead_SA", "Admin"])))
         managers = manager_result.scalars().all()
 
@@ -595,7 +633,8 @@ class SLATimer:
         """
         Buat entry audit log.
 
-        Jika performed_by tidak diisi, gunakan system user UUID (all zeros).
+        Aksi otomatis (lock/unlock oleh cron SLA) tidak punya pelaku: `performed_by` NULL.
+        Tidak ada user sistem palsu (ia akan ikut jadi penerima eskalasi Admin; issue #77).
 
         Args:
             entity_type: Tipe entitas (folder, project, dll)
@@ -604,32 +643,20 @@ class SLATimer:
             old_value: Nilai sebelum perubahan
             new_value: Nilai setelah perubahan
             db: Database session
-            performed_by: UUID user yang melakukan aksi
+            performed_by: UUID user yang melakukan aksi, atau None untuk aksi otomatis
         """
-        # System user UUID (untuk aksi otomatis oleh SLA timer)
-        system_user_id = performed_by or uuid.UUID("00000000-0000-0000-0000-000000000000")
-
-        audit = AuditLog(
-            id=_generate_id("AUDIT"),
-            entity_type=entity_type,
-            entity_id=entity_id,
-            action=action,
-            performed_by=system_user_id,
-            old_value=old_value,
-            new_value=new_value,
-        )
-        # `audit_logs.performed_by` punya FK ke `users`; bila user sistem belum ada di database,
-        # insert gagal. Tulis di SAVEPOINT agar kegagalan audit tidak menggagalkan commit
-        # lock/unlock (dan seluruh siklus cron). Lihat catatan temuan tiket #58.
-        try:
-            async with db.begin_nested():
-                db.add(audit)
-                await db.flush()
-        except IntegrityError as e:
-            logger.error(
-                f"Audit log '{action}' untuk {entity_type} {entity_id} gagal disimpan "
-                f"(user pelaku {system_user_id} tidak ada?): {e.orig}"
+        db.add(
+            AuditLog(
+                id=_generate_id("AUDIT"),
+                entity_type=entity_type,
+                entity_id=entity_id,
+                action=action,
+                performed_by=performed_by,
+                old_value=old_value,
+                new_value=new_value,
             )
+        )
+        await db.flush()
 
 
 # Singleton instance

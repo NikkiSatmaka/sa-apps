@@ -365,6 +365,94 @@ async def test_handover_pmo_delivery_belum_terdaftar_di_portal_tetap_selesai(
     )
 
 
+async def test_handover_penerima_tanpa_akun_diemail_langsung_dan_tercatat_di_audit(
+    api, db_session, fake_drive, fake_gmail
+):
+    """#76: PMO/Delivery tanpa akun portal tidak lagi dilewati; mereka menerima email langsung."""
+    dunia = await siapkan_dunia(api, db_session)
+    proyek = await _proyek_siap(db_session, dunia)
+
+    resp = await _trigger(api, proyek.id_project, dunia.header["Lead_SA"])
+
+    assert resp.status_code == 200, resp.text
+    await fake_gmail.tunggu_percobaan(2)
+    assert sorted(s.to for s in fake_gmail.terkirim) == [DELIVERY, PMO]
+    for surat in fake_gmail.terkirim:
+        assert "Handover" in surat.subject
+        assert surat.context["reference_id"] == proyek.id_project
+        assert surat.context["metadata"]["project_id"] == proyek.id_project
+    # Tanpa akun = tanpa baris notifikasi (penerima notifikasi wajib user portal).
+    assert await notifikasi(db_session, event_type="handover") == []
+    [audit] = (
+        (await db_session.execute(select(AuditLog).where(AuditLog.action == "handover")))
+        .scalars()
+        .all()
+    )
+    assert audit.new_value["penerima_email_langsung"] == [PMO, DELIVERY]
+
+
+async def test_handover_campuran_akun_dan_tanpa_akun(api, db_session, fake_drive, fake_gmail):
+    """PMO punya akun (in-app + email biasa); Delivery tidak (email langsung, dicatat di audit)."""
+    dunia = await siapkan_dunia(api, db_session)
+    pmo = bangun_user(role="SA", email=PMO, name="PMO")
+    await simpan(db_session, pmo)
+    proyek = await _proyek_siap(db_session, dunia)
+    fake_gmail.tahan_email()
+
+    resp = await _trigger(api, proyek.id_project, dunia.header["Lead_SA"])
+    fake_gmail.lepaskan_email()
+
+    assert resp.status_code == 200, resp.text
+    await fake_gmail.tunggu_percobaan(2)
+    assert sorted(s.to for s in fake_gmail.terkirim) == [DELIVERY, PMO]
+    assert {n.recipient_user_id for n in await notifikasi(db_session, event_type="handover")} == {
+        pmo.id
+    }
+    [audit] = (
+        (await db_session.execute(select(AuditLog).where(AuditLog.action == "handover")))
+        .scalars()
+        .all()
+    )
+    assert audit.new_value["penerima_email_langsung"] == [DELIVERY]
+
+
+async def test_handover_semua_penerima_terdaftar_tidak_mencatat_email_langsung(
+    api, db_session, fake_drive
+):
+    dunia = await siapkan_dunia(api, db_session)
+    await _daftarkan_pmo_dan_delivery(db_session)
+    proyek = await _proyek_siap(db_session, dunia)
+
+    resp = await _trigger(api, proyek.id_project, dunia.header["Lead_SA"])
+
+    assert resp.status_code == 200, resp.text
+    [audit] = (
+        (await db_session.execute(select(AuditLog).where(AuditLog.action == "handover")))
+        .scalars()
+        .all()
+    )
+    assert audit.new_value["penerima_email_langsung"] == []
+
+
+async def test_handover_tanpa_gmail_penerima_tanpa_akun_tetap_selesai_dan_tercatat(
+    api, db_session, fake_drive, fake_gmail
+):
+    fake_gmail.terkonfigurasi = False
+    dunia = await siapkan_dunia(api, db_session)
+    proyek = await _proyek_siap(db_session, dunia)
+
+    resp = await _trigger(api, proyek.id_project, dunia.header["Lead_SA"])
+
+    assert resp.status_code == 200, resp.text
+    assert fake_gmail.percobaan == []
+    [audit] = (
+        (await db_session.execute(select(AuditLog).where(AuditLog.action == "handover")))
+        .scalars()
+        .all()
+    )
+    assert audit.new_value["penerima_email_langsung"] == [PMO, DELIVERY]
+
+
 async def test_handover_kedua_kali_ditolak_karena_status_sudah_selesai(api, db_session, fake_drive):
     dunia = await siapkan_dunia(api, db_session)
     proyek = await _proyek_siap(db_session, dunia)

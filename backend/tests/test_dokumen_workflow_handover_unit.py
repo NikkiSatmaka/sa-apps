@@ -82,13 +82,21 @@ def test_status_terminal_tanpa_lost(terminal, peran):
     assert "Lost" not in workflow._get_valid_next_statuses(terminal, peran)
 
 
-def test_rantai_forward_linear_tanpa_siklus_dan_berakhir_di_handover_complete():
+def test_rantai_forward_linear_tanpa_siklus_dan_berakhir_di_closed_win():
+    """`Closed-Win` → `Handover Complete` hanya lewat POST /handover (issue #76), bukan state machine ini."""
     status, terlihat = "New", []
     while status in workflow.VALID_FORWARD_TRANSITIONS:
         terlihat.append(status)
         status = workflow.VALID_FORWARD_TRANSITIONS[status]
-    assert status == "Handover Complete"
-    assert len(terlihat) == len(set(terlihat)) == 5
+    assert status == "Closed-Win"
+    assert len(terlihat) == len(set(terlihat)) == 4
+
+
+@pytest.mark.parametrize("status", SEMUA_STATUS)
+@pytest.mark.parametrize("peran", PERAN)
+def test_handover_complete_tidak_pernah_menjadi_tujuan_valid_patch_status(status, peran):
+    assert "Handover Complete" not in workflow._get_valid_next_statuses(status, peran)
+    assert workflow._is_valid_transition(status, "Handover Complete", peran) is False
 
 
 def test_id_audit_berformat_tanggal_dan_acak_enam_karakter():

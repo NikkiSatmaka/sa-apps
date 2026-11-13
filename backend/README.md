@@ -191,10 +191,10 @@ Drive). Urutan kode status: 404 (proyek tak ada) → 403 (akses) → validasi do
 `await ensure_project_access(db, project, user, TingkatAkses.X)` menolak dengan 403 bila tidak
 berhak; aturannya satu tabel deklaratif `_ATURAN` (fungsi murni `izinkan`; tiap tingkat = satu `Aturan`
 berisi keterangan + hubungan yang diizinkan, Lead_SA/Admin selalu berhak). Hubungan dicocokkan lewat **id**
-(`sales_pic`, `assigned_sa`, baris collaborator), bukan lewat peran user, kecuali tingkat yang
+(`sales_pic`, `assigned_sa` atau baris `project_assignments`, baris collaborator), bukan lewat peran user, kecuali tingkat yang
 memang menggabungkan id dan peran (ditandai di bawah).
 
-| `TingkatAkses` | Lead_SA/Admin | SA ditugaskan | Sales PIC | Collaborator viewer | Collaborator contributor |
+| `TingkatAkses` | Lead_SA/Admin | SA ditugaskan (utama atau tambahan) | Sales PIC | Collaborator viewer | Collaborator contributor |
 |---|---|---|---|---|---|
 | `BACA` (detail, SLA, BANT, rekomendasi, daftar dokumen/subtask/collaborator) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `STORY` (baca Story, ringkasan AI; Sales PIC boleh, lihat catatan di bawah) | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -207,6 +207,7 @@ memang menggabungkan id dan peran (ditandai di bawah).
 | `HANDOVER` (id dan peran SA) | ✅ | ✅ | ❌ | ❌ | ❌ |
 | `KELOLA_REQUIREMENT` (id dan peran SA) | ✅ | ✅ | ❌ | ❌ | ❌ |
 | `EDIT_KUESIONER` (id dan peran Sales) | ✅ | ❌ | ✅ | ❌ | ❌ |
+| `KELOLA_TIM_SA` (tambah/lepas SA tambahan, ganti SA utama; hanya Lead_SA/Admin) | ✅ | ❌ | ❌ | ❌ | ❌ |
 
 Catatan `STORY` (keputusan pemilik produk 2026-11-10, membalik spec #87 / issue #74): Sales PIC
 **proyek itu** boleh membaca Project Story dan meminta ringkasan AI agar Sales melihat progres.

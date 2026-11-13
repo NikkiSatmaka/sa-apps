@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { FileUpload, FileItem } from "@/components/FileUpload";
 import { QualificationForm } from "@/components/QualificationForm";
@@ -260,10 +260,7 @@ export default function NewProjectPage() {
 
       if (response.scoring_triggered) {
         showToast("success", "Proyek berhasil dibuat! File sedang diproses untuk scoring.");
-        // Redirect ke detail proyek setelah 2 detik
-        setTimeout(() => {
-          router.push(`/projects/${response.id_project}`);
-        }, 2000);
+        // Redirect ke detail proyek setelah 2 detik: lihat useEffect di bawah (dibersihkan saat unmount)
       } else if (response.status === "Pending Assignment") {
         showToast("success", `BANT Score: ${response.bant_score} — Proyek masuk antrian assignment!`);
       } else {
@@ -297,6 +294,15 @@ export default function NewProjectPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form, answers, schema, validFiles, router, showToast]);
 
+  // Scoring berjalan (ada file): arahkan ke detail proyek setelah 2 detik. Timer dibersihkan saat
+  // unmount agar berpindah halaman lebih dulu tidak memicu navigasi paksa.
+  const redirectProjectId = createdProject?.scoring_triggered ? createdProject.id_project : null;
+  useEffect(() => {
+    if (!redirectProjectId) return;
+    const timer = setTimeout(() => router.push(`/projects/${redirectProjectId}`), 2000);
+    return () => clearTimeout(timer);
+  }, [redirectProjectId, router]);
+
   // Submit form: langkah 1 → lanjut ke langkah 2; langkah 2 → kirim
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -321,6 +327,20 @@ export default function NewProjectPage() {
         <BANTResultFeedback
           result={createdProject}
           projectName={createdProject.project_name}
+          onViewProject={() => router.push(`/projects/${createdProject.id_project}`)}
+        />
+        {toast && <Toast type={toast.type} message={toast.message} />}
+      </div>
+    );
+  }
+
+  // Proyek sudah dibuat tetapi tanpa rincian skor (scoring berjalan, atau skor tanpa sub-skor):
+  // ganti form dengan layar hasil agar form tidak bisa dikirim ulang (proyek duplikat).
+  if (createdProject) {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <ProjectCreatedNotice
+          result={createdProject}
           onViewProject={() => router.push(`/projects/${createdProject.id_project}`)}
         />
         {toast && <Toast type={toast.type} message={toast.message} />}
@@ -653,6 +673,39 @@ function Toast({ type, message }: { type: "success" | "error"; message: string }
         )}
         <p className="text-sm">{message}</p>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Layar konfirmasi setelah proyek dibuat tanpa rincian skor (#83).
+ * Menggantikan form sehingga tidak ada tombol submit yang bisa ditekan lagi.
+ */
+function ProjectCreatedNotice({
+  result,
+  onViewProject,
+}: {
+  result: CreateProjectResponse;
+  onViewProject: () => void;
+}) {
+  const detail = result.scoring_triggered
+    ? "File sedang dianalisis AI untuk scoring. Anda akan diarahkan ke detail proyek."
+    : result.status === "Pending Assignment"
+      ? `BANT Score ${result.bant_score} — proyek masuk antrian assignment.`
+      : `BANT Score ${result.bant_score} — perlu klarifikasi tambahan.`;
+
+  return (
+    <div className="space-y-4 rounded-lg border border-neutral-200 bg-white p-8 text-center">
+      <h2 className="text-xl font-bold text-neutral-900">Request SA terkirim</h2>
+      <p className="text-sm text-neutral-600">{result.project_name}</p>
+      <p className="text-sm text-neutral-600">{detail}</p>
+      <button
+        type="button"
+        onClick={onViewProject}
+        className="py-3 px-6 rounded-lg font-medium text-white bg-primary-600 hover:bg-primary-700 min-h-touch"
+      >
+        Lihat Proyek
+      </button>
     </div>
   );
 }

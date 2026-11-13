@@ -303,8 +303,7 @@ describe("NewProjectPage — pengiriman", () => {
   it("mengirim multipart dengan field header, jawaban kuesioner (JSON), dan file+tipe; token disertakan", async () => {
     useSchema();
     const captured = captureFetchPost(makeCreateProjectResponse({ scoring_triggered: true, bant_score: null, sub_scores: null }));
-    // scoring_triggered memasang setTimeout(router.push, 2000) yang tidak dibersihkan saat unmount;
-    // jam palsu memastikan timer itu dibuang di afterEach dan tidak bocor ke test berikutnya.
+    // scoring_triggered memasang timer redirect 2 detik; jam palsu menjaga test tetap deterministik.
     const user = setup({ fake: true });
     await isiLangkah1(user, { dq: " DQ-2025-001 " });
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;

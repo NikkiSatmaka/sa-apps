@@ -87,3 +87,39 @@ export function makeStoryItem(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+export interface AnggotaSAFixture {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export interface AnggotaSATambahanFixture extends AnggotaSAFixture {
+  added_by: string;
+  created_at: string;
+}
+
+export interface TimSAFixture {
+  sa_utama: AnggotaSAFixture | null;
+  sa_tambahan: AnggotaSATambahanFixture[];
+}
+
+/** Respons `GET /projects/{id}/tim-sa`: SA utama + SA tambahan (ADR 0014). */
+export function makeTimSA(overrides: Partial<TimSAFixture> = {}): TimSAFixture {
+  return {
+    sa_utama: { id: "sa1", name: "SA Demo", email: "sa@example.com" },
+    sa_tambahan: [],
+    ...overrides,
+  };
+}
+
+export function makeSATambahan(overrides: Partial<AnggotaSATambahanFixture> = {}): AnggotaSATambahanFixture {
+  return {
+    id: "sa2",
+    name: "Budi Tambahan",
+    email: "budi@example.com",
+    added_by: "lead1",
+    created_at: "2025-01-03T00:00:00Z",
+    ...overrides,
+  };
+}

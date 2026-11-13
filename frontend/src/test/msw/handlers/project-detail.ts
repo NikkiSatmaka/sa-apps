@@ -1,6 +1,6 @@
-/** Handler default grup detail proyek (#66): detail, story, subtask, SA tersedia, handover-status, hapus, override BANT. */
+/** Handler default grup detail proyek (#66): detail, story, subtask, tim SA, SA tersedia, handover-status, hapus, override BANT. */
 import { http, HttpResponse } from "msw";
-import { makeProjectDetail } from "../../fixtures/project-detail";
+import { makeProjectDetail, makeTimSA } from "../../fixtures/project-detail";
 import { successEnvelope } from "../../fixtures/envelope";
 import { api } from "../base";
 
@@ -8,6 +8,7 @@ export const projectDetailHandlers = [
   http.get(api("/projects/:id"), () => HttpResponse.json(successEnvelope(makeProjectDetail()))),
   http.get(api("/projects/:id/story"), () => HttpResponse.json(successEnvelope({ items: [], total: 0 }))),
   http.get(api("/projects/:id/subtasks"), () => HttpResponse.json(successEnvelope({ items: [], total: 0 }))),
+  http.get(api("/projects/:id/tim-sa"), () => HttpResponse.json(successEnvelope(makeTimSA()))),
   http.get(api("/projects/:id/handover-status"), () =>
     HttpResponse.json(successEnvelope({ is_ready: true, has_hld_final: true, is_closed_win: true, pmo_email: "pmo@example.com", delivery_email: "delivery@example.com" })),
   ),

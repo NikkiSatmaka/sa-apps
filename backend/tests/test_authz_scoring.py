@@ -262,10 +262,14 @@ class TestUpdateProjectAuthz:
         project = _make_project(sales_pic=uuid.uuid4(), assigned_sa=uuid.uuid4())
         mock_session = AsyncMock()
         # Pertama: load project. Kedua: cek collaborator → None (bukan collaborator).
+        # Ketiga: cek SA tambahan (`project_assignments`) → tidak ada baris.
+        tanpa_penugasan = MagicMock()
+        tanpa_penugasan.first = MagicMock(return_value=None)
         mock_session.execute = AsyncMock(
             side_effect=[
                 _execute_result_scalar(project),
                 _execute_result_scalar(None),
+                tanpa_penugasan,
             ]
         )
         _override_db(mock_session)

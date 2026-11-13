@@ -9,7 +9,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from app.models import Subtask
+from app.models import ProjectAssignment, Subtask
 from tests.integration.conftest import patch_session_factory
 from tests.integration.model_helpers import bangun_kolaborator, bangun_subtask, bangun_user
 from tests.integration.support_assignment import (
@@ -219,7 +219,10 @@ async def test_ubah_status_tidak_valid_404_dan_tanpa_login(dunia, api):
 
 
 async def test_assign_dan_reassign_subtask_lalu_lepas_penugasan(dunia, api):
-    _, sid = await _siapkan(dunia)
+    id_project, sid = await _siapkan(dunia)
+    # Assignee harus anggota tim SA project (ADR 0014): sa2 dijadikan SA tambahan.
+    dunia.db.add(ProjectAssignment(id_project=id_project, user_id=dunia.sa2.id, added_by=dunia.lead.id))
+    await dunia.db.commit()
     url = SUBTASK.format(sid) + "/assign"
 
     ke_sa2 = await api.client.patch(
@@ -235,7 +238,8 @@ async def test_assign_dan_reassign_subtask_lalu_lepas_penugasan(dunia, api):
     assert (await _status_tersimpan(dunia.db, sid)).assigned_sa is None
 
 
-@pytest.mark.parametrize("target", ["sales_lain", "lead"])
+# Lead_SA kini assignee sah (ADR 0014; dilindungi test_tim_sa_api.py), jadi tidak lagi di sini.
+@pytest.mark.parametrize("target", ["sales_lain"])
 async def test_assign_subtask_ke_bukan_sa_dan_user_tak_dikenal_ditolak(dunia, api, target):
     _, sid = await _siapkan(dunia)
     url = SUBTASK.format(sid) + "/assign"

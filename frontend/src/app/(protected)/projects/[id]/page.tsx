@@ -13,6 +13,7 @@ import { ReassignModal } from "@/components/ReassignModal";
 import { PeopleSection } from "@/components/PeopleSection";
 import { CollaboratorSection } from "@/components/CollaboratorSection";
 import { SubtaskSection } from "@/components/SubtaskSection";
+import { TimSASection } from "@/components/TimSASection";
 import { QualificationSection } from "@/components/QualificationSection";
 import type { QualificationView } from "@/lib/qualification";
 import { BANTOverride } from "@/components/BANTOverride";
@@ -330,6 +331,9 @@ export default function ProjectDetailPage() {
 
           {/* Section: Activity Log Proyek */}
           <ProjectActivitySection projectId={projectId} />
+
+          {/* Section: Tim SA — SA utama + SA tambahan (ADR 0014) */}
+          <TimSASection projectId={projectId} />
 
           {/* Section: Subtask — work item assignable per proyek */}
           <SubtaskSection projectId={projectId} />

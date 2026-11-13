@@ -20,6 +20,7 @@ from app.core.dependencies import get_current_user
 from app.main import app
 from app.models.user import User
 from app.services import requirement_generator as rg
+from tests._auth_support import hasil_tanpa_penugasan
 from tests.test_doc_ready import _make_project, _make_user, _result_scalar
 from tests.test_projects_questionnaire_api import FakeSession, _result, jawaban_kuat
 from tests.test_requirement_documents_api import PRJ, _requirement
@@ -257,10 +258,10 @@ def test_get_dokumen_mengembalikan_flag_source_changed(status, overridden, hash_
     assert doc["source_changed"] is diharapkan
 
 
-def _keep(user, project, req, sumber):
-    session = _setup(
-        user, [_result_scalar(project), _result_scalar(req), _result(items=sumber)]
-    )
+def _keep(user, project, req, sumber, cek_penugasan=False):
+    """`cek_penugasan`: SA yang bukan SA utama memicu satu query SA tambahan sebelum ditolak."""
+    awal = [_result_scalar(project)] + ([hasil_tanpa_penugasan()] if cek_penugasan else [])
+    session = _setup(user, [*awal, _result_scalar(req), _result(items=sumber)])
     session.commit = AsyncMock()
     resp = TestClient(app).post(f"/api/v1/projects/{PRJ}/requirement/keep-version")
     return resp, session
@@ -307,7 +308,11 @@ def test_pertahankan_versi_ditolak_untuk_peran_tidak_berhak(role):
     req.source_hash = STALE
     # SA yang bukan ditugaskan pada proyek ini juga ditolak.
     resp, _ = _keep(
-        _make_user(role), _project_with_answers(assigned_sa=uuid.uuid4()), req, []
+        _make_user(role),
+        _project_with_answers(assigned_sa=uuid.uuid4()),
+        req,
+        [],
+        cek_penugasan=role == "SA",
     )
     assert resp.status_code == 403
     assert req.source_hash == STALE

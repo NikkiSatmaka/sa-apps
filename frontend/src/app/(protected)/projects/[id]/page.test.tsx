@@ -112,7 +112,9 @@ describe("Detail proyek — informasi", () => {
     expect(screen.getByText(DETAIL_ID)).toBeInTheDocument();
     expect(screen.getByText(/Terakhir Diubah: 2 Jan 2025/)).toBeInTheDocument();
     expect(screen.getByText("Sales Demo")).toBeInTheDocument();
-    expect(screen.getByText("SA Demo")).toBeInTheDocument();
+    // "SA Demo" tampil di baris info dan di section Tim SA (SA utama).
+    await screen.findByRole("listitem", { name: "SA utama: SA Demo" });
+    expect(screen.getAllByText("SA Demo")).toHaveLength(2);
     expect(screen.getByText("DQ-77")).toBeInTheDocument();
     expect(screen.getByText("31 Desember 2025")).toBeInTheDocument();
     expect(screen.getByText("Cloud Migration")).toBeInTheDocument();
@@ -305,6 +307,23 @@ describe("Detail proyek — subtask per peran", () => {
   it.each(["SA", "Lead_SA", "Admin"] as const)("%s melihat section Subtask", async (role) => {
     setup(role);
     expect(await screen.findByRole("heading", { name: "Subtask" })).toBeInTheDocument();
+  });
+});
+
+describe("Detail proyek — Tim SA", () => {
+  it.each(["Sales", "Product", "SA", "Lead_SA", "Admin"] as const)("%s melihat section Tim SA dengan SA utama", async (role) => {
+    setup(role);
+    expect(await screen.findByRole("heading", { name: "Tim SA" })).toBeInTheDocument();
+    expect(await screen.findByRole("listitem", { name: "SA utama: SA Demo" })).toBeInTheDocument();
+  });
+
+  it("hanya Lead_SA/Admin yang melihat kontrol kelola tim", async () => {
+    const { unmount } = setup("SA");
+    await screen.findByRole("listitem", { name: "SA utama: SA Demo" });
+    expect(screen.queryByRole("button", { name: "+ Tambah SA" })).not.toBeInTheDocument();
+    unmount();
+    setup("Lead_SA");
+    expect(await screen.findByRole("button", { name: "+ Tambah SA" })).toBeInTheDocument();
   });
 });
 

@@ -26,6 +26,7 @@ from app.api.requirement import router as requirement_router
 from app.api.scoring import router as scoring_router
 from app.api.sla import router as sla_router
 from app.api.subtasks import router as subtasks_router
+from app.api.tim_sa import router as tim_sa_router
 from app.api.workflow import router as workflow_router
 from app.core.config import settings
 from app.core.database import check_database_health
@@ -96,6 +97,7 @@ app.include_router(handover_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
 app.include_router(collaborators_router, prefix="/api/v1")
 app.include_router(subtasks_router, prefix="/api/v1")
+app.include_router(tim_sa_router, prefix="/api/v1")
 
 
 @app.on_event("startup")

@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { api, errorEnvelope, gagalLaluBerhasil, http, HttpResponse, renderWithProviders, server, successEnvelope, type Role } from "@/test";
 import { users } from "@/test/fixtures/users";
-import { makeSubtask } from "@/test/fixtures/project-detail";
+import { makeSATambahan, makeSubtask, makeTimSA } from "@/test/fixtures/project-detail";
 import { SubtaskSection } from "./SubtaskSection";
 
 const SA_ID = users.SA.id;
@@ -62,10 +62,10 @@ describe("SubtaskSection — visibilitas per peran", () => {
     expect(screen.getAllByRole("button", { name: "Tandai selesai" })).toHaveLength(1);
   });
 
-  it("SA tidak memicu fetch /sa/available", async () => {
+  it("SA tidak memicu fetch tim SA untuk kontrol assign", async () => {
     serve();
     let dipanggil = false;
-    server.use(http.get(api("/sa/available"), () => { dipanggil = true; return HttpResponse.json(successEnvelope([])); }));
+    server.use(http.get(api("/projects/p1/tim-sa"), () => { dipanggil = true; return HttpResponse.json(successEnvelope(makeTimSA())); }));
     setup("SA");
     await screen.findByText("Milik SA");
     expect(dipanggil).toBe(false);
@@ -294,16 +294,19 @@ describe("SubtaskSection — tandai selesai (SA)", () => {
 });
 
 describe("SubtaskSection — tugaskan (Lead_SA/Admin)", () => {
-  const sa = [
-    { id: "sa-1", name: "Andi", email: "a@x", avatar_url: null, active_project_count: 2 },
-    { id: "sa-2", name: "Budi", email: "b@x", avatar_url: null, active_project_count: 0 },
-  ];
+  // Assignee subtask harus anggota tim SA project (ADR 0014): opsi datang dari tim SA, bukan
+  // dari seluruh SA di sistem.
+  const tim = makeTimSA({
+    sa_utama: { id: "sa-1", name: "Andi", email: "a@x" },
+    sa_tambahan: [makeSATambahan({ id: "sa-2", name: "Budi", email: "b@x" })],
+  });
+  const timHandler = () => http.get(api("/projects/p1/tim-sa"), () => HttpResponse.json(successEnvelope(tim)));
 
   it("panel dibuka/ditutup, daftar SA memuat jumlah proyek, memilih SA mengirim PATCH", async () => {
     serve([makeSubtask({ id_subtask: "t1", title: "Tugas 1" })]);
     let body: unknown;
     server.use(
-      http.get(api("/sa/available"), () => HttpResponse.json(successEnvelope(sa))),
+      timHandler(),
       http.patch(api("/projects/subtasks/t1/assign"), async ({ request }) => {
         body = await request.json();
         return HttpResponse.json(successEnvelope(null));
@@ -315,7 +318,8 @@ describe("SubtaskSection — tugaskan (Lead_SA/Admin)", () => {
     await user.click(tugaskan);
     expect(tugaskan).toHaveAttribute("aria-expanded", "true");
     const select = await screen.findByLabelText("Tugaskan ke SA:");
-    await waitFor(() => expect(within(select).getByRole("option", { name: "Andi (2 proyek)" })).toBeInTheDocument());
+    await waitFor(() => expect(within(select).getByRole("option", { name: "Andi (SA utama)" })).toBeInTheDocument());
+    expect(within(select).getByRole("option", { name: "Budi (SA tambahan)" })).toBeInTheDocument();
     await user.selectOptions(select, "sa-2");
     await waitFor(() => expect(body).toEqual({ assigned_sa: "sa-2" }));
     await waitFor(() => expect(screen.queryByLabelText("Tugaskan ke SA:")).not.toBeInTheDocument());
@@ -335,7 +339,7 @@ describe("SubtaskSection — tugaskan (Lead_SA/Admin)", () => {
     serve([makeSubtask({ id_subtask: "t1", title: "Tugas 1", assigned_sa: "sa-1", assigned_sa_name: "Andi" })]);
     let body: unknown;
     server.use(
-      http.get(api("/sa/available"), () => HttpResponse.json(successEnvelope(sa))),
+      timHandler(),
       http.patch(api("/projects/subtasks/t1/assign"), async ({ request }) => {
         body = await request.json();
         return HttpResponse.json(successEnvelope(null));
@@ -353,7 +357,7 @@ describe("SubtaskSection — tugaskan (Lead_SA/Admin)", () => {
   it("gagal menugaskan: pesan server ditampilkan, panel tetap terbuka", async () => {
     serve([makeSubtask({ id_subtask: "t1", title: "Tugas 1" })]);
     server.use(
-      http.get(api("/sa/available"), () => HttpResponse.json(successEnvelope(sa))),
+      timHandler(),
       http.patch(api("/projects/subtasks/t1/assign"), () => HttpResponse.json(errorEnvelope("SA penuh"), { status: 409 })),
     );
     const { user } = setup("Lead_SA");

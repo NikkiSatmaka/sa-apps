@@ -124,7 +124,7 @@ erDiagram
         string dq_number "syarat rilis dokumen"
         uuid sales_pic FK
         uuid assigned_sa FK
-        enum status "New, Assigned, Pending DQ, Ready, Closed-Win, Lost"
+        enum status "New, Assigned, Ready, Closed-Win, Lost"
         date target_submit
         int bant_score "0-100% dari Gemini"
         json use_case_tags

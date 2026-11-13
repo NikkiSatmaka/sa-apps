@@ -16,6 +16,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.main import app
 from app.models.audit_log import AuditLog
+from tests._auth_support import terapkan_persona
 
 URL = "/api/v1/projects/PRJ-20250101-ABC123/score-manual"
 BODY = {
@@ -30,7 +31,7 @@ BODY = {
 def _user(role):
     u = MagicMock()
     u.id = uuid.uuid4()
-    u.role = role
+    terapkan_persona(u, role)
     return u
 
 

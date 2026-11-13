@@ -1,13 +1,14 @@
 """
-Unit tests untuk failsafe last-Admin pada endpoint PATCH /admin/users/{user_id}/role.
+Unit tests untuk failsafe admin terakhir pada endpoint PATCH /admin/users/{user_id}/admin
+(#114, ADR 0012; sebelumnya failsafe di /role saat Admin masih role).
 
-Memverifikasi invariant: sistem harus selalu punya minimal satu Admin.
-- Men-demote Admin satu-satunya ditolak (409 Conflict).
-- Men-demote Admin ketika masih ada Admin lain diperbolehkan.
+Invarian: sistem harus selalu punya minimal satu user dengan `is_admin`.
+- Mencabut `is_admin` satu-satunya admin ditolak (409 Conflict).
+- Mencabut `is_admin` ketika masih ada admin lain diperbolehkan.
 """
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import status
@@ -18,37 +19,26 @@ from app.core.dependencies import get_current_user
 from app.main import app
 
 
-def _mock_admin():
-    """Buat mock User dengan role Admin untuk current_user."""
+def _user(nama: str, *, is_admin: bool) -> MagicMock:
     user = MagicMock()
     user.id = uuid.uuid4()
-    user.email = "admin@company.com"
-    user.name = "Admin Utama"
-    user.role = "Admin"
-    return user
-
-
-def _mock_target_admin():
-    """Buat mock User target yang berperan sebagai Admin."""
-    user = MagicMock()
-    user.id = uuid.uuid4()
-    user.email = "target@company.com"
-    user.name = "Target Admin"
-    user.role = "Admin"
+    user.email = f"{nama}@company.com"
+    user.name = nama
+    user.role = "SA"
+    user.is_admin = is_admin
     return user
 
 
 @pytest.fixture
 def admin_env():
-    """Setup current_user Admin + mock DB session, dengan override dependency."""
-    current_admin = _mock_admin()
-    target_admin = _mock_target_admin()
+    """Setup current_user admin + mock DB session, dengan override dependency."""
+    current_admin = _user("Admin Utama", is_admin=True)
+    target_admin = _user("Target Admin", is_admin=True)
 
     mock_session = AsyncMock()
     mock_session.add = MagicMock()
     mock_session.commit = AsyncMock()
 
-    # db.execute(...).scalar_one_or_none() -> target user
     execute_result = MagicMock()
     execute_result.scalar_one_or_none = MagicMock(return_value=target_admin)
     mock_session.execute = AsyncMock(return_value=execute_result)
@@ -59,46 +49,37 @@ def admin_env():
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_user] = lambda: current_admin
 
-    with patch("app.api.admin.get_current_user", return_value=current_admin):
-        yield current_admin, target_admin, mock_session
+    yield current_admin, target_admin, mock_session
 
     app.dependency_overrides.clear()
 
 
-def test_demote_admin_terakhir_ditolak(admin_env):
-    """Men-demote Admin satu-satunya ditolak dengan 409 Conflict."""
-    current_admin, target_admin, mock_session = admin_env
-    # Hanya ada 1 Admin di sistem.
-    mock_session.scalar = AsyncMock(return_value=1)
+def test_cabut_admin_terakhir_ditolak(admin_env):
+    """Mencabut `is_admin` admin satu-satunya ditolak dengan 409 Conflict."""
+    _, target_admin, mock_session = admin_env
+    mock_session.scalar = AsyncMock(return_value=1)  # hanya 1 admin di sistem
 
-    client = TestClient(app)
-    response = client.patch(
-        f"/api/v1/admin/users/{target_admin.id}/role",
-        json={"role": "SA"},
+    response = TestClient(app).patch(
+        f"/api/v1/admin/users/{target_admin.id}/admin", json={"is_admin": False}
     )
 
     assert response.status_code == status.HTTP_409_CONFLICT
-    body = response.json()
-    assert "Admin terakhir" in body["message"]
-    # Perubahan role tidak di-commit.
+    assert "Admin terakhir" in response.json()["message"]
     mock_session.commit.assert_not_awaited()
 
 
-def test_demote_admin_dengan_admin_lain_diperbolehkan(admin_env):
-    """Men-demote Admin ketika masih ada Admin lain diperbolehkan."""
-    current_admin, target_admin, mock_session = admin_env
-    # Ada lebih dari 1 Admin di sistem.
-    mock_session.scalar = AsyncMock(return_value=2)
+def test_cabut_admin_dengan_admin_lain_diperbolehkan(admin_env):
+    """Mencabut `is_admin` ketika masih ada admin lain diperbolehkan."""
+    _, target_admin, mock_session = admin_env
+    mock_session.scalar = AsyncMock(return_value=2)  # ada lebih dari 1 admin
 
-    client = TestClient(app)
-    response = client.patch(
-        f"/api/v1/admin/users/{target_admin.id}/role",
-        json={"role": "SA"},
+    response = TestClient(app).patch(
+        f"/api/v1/admin/users/{target_admin.id}/admin", json={"is_admin": False}
     )
 
     assert response.status_code == status.HTTP_200_OK
     body = response.json()
     assert body["status"] == "success"
-    assert body["data"]["role"] == "SA"
-    assert body["data"]["old_role"] == "Admin"
+    assert body["data"]["is_admin"] is False
+    assert body["data"]["old_is_admin"] is True
     mock_session.commit.assert_awaited()

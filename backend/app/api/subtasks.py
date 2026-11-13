@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import (
-    PERAN_PRIVILEGED,
+    adalah_privileged,
     TingkatAkses,
     ensure_project_access,
     get_current_user,
@@ -60,7 +60,7 @@ def _generate_subtask_id() -> str:
 
 def _require_lead_sa(current_user: User) -> None:
     """Validasi bahwa user saat ini memiliki role Lead_SA atau Admin."""
-    if current_user.role not in ("Lead_SA", "Admin"):
+    if not adalah_privileged(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Hanya Lead_SA atau Admin yang dapat melakukan operasi ini.",
@@ -200,7 +200,7 @@ async def update_subtask_status(
     # Pastikan proyek induk ada (konsistensi FK / validasi keberadaan).
     project = await _verify_project_exists(subtask.id_project, db)
 
-    is_privileged = current_user.role in PERAN_PRIVILEGED
+    is_privileged = adalah_privileged(current_user)
     is_owner = subtask.assigned_sa == current_user.id
     if not (is_privileged or is_owner):
         raise HTTPException(

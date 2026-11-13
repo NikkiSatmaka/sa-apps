@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
@@ -434,7 +434,9 @@ class SLATimer:
             db: Database session
         """
         # Penerima eskalasi: semua Lead_SA dan Admin
-        manager_result = await db.execute(select(User).where(User.role.in_(["Lead_SA", "Admin"])))
+        manager_result = await db.execute(
+            select(User).where(or_(User.role == "Lead_SA", User.is_admin.is_(True)))
+        )
         managers = manager_result.scalars().all()
 
         for manager in managers:

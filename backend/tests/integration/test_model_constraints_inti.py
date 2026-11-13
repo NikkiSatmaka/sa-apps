@@ -29,15 +29,18 @@ from tests.integration.model_helpers import (
 
 
 class TestUser:
-    @pytest.mark.parametrize("role", ["Sales", "SA", "Lead_SA", "Admin"])
+    @pytest.mark.parametrize("role", ["Sales", "Product", "SA", "Lead_SA"])
     async def test_role_valid_diterima(self, db_session, role):
         u = bangun_user(role=role)
         await simpan(db_session, u)
         assert (await db_session.get(User, u.id)).role == role
 
-    @pytest.mark.parametrize("role", ["admin", "Manager", "", "SA ", "PMO"])
+    @pytest.mark.parametrize("role", ["Admin", "admin", "Manager", "", "SA ", "PMO"])
     async def test_role_tidak_valid_ditolak(self, db_session, role):
-        await ditolak(db_session, "chk_users_role", bangun_user(role=role))
+        # `User(...)` langsung: `bangun_user("Admin")` adalah persona (SA + is_admin), bukan role.
+        n = uuid.uuid4().hex
+        user = User(id=uuid.uuid4(), email=f"{n}@x.local", name="N", role=role, google_id=f"g-{n}")
+        await ditolak(db_session, "chk_users_role", user)
 
     async def test_email_unik(self, db_session):
         await simpan(db_session, bangun_user(email="sama@portal-sa.local"))
@@ -62,6 +65,14 @@ class TestUser:
                 db_session.add(u)
                 await db_session.flush()
         assert kolom in str(err.value)
+
+    async def test_is_admin_bawaan_false_dan_menempel_pada_role_fungsional(self, db_session):
+        biasa = bangun_user()
+        admin = bangun_user(role="Lead_SA", is_admin=True)
+        await simpan(db_session, biasa)
+        await simpan(db_session, admin)
+        assert (await db_session.get(User, biasa.id)).is_admin is False
+        assert (await db_session.get(User, admin.id)).is_admin is True
 
     async def test_default_role_sa_dan_timestamp_terisi(self, db_session):
         n = uuid.uuid4().hex

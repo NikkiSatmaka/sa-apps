@@ -79,7 +79,8 @@ DEMO_USERS = [
     {
         "email": "demo-admin@portal-sa.local",
         "name": "Demo Admin",
-        "role": "Admin",
+        "role": "SA",
+        "is_admin": True,
         "google_id": "demo-google-id-admin",
     },
 ]
@@ -93,9 +94,11 @@ async def get_or_create_user(db: AsyncSession, user_data: dict) -> User:
     existing = result.scalar_one_or_none()
 
     if existing:
-        # Update role jika berubah (untuk konsistensi seed)
-        if existing.role != user_data["role"]:
+        # Update role dan flag admin jika berubah (untuk konsistensi seed)
+        is_admin = user_data.get("is_admin", False)
+        if existing.role != user_data["role"] or existing.is_admin != is_admin:
             existing.role = user_data["role"]
+            existing.is_admin = is_admin
             await db.flush()
         print(f"  [ok] User sudah ada: {user_data['email']} (id: {existing.id})")
         return existing
@@ -107,6 +110,7 @@ async def get_or_create_user(db: AsyncSession, user_data: dict) -> User:
         email=user_data["email"],
         name=user_data["name"],
         role=user_data["role"],
+        is_admin=user_data.get("is_admin", False),
         google_id=user_data["google_id"],
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),

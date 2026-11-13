@@ -93,8 +93,8 @@ async def test_sa_tersedia_menghitung_proyek_aktif_tanpa_status_terminal(dunia, 
 
     assert resp.status_code == 200, resp.text
     beban = {u["email"]: u["active_project_count"] for u in resp.json()["data"]}
-    # Hanya user ber-role SA; Lead/Admin/Sales tidak ikut.
-    assert beban == {dunia.sa.email: 2, dunia.sa2.email: 1}
+    # Hanya user ber-role SA; Lead/Sales tidak ikut. Admin berrole SA ikut (admin = flag, ADR 0012).
+    assert beban == {dunia.sa.email: 2, dunia.sa2.email: 1, dunia.admin.email: 0}
 
 
 # ----------------------------------------------------------------------------- utilisasi SA
@@ -121,13 +121,14 @@ async def test_utilisasi_sa_jam_per_bulan_dan_ringkasan(dunia, api):
     data = resp.json()["data"]
     assert data["year"] == 2026
     per_sa = {r["sa_name"]: r for r in data["monthly_data"]}
-    assert set(per_sa) == {dunia.sa.name, dunia.sa2.name, dunia.lead.name}  # SA + Lead_SA saja
+    # SA + Lead_SA saja (admin berrole SA ikut sebagai SA).
+    assert set(per_sa) == {dunia.sa.name, dunia.sa2.name, dunia.lead.name, dunia.admin.name}
     assert per_sa[dunia.sa.name]["months"]["1"] == 4.0
     assert per_sa[dunia.sa.name]["months"]["3"] == 4.0
     assert per_sa[dunia.sa.name]["total_hours"] == 8.0
     assert per_sa[dunia.sa2.name]["total_hours"] == 0
     assert data["summary"]["months"]["3"] == 7.0
-    assert data["summary"]["total_hours"] == 11.0 and data["summary"]["sa_count"] == 3
+    assert data["summary"]["total_hours"] == 11.0 and data["summary"]["sa_count"] == 4
     assert len(per_sa[dunia.sa.name]["months"]) == 12
 
 
@@ -155,7 +156,7 @@ async def test_utilisasi_sa_filter_per_sa_dan_sa_id_tidak_valid_diabaikan(dunia,
 
     assert [r["sa_name"] for r in satu.json()["data"]["monthly_data"]] == [dunia.sa.name]
     assert satu.json()["data"]["summary"]["total_hours"] == 2.0
-    assert rusak.json()["data"]["summary"]["sa_count"] == 3  # filter diabaikan → semua SA/Lead
+    assert rusak.json()["data"]["summary"]["sa_count"] == 4  # filter diabaikan → semua SA/Lead
     assert tak_dikenal.json()["data"]["monthly_data"] == []
 
 

@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import (
-    PERAN_PRIVILEGED,
+    adalah_privileged,
     HubunganProyek,
     TingkatAkses,
     ensure_project_access,
@@ -113,7 +113,7 @@ async def _periksa_akses_kelola_dokumen(
     if project is not None:
         await ensure_project_access(db, project, user, TingkatAkses.KELOLA)
         return
-    if not izinkan(HubunganProyek(privileged=user.role in PERAN_PRIVILEGED), TingkatAkses.KELOLA):
+    if not izinkan(HubunganProyek(privileged=adalah_privileged(user)), TingkatAkses.KELOLA):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Anda tidak memiliki akses ke proyek ini.",
@@ -395,7 +395,7 @@ async def update_document_status(
         )
 
     # Cek proteksi: status "Final" hanya bisa diubah oleh Lead_SA dan Admin
-    if current_status == "Final" and current_user.role not in PERAN_PRIVILEGED:
+    if current_status == "Final" and not adalah_privileged(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
@@ -414,7 +414,7 @@ async def update_document_status(
         pass
     elif is_backward:
         # Transisi mundur — hanya Lead_SA dan Admin
-        if current_user.role not in PERAN_PRIVILEGED:
+        if not adalah_privileged(current_user):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(

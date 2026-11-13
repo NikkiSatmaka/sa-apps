@@ -103,7 +103,7 @@ def require_role(*allowed_roles: str):
     Jika role diizinkan, user dikembalikan apa adanya.
 
     Contoh:
-        @router.delete("/{id}", dependencies=[Depends(require_role("Lead_SA", "Admin"))])
+        @router.delete("/{id}", dependencies=[Depends(require_role("Lead_SA"))])
     """
 
     async def _role_checker(
@@ -120,16 +120,51 @@ def require_role(*allowed_roles: str):
 
 
 class PeranUser(StrEnum):
-    """Peran user portal (`User.role`)."""
+    """Role fungsional user portal (`User.role`). Admin BUKAN role: lihat `User.is_admin`."""
 
     SALES = "Sales"
+    PRODUCT = "Product"
     SA = "SA"
     LEAD_SA = "Lead_SA"
-    ADMIN = "Admin"
 
 
-# Peran dengan hak penuh atas semua proyek (Admin = Lead_SA untuk semua aksi matriks).
-PERAN_PRIVILEGED = (PeranUser.LEAD_SA, PeranUser.ADMIN)
+def adalah_admin(user: User) -> bool:
+    """True hanya bila flag `is_admin` bernilai True (bukan sekadar truthy: objek tiruan/None
+    tidak boleh lolos sebagai admin)."""
+    return user.is_admin is True
+
+
+def adalah_privileged(user: User) -> bool:
+    """Hak penuh atas semua proyek: Lead_SA atau pemilik flag `is_admin` (ADR 0012)."""
+    return user.role == PeranUser.LEAD_SA or adalah_admin(user)
+
+
+def adalah_sales_terbatas(user: User) -> bool:
+    """Berrole Sales dan bukan privileged: dikenai pembatasan khusus Sales (mis. gating DQ).
+
+    Pemilik flag `is_admin` berrole Sales tidak dibatasi, sama seperti Admin sebelum ADR 0012.
+    """
+    return user.role == PeranUser.SALES and not adalah_privileged(user)
+
+
+def require_privileged(current_user: User = Depends(get_current_user)) -> User:
+    """Dependency: hanya Lead_SA atau `is_admin`; lainnya 403."""
+    if not adalah_privileged(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak memiliki akses untuk melakukan aksi ini.",
+        )
+    return current_user
+
+
+def require_admin(current_user: User = Depends(get_current_user)) -> User:
+    """Dependency: hanya user dengan flag `is_admin`; lainnya 403."""
+    if not adalah_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hanya Admin yang dapat mengakses fitur ini.",
+        )
+    return current_user
 
 
 class PeranKolaborator(StrEnum):
@@ -169,7 +204,7 @@ class TingkatAkses(StrEnum):
 class HubunganProyek:
     """Hubungan satu user ke satu proyek (dicocokkan lewat id, bukan peran user).
 
-    `privileged` = peran Lead_SA/Admin. `kolaborator` = peran collaborator
+    `privileged` = Lead_SA atau `is_admin`. `kolaborator` = peran collaborator
     (`PeranKolaborator`) atau None bila bukan collaborator.
     """
 
@@ -319,7 +354,7 @@ async def hubungan_proyek(
         )
         kolab = collab_result.scalar_one_or_none()
     return HubunganProyek(
-        privileged=user.role in PERAN_PRIVILEGED,
+        privileged=adalah_privileged(user),
         sales_pic=project.sales_pic == user.id,
         sa_ditugaskan=project.assigned_sa == user.id,
         kolaborator=(

@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import adalah_privileged, get_current_user
 from app.models.activity_log import ActivityLog
 from app.models.notification_log import NotificationLog
 from app.models.project import Project
@@ -88,8 +88,8 @@ def _generate_notification_id() -> str:
 
 
 def _require_lead_sa(current_user: User) -> None:
-    """Validasi bahwa user saat ini memiliki role Lead_SA atau Admin."""
-    if current_user.role not in ("Lead_SA", "Admin"):
+    """Validasi bahwa user saat ini Lead_SA atau admin (`is_admin`)."""
+    if not adalah_privileged(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Hanya Lead_SA atau Admin yang dapat melakukan operasi ini.",

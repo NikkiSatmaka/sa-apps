@@ -15,7 +15,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import (
-    PERAN_PRIVILEGED,
+    adalah_privileged,
+    adalah_sales_terbatas,
     PeranUser,
     TingkatAkses,
     ensure_project_access,
@@ -74,7 +75,7 @@ async def terapkan_dq(
             ),
         )
 
-    if project.dq_number is not None and user.role == PeranUser.SALES:
+    if project.dq_number is not None and adalah_sales_terbatas(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
@@ -83,7 +84,7 @@ async def terapkan_dq(
             ),
         )
 
-    if user.role not in (PeranUser.SALES, *PERAN_PRIVILEGED):
+    if not (user.role == PeranUser.SALES or adalah_privileged(user)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Hanya Sales atau Lead_SA yang dapat menginput DQ Number.",
@@ -120,7 +121,7 @@ def dokumen_terlihat(user: User, project: Project, dokumen: Document) -> bool:
     proyek itu, DQ sudah terisi, dan dokumen berstatus Reviewed/Final. Dokumen non-Solutions
     dan peran lain tidak berubah.
     """
-    if dokumen.folder_type != FOLDER_SOLUTIONS or user.role != PeranUser.SALES:
+    if dokumen.folder_type != FOLDER_SOLUTIONS or not adalah_sales_terbatas(user):
         return True
     return (
         project.sales_pic == user.id

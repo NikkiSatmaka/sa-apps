@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Optional
 
-from sqlalchemy import String, CheckConstraint, DateTime
+from sqlalchemy import Boolean, CheckConstraint, DateTime, String, false
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -41,7 +41,14 @@ class User(Base):
         String(20),
         nullable=False,
         default="SA",
-        comment="Role pengguna: Sales, SA, Lead_SA, Admin",
+        comment="Role fungsional pengguna: Sales, Product, SA, Lead_SA",
+    )
+    is_admin: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false(),
+        comment="Flag kemampuan administrasi (menempel pada satu role fungsional)",
     )
     google_id: Mapped[str] = mapped_column(
         String(255),
@@ -73,7 +80,7 @@ class User(Base):
     # Constraints
     __table_args__ = (
         CheckConstraint(
-            "role IN ('Sales', 'SA', 'Lead_SA', 'Admin')",
+            "role IN ('Sales', 'Product', 'SA', 'Lead_SA')",
             name="chk_users_role",
         ),
         {"comment": "Tabel pengguna sistem Portal SA"},

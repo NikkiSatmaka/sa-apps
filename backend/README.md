@@ -224,7 +224,7 @@ subtask mensyaratkan pemilik subtask yang masih berhak `TULIS`; polish ulang log
 tetap mensyaratkan **kepemilikan log** (orang lain → 404) ditambah akses `TULIS` penulis.
 
 **Pengecualian sah** (daftar `PENGECUALIAN` di `tests/test_penjaga_akses_rute.py`, bernomor
-`SAH-n`): role gate murni Lead_SA/Admin (hapus proyek, assign/reassign, provision-folder,
+`SAH-n`): role gate murni Lead_SA/`is_admin` (hapus proyek, assign/reassign, provision-folder,
 handover-config, score-manual, buat/assign/hapus subtask). Semuanya dikunci
 `tests/integration/test_akses_k5_penyelarasan_akhir.py`. Penjaga juga memastikan tidak ada
 panggilan titik keputusan di dalam `try/except Exception` yang menelan 403.

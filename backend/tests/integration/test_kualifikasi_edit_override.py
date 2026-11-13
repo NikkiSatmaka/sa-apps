@@ -290,7 +290,7 @@ async def test_override_admin_juga_diizinkan_dan_pelaku_tercatat(skenario):
 
     assert resp.status_code == 200
     log = (await audit_proyek(skenario.db, skenario.id))[0]
-    admin = (await skenario.db.execute(select(User).where(User.role == "Admin"))).scalar_one()
+    admin = (await skenario.db.execute(select(User).where(User.is_admin.is_(True)))).scalar_one()
     assert log.performed_by == admin.id
 
 

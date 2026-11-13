@@ -44,13 +44,20 @@ def buat_token(
 
 
 def user_palsu(role: str = "SA", **kw: Any) -> SimpleNamespace:
-    """Objek mirip User (tanpa DB) untuk fungsi yang hanya membaca atribut."""
+    """Objek mirip User (tanpa DB) untuk fungsi yang hanya membaca atribut.
+
+    Admin bukan role (ADR 0012): untuk user admin pakai `is_admin=True` pada role fungsional.
+    """
     sekarang = datetime.now(timezone.utc)
+    persona = role
+    if role == "Admin":  # persona admin = SA dengan flag admin (ADR 0012)
+        role, kw = "SA", {"is_admin": True, **kw}
     nilai = dict(
         id=uuid.uuid4(),
-        email=f"{role.lower()}@contoh.id",
-        name=f"User {role}",
+        email=f"{persona.lower()}@contoh.id",
+        name=f"User {persona}",
         role=role,
+        is_admin=False,
         google_id=f"g-{uuid.uuid4().hex[:8]}",
         avatar_url=None,
         created_at=sekarang,
@@ -58,6 +65,16 @@ def user_palsu(role: str = "SA", **kw: Any) -> SimpleNamespace:
     )
     nilai.update(kw)
     return SimpleNamespace(**nilai)
+
+
+def terapkan_persona(user: Any, role: str) -> Any:
+    """Set `role` dan `is_admin` pada objek tiruan (MagicMock/SimpleNamespace).
+
+    Persona "Admin" = SA dengan flag admin (ADR 0012); `is_admin` selalu diisi eksplisit
+    agar tiruan tidak mewarisi atribut MagicMock yang truthy.
+    """
+    user.role, user.is_admin = ("SA", True) if role == "Admin" else (role, False)
+    return user
 
 
 class HasilPalsu:

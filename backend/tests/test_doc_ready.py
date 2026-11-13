@@ -26,6 +26,7 @@ from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.main import app
 from app.services.notification_service import NotificationEventType
+from tests._auth_support import terapkan_persona
 
 # =============================================================================
 # Fixtures & Helpers
@@ -38,7 +39,7 @@ def _make_user(role: str = "SA", user_id: uuid.UUID | None = None):
     user.id = user_id or uuid.uuid4()
     user.email = f"{role.lower()}@company.com"
     user.name = f"Test {role}"
-    user.role = role
+    terapkan_persona(user, role)
     return user
 
 

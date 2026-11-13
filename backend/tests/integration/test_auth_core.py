@@ -23,6 +23,7 @@ from app.models import Project, User
 from app.models.project_collaborator import ProjectCollaborator
 from tests._auth_support import buat_token, pasang_google
 from tests.integration.conftest import patch_session_factory
+from tests.integration.model_helpers import bangun_user
 
 AUTH = "/api/v1/auth"
 
@@ -133,7 +134,7 @@ async def test_callback_user_existing_diperbarui_peran_tetap(api, db_session, mo
             id=uuid.uuid4(),
             email="lama@perusahaan.id",
             name="Nama Lama",
-            role="Admin",
+            role="Lead_SA",
             google_id="g-123",
         )
     )
@@ -151,7 +152,7 @@ async def test_callback_user_existing_diperbarui_peran_tetap(api, db_session, mo
     assert (users[0].name, users[0].email, users[0].role) == (
         "Budi",
         "budi@perusahaan.id",
-        "Admin",
+        "Lead_SA",
     )
 
 
@@ -237,13 +238,7 @@ async def test_get_current_user_endpoint_terproteksi(api, db_session):
 
 
 async def _user(db, role: str, nama: str) -> User:
-    u = User(
-        id=uuid.uuid4(),
-        email=f"{nama}@contoh.id",
-        name=nama,
-        role=role,
-        google_id=f"g-{nama}",
-    )
+    u = bangun_user(role=role, email=f"{nama}@contoh.id", name=nama, google_id=f"g-{nama}")
     db.add(u)
     await db.flush()
     return u
@@ -406,11 +401,11 @@ async def test_http_ubah_proyek_pihak_luar_403_dan_data_tidak_berubah(
 
 @pytest.mark.parametrize(
     ("role", "status_diharapkan"),
-    [("Sales", 403), ("SA", 403), ("Lead_SA", 404), ("Admin", 404)],
+    [("Sales", 403), ("Product", 403), ("SA", 403), ("Lead_SA", 404), ("Admin", 404)],
 )
 async def test_require_role_pada_endpoint_nyata(api, role, status_diharapkan):
     """
-    `score-manual` memakai `require_role("Lead_SA", "Admin")`: Sales/SA ditolak 403 sebelum
+    `score-manual` memakai `require_privileged` (Lead_SA atau `is_admin`): Sales/SA ditolak 403 sebelum
     proyek dicari; Lead_SA/Admin lolos gerbang peran (lalu 404 karena proyek memang tidak ada).
     """
     headers = await api.login_demo(role)

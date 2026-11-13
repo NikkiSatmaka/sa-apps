@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import (
-    PERAN_PRIVILEGED,
+    adalah_privileged,
     PeranKolaborator,
     PeranUser,
     TingkatAkses,
@@ -142,7 +142,7 @@ async def add_collaborator(
     project = await _verify_project_exists(project_id, db)
 
     # Gerbang peran kasar: hanya SA, Sales, Lead_SA, Admin yang bisa add collaborator
-    allowed_roles = ("SA", "Sales", "Lead_SA", "Admin")
+    allowed_roles = tuple(PeranUser)
     if current_user.role not in allowed_roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -168,12 +168,13 @@ async def add_collaborator(
     # - Sales hanya bisa menambahkan sesama Sales
     # - SA hanya bisa menambahkan sesama SA
     # - Lead_SA / Admin bisa menambahkan role apa pun
-    if current_user.role == "Sales" and target_user.role != "Sales":
+    privileged = adalah_privileged(current_user)
+    if not privileged and current_user.role == "Sales" and target_user.role != "Sales":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Sales hanya dapat menambahkan sesama Sales sebagai kolaborator.",
         )
-    if current_user.role == "SA" and target_user.role != "SA":
+    if not privileged and current_user.role == "SA" and target_user.role != "SA":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="SA hanya dapat menambahkan sesama SA sebagai kolaborator.",
@@ -187,9 +188,8 @@ async def add_collaborator(
         )
 
     # Contributor harus SA (karena hanya SA yang bisa buat activity log)
-    if body.role == PeranKolaborator.CONTRIBUTOR and target_user.role not in (
-        PeranUser.SA,
-        *PERAN_PRIVILEGED,
+    if body.role == PeranKolaborator.CONTRIBUTOR and not (
+        target_user.role == PeranUser.SA or adalah_privileged(target_user)
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

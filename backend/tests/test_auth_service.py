@@ -127,8 +127,8 @@ class TestDetermineRole:
         assert svc._determine_role("a@b.com") == "SA"
 
     def test_exact_match_tidak_peduli_huruf(self, svc, monkeypatch):
-        _mapping(monkeypatch, {"Boss@Perusahaan.id": "Admin"})
-        assert svc._determine_role("boss@perusahaan.ID") == "Admin"
+        _mapping(monkeypatch, {"Boss@Perusahaan.id": "Lead_SA"})
+        assert svc._determine_role("boss@perusahaan.ID") == "Lead_SA"
 
     def test_wildcard_domain(self, svc, monkeypatch):
         _mapping(monkeypatch, {"*@sales.id": "Sales"})
@@ -172,15 +172,15 @@ class TestDetermineRole:
         assert all(r.levelname == "WARNING" for r in caplog.records)
 
     def test_mapping_di_cache_per_instance(self, svc, monkeypatch):
-        _mapping(monkeypatch, {"a@b.com": "Admin"})
-        assert svc._determine_role("a@b.com") == "Admin"
+        _mapping(monkeypatch, {"a@b.com": "Product"})
+        assert svc._determine_role("a@b.com") == "Product"
         _mapping(monkeypatch, {})  # perubahan setelah dibaca tidak terbaca ulang
-        assert svc._determine_role("a@b.com") == "Admin"
+        assert svc._determine_role("a@b.com") == "Product"
 
     @given(
         local=st.from_regex(r"[a-z]{1,8}", fullmatch=True),
         domain=st.from_regex(r"[a-z]{2,8}\.(com|id)", fullmatch=True),
-        peran=st.sampled_from(["Sales", "SA", "Lead_SA", "Admin"]),
+        peran=st.sampled_from(["Sales", "Product", "SA", "Lead_SA"]),
     )
     @hy_settings(max_examples=40, deadline=None)
     def test_property_hasil_selalu_peran_mapping_atau_default(self, local, domain, peran):
@@ -261,14 +261,15 @@ class TestVerifyAccessToken:
 
 class TestRefreshToken:
     async def test_refresh_valid_menghasilkan_pasangan_baru(self, svc):
-        user = user_palsu("Admin")
+        user = user_palsu("Lead_SA", is_admin=True)
         db = SesiPalsu(user)
 
         pair = await svc.refresh_token(buat_token(user.id, tipe="refresh"), db)
 
         akses = svc.verify_access_token(pair.access_token)
         assert akses["sub"] == str(user.id)
-        assert akses["role"] == "Admin"
+        assert akses["role"] == "Lead_SA"
+        assert akses["is_admin"] is True
 
     @pytest.mark.parametrize(
         "token",
@@ -391,7 +392,7 @@ class TestHandleCallback:
     async def test_user_existing_diperbarui_tanpa_mengubah_peran(self, svc, monkeypatch):
         """Login ulang memperbarui profil, tetapi peran (mungkin diubah Admin) dipertahankan."""
         _domain(monkeypatch, "")
-        _mapping(monkeypatch, {"budi@perusahaan.id": "Admin"})
+        _mapping(monkeypatch, {"budi@perusahaan.id": "Lead_SA"})
         pasang_google(
             monkeypatch,
             profil={"id": "g-123", "email": "budi@perusahaan.id", "name": "Budi Baru"},
@@ -405,6 +406,38 @@ class TestHandleCallback:
         assert db.ditambahkan == []
         assert (user.name, user.email, user.role) == ("Budi Baru", "budi@perusahaan.id", "Sales")
         assert db.jumlah_commit == 1
+
+    async def test_user_baru_dengan_email_di_admin_emails_menjadi_admin(self, svc, monkeypatch):
+        """ADMIN_EMAILS menggantikan nilai "Admin" di ROLE_MAPPING (ADR 0012)."""
+        _domain(monkeypatch, "")
+        _mapping(monkeypatch, {"boss@perusahaan.id": "SA"})
+        monkeypatch.setattr(settings, "ADMIN_EMAILS", "lain@x.id, Boss@Perusahaan.ID")
+        pasang_google(monkeypatch, profil={"id": "g-1", "email": "boss@perusahaan.id", "name": "B"})
+
+        user, _ = await svc.handle_callback("kode", SesiPalsu(None))
+
+        assert (user.role, user.is_admin) == ("SA", True)
+
+    async def test_user_baru_di_luar_admin_emails_bukan_admin(self, svc, monkeypatch):
+        _domain(monkeypatch, "")
+        _mapping(monkeypatch, {})
+        monkeypatch.setattr(settings, "ADMIN_EMAILS", "boss@perusahaan.id")
+        pasang_google(monkeypatch, profil={"id": "g-2", "email": "staf@perusahaan.id", "name": "S"})
+
+        user, _ = await svc.handle_callback("kode", SesiPalsu(None))
+
+        assert user.is_admin is False
+
+    async def test_login_ulang_tidak_mengubah_flag_admin(self, svc, monkeypatch):
+        """Flag admin dikelola lewat endpoint admin; login ulang tidak menimpanya."""
+        _domain(monkeypatch, "")
+        monkeypatch.setattr(settings, "ADMIN_EMAILS", "budi@perusahaan.id")
+        pasang_google(monkeypatch, profil={"id": "g-3", "email": "budi@perusahaan.id", "name": "B"})
+        lama = user_palsu("SA", google_id="g-3", email="budi@perusahaan.id", is_admin=False)
+
+        user, _ = await svc.handle_callback("kode", SesiPalsu(lama))
+
+        assert user.is_admin is False
 
     async def test_domain_ditolak_tidak_membuat_user(self, svc, monkeypatch):
         _domain(monkeypatch, "perusahaan.id")

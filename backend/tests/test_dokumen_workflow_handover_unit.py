@@ -33,7 +33,6 @@ SEMUA_STATUS = [
     "Scoring Pending",
     "Manual Review Required",
 ]
-PERAN = ["Sales", "SA", "Lead_SA", "Admin"]
 
 
 def _hasil(nilai):
@@ -55,13 +54,13 @@ def _db(*hasil):
 # ------------------------------ state machine proyek
 
 
-@given(st.sampled_from(SEMUA_STATUS), st.sampled_from(PERAN))
-def test_status_berikutnya_selalu_valid_dan_lost_hanya_privileged_non_terminal(status, peran):
-    berikut = workflow._get_valid_next_statuses(status, peran)
+@given(st.sampled_from(SEMUA_STATUS), st.booleans())
+def test_status_berikutnya_selalu_valid_dan_lost_hanya_privileged_non_terminal(status, privileged):
+    berikut = workflow._get_valid_next_statuses(status, privileged)
 
     assert len(berikut) == len(set(berikut))
     assert set(berikut) <= set(SEMUA_STATUS)
-    boleh_lost = peran in ("Lead_SA", "Admin") and status not in ("Handover Complete", "Lost")
+    boleh_lost = privileged and status not in ("Handover Complete", "Lost")
     assert ("Lost" in berikut) == boleh_lost
     forward = workflow.VALID_FORWARD_TRANSITIONS.get(status)
     assert (forward in berikut) == (forward is not None)
@@ -69,17 +68,17 @@ def test_status_berikutnya_selalu_valid_dan_lost_hanya_privileged_non_terminal(s
     assert status not in berikut
 
 
-@given(st.sampled_from(SEMUA_STATUS), st.text(max_size=30), st.sampled_from(PERAN))
-def test_transisi_valid_ekuivalen_dengan_keanggotaan_daftar_berikutnya(status, tujuan, peran):
-    assert workflow._is_valid_transition(status, tujuan, peran) == (
-        tujuan in workflow._get_valid_next_statuses(status, peran)
+@given(st.sampled_from(SEMUA_STATUS), st.text(max_size=30), st.booleans())
+def test_transisi_valid_ekuivalen_dengan_keanggotaan_daftar_berikutnya(status, tujuan, privileged):
+    assert workflow._is_valid_transition(status, tujuan, privileged) == (
+        tujuan in workflow._get_valid_next_statuses(status, privileged)
     )
 
 
 @pytest.mark.parametrize("terminal", ["Lost", "Handover Complete"])
-@pytest.mark.parametrize("peran", PERAN)
-def test_status_terminal_tanpa_lost(terminal, peran):
-    assert "Lost" not in workflow._get_valid_next_statuses(terminal, peran)
+@pytest.mark.parametrize("privileged", [True, False])
+def test_status_terminal_tanpa_lost(terminal, privileged):
+    assert "Lost" not in workflow._get_valid_next_statuses(terminal, privileged)
 
 
 def test_rantai_forward_linear_tanpa_siklus_dan_berakhir_di_closed_win():
@@ -93,10 +92,10 @@ def test_rantai_forward_linear_tanpa_siklus_dan_berakhir_di_closed_win():
 
 
 @pytest.mark.parametrize("status", SEMUA_STATUS)
-@pytest.mark.parametrize("peran", PERAN)
-def test_handover_complete_tidak_pernah_menjadi_tujuan_valid_patch_status(status, peran):
-    assert "Handover Complete" not in workflow._get_valid_next_statuses(status, peran)
-    assert workflow._is_valid_transition(status, "Handover Complete", peran) is False
+@pytest.mark.parametrize("privileged", [True, False])
+def test_handover_complete_tidak_pernah_menjadi_tujuan_valid_patch_status(status, privileged):
+    assert "Handover Complete" not in workflow._get_valid_next_statuses(status, privileged)
+    assert workflow._is_valid_transition(status, "Handover Complete", privileged) is False
 
 
 def test_id_audit_berformat_tanggal_dan_acak_enam_karakter():
@@ -112,7 +111,7 @@ def test_id_audit_berformat_tanggal_dan_acak_enam_karakter():
 # UBAH_STATUS tidak membaca collaborator sehingga `db` tidak dipakai.
 async def test_akses_proyek_peran_tidak_dikenal_ditolak():
     proyek = SimpleNamespace(sales_pic=uuid.uuid4(), assigned_sa=uuid.uuid4())
-    user = SimpleNamespace(role="Intern", id=uuid.uuid4())
+    user = SimpleNamespace(role="Intern", is_admin=False, id=uuid.uuid4())
 
     with pytest.raises(HTTPException) as err:
         await ensure_project_access(None, proyek, user, TingkatAkses.UBAH_STATUS)
@@ -120,12 +119,11 @@ async def test_akses_proyek_peran_tidak_dikenal_ditolak():
     assert err.value.status_code == 403
 
 
-@pytest.mark.parametrize("peran", ["Lead_SA", "Admin"])
-async def test_akses_proyek_privileged_lolos_tanpa_kepemilikan(peran):
+@pytest.mark.parametrize(("peran", "is_admin"), [("Lead_SA", False), ("SA", True)])
+async def test_akses_proyek_privileged_lolos_tanpa_kepemilikan(peran, is_admin):
     proyek = SimpleNamespace(sales_pic=uuid.uuid4(), assigned_sa=None)
-    await ensure_project_access(
-        None, proyek, SimpleNamespace(role=peran, id=uuid.uuid4()), TingkatAkses.UBAH_STATUS
-    )
+    user = SimpleNamespace(role=peran, is_admin=is_admin, id=uuid.uuid4())
+    await ensure_project_access(None, proyek, user, TingkatAkses.UBAH_STATUS)
 
 
 # ------------------------------ state machine dokumen

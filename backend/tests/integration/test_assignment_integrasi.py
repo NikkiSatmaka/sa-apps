@@ -222,7 +222,22 @@ async def test_assign_proyek_tidak_ada_404_dan_sa_tidak_ada_404(dunia, api):
     assert (await ambil_proyek(dunia.db, proyek.id_project)).status == "Pending Assignment"
 
 
-@pytest.mark.parametrize("target", ["sales_lain", "lead", "admin"])
+async def test_assign_sa_pemilik_flag_admin_diizinkan(dunia, api):
+    """Admin menempel pada role fungsional (ADR 0012): admin berrole SA bisa ditugaskan."""
+    proyek = await dunia.buat_proyek()
+
+    resp = await api.client.post(
+        ASSIGN.format(proyek.id_project),
+        json={"sa_id": str(dunia.admin.id)},
+        headers=dunia.h["lead"],
+    )
+
+    assert resp.status_code == 200, resp.text
+    p = await ambil_proyek(dunia.db, proyek.id_project)
+    assert (p.status, p.assigned_sa) == ("Assigned", dunia.admin.id)
+
+
+@pytest.mark.parametrize("target", ["sales_lain", "lead"])
 async def test_assign_target_bukan_sa_ditolak(dunia, api, target):
     proyek = await dunia.buat_proyek()
 

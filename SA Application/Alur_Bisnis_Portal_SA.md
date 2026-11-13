@@ -22,10 +22,10 @@ Diagram mengikuti empat alur kerja (workflow) di spec §2:
 ```mermaid
 flowchart TD
     subgraph F1["Flow 1 — Pre-Sales Request & AI Scoring"]
-        A1["Sales mengisi form data customer,<br/>estimasi awal, unggah MoM / RFP"]
+        A1["Sales / Product / Lead SA mengisi form data customer,<br/>estimasi awal, Kuesioner, unggah MoM / RFP"]
         A2["Gemini AI (multimodal) ekstrak spesifikasi,<br/>validasi matriks BANT, tentukan Priority,<br/>Use Case Tagging, pre-fill OLA/Mandays"]
         A3{"BANT Score >= 60%?"}
-        A4["Status: Need Clarification<br/>Sales diminta revisi / lengkapi data"]
+        A4["qualification_state: Need Clarification<br/>pembuat / Product / Sales diminta revisi data"]
         A5["Notifikasi New Opportunity<br/>dikirim ke Lead SA untuk Assignment"]
         A1 --> A2 --> A3
         A3 -- "Tidak (< 60%)" --> A4
@@ -35,14 +35,14 @@ flowchart TD
 
     subgraph F2["Flow 2 — Dokumen, SLA DQ Number & Gating"]
         B1["Lead SA meng-assign SA ke proyek"]
-        B2["Auto-provisioning folder GDrive:<br/>[Customer] > [Proyek] > Inventory / Diagram / Solutions<br/>(SA/Lead = Editor, Sales = No-Access ke Solutions)"]
+        B2["Auto-provisioning folder GDrive:<br/>[Customer] > [Proyek] > Inventory / Diagram / Solutions<br/>(SA/Lead = Editor; Sales & Product = Viewer Inventory,<br/>No-Access ke Solutions sampai DQ terisi)"]
         B3["SA mengerjakan PropTek, BOQ (AWS Calc),<br/>Mandays di folder Solutions<br/>(tanpa menunggu DQ Number)"]
-        B4{"DQ Number sudah<br/>diinput Sales?"}
+        B4{"DQ Number sudah diinput<br/>Sales / Product / Lead SA?"}
         B5{"SLA: < 5 hari?"}
-        B6["Dokumen berstatus Reviewed →<br/>link GDrive terbuka otomatis untuk Sales<br/>+ notifikasi email"]
-        B7["Folder Solutions terkunci (Hidden/Locked)"]
-        B8["Reminder H+3 ke Sales"]
-        B9["Eskalasi H+5 ke Lead SA & Admin"]
+        B6["Dokumen berstatus Reviewed →<br/>folder Solutions terbuka otomatis untuk<br/>Sales & Product + notifikasi email"]
+        B7["Folder Solutions terkunci (Hidden/Locked)<br/>bagi Sales & Product"]
+        B8["Reminder H+3 ke Sales & Product"]
+        B9["Eskalasi H+5 ke lead_sa project & Admin"]
         B1 --> B2 --> B3 --> B4
         B4 -- "Ya" --> B6
         B4 -- "Belum" --> B5
@@ -58,18 +58,20 @@ flowchart TD
         C2["SA memetakan event kalender ke<br/>Subtask Permanen + estimasi spent time"]
         C3["SA menulis catatan rapat (raw notes) kasual"]
         C4["Gemini AI merapikan jadi<br/>Poin Diskusi & Action Items terstruktur"]
-        C5["Log masuk ke Project Story global<br/>(diakses Manager & Backup SA untuk handover)"]
+        C5["Log masuk ke Project Story global<br/>(dapat dibaca semua pengguna,<br/>termasuk Backup SA untuk handover)"]
         C1 --> C2 --> C3 --> C4 --> C5
     end
 
     subgraph F4["Flow 4 — Post-Sales & PMO Handover"]
-        D1["Proyek berstatus PO Rilis / Win (Closed-Win)"]
-        D2["SA menerima notifikasi WAJIB membuat HLD"]
-        D3["AI (RAG) merekomendasikan template/referensi<br/>dari proyek Closed-Win serupa"]
+        D1["Proyek berstatus Won (PO Rilis)"]
+        D2["Semua SA project menerima notifikasi<br/>WAJIB membuat HLD"]
+        D3["AI (RAG) merekomendasikan template/referensi<br/>dari proyek Won serupa"]
         D4["SA submit HLD (status Final)"]
-        D5["Handover dipicu manual: sistem membagikan folder<br/>Final_Deliverables + notifikasi/email handover<br/>ke PMO Lead & Delivery Lead (Viewer)"]
+        D5["Handover dipicu manual: sistem membagikan folder<br/>Final_Deliverables + notifikasi/email handover<br/>ke PMO Lead & Delivery Lead (Viewer)<br/>status: Handed Over"]
         D6["PMO & Delivery menyusun<br/>Project Charter & LLD"]
+        D7["SA tetap memantau; subtask baru boleh muncul.<br/>Lead SA / Admin menutup project (Closed)"]
         D1 --> D2 --> D3 --> D4 --> D5 --> D6
+        D5 --> D7
     end
 
     A5 ==> B1
@@ -89,11 +91,12 @@ flowchart TD
 
 | Aktor | Peran dalam alur |
 | :--- | :--- |
-| **Sales** | Membuat opportunity, unggah MoM/RFP, input DQ Number, menerima akses dokumen |
-| **Lead SA** | Menerima New Opportunity, meng-assign SA, memantau utilisasi; menerima eskalasi SLA DQ Number (H+5) |
-| **SA** | Mengerjakan dokumen teknis, mapping aktivitas, membuat HLD |
-| **Backup SA** | Mengakses Project Story saat SA utama cuti (handover) |
-| **Admin** | Mengelola user/peran; menerima eskalasi SLA DQ Number (H+5) |
+| **Sales** | Membuat project, mengisi Kuesioner dan DQ Number, memantau, menetapkan `Won`; opsional per project |
+| **Product** | Setara Sales; selalu ada di setiap project |
+| **Lead SA** | Menerima New Opportunity, meng-assign SA (utama/tambahan), membuat subtask, memantau beban; menerima eskalasi SLA DQ (H+5); boleh membuat project dan ditugaskan sebagai SA |
+| **SA** | Mengerjakan dokumen teknis, subtask, mapping aktivitas, membuat HLD; satu project boleh punya beberapa SA |
+| **Backup SA** | Collaborator (contributor) yang menulis log saat SA utama cuti; hak terbatas |
+| **Admin** (`is_admin`) | Flag kemampuan pada satu role fungsional: kelola user, hak penuh, buka kembali Closed/Lost; menerima eskalasi SLA DQ (H+5) |
 | **PMO Lead & Delivery Lead** | Menerima handover pasca Closed-Win untuk Project Charter & LLD |
 | **Gemini AI** | BANT scoring, polishing activity notes, RAG recommendation |
 
@@ -112,28 +115,61 @@ flowchart TD
 
 ```mermaid
 erDiagram
-    Users ||--o{ Projects : "sales_pic / assigned_sa"
+    Users ||--o{ Projects : "created_by / product_pic / sales_pic / lead_sa / assigned_sa"
+    Projects ||--o{ ProjectAssignments : "SA tambahan"
+    Users ||--o{ ProjectAssignments : "user_id"
+    Projects ||--o{ Subtasks : "id_project"
+    Projects ||--o{ ProjectComments : "id_project"
     Projects ||--o{ Documents : "id_project"
     Projects ||--o{ ActivityLogs : "id_project"
     Users ||--o{ ActivityLogs : "sa_id"
 
+    Users {
+        uuid id PK
+        enum role "Sales, Product, SA, Lead_SA"
+        bool is_admin
+    }
     Projects {
         string id_project PK
         string project_name
         string customer_name
-        string dq_number "syarat rilis dokumen"
-        uuid sales_pic FK
-        uuid assigned_sa FK
-        enum status "New, Assigned, Ready, Closed-Win, Lost"
+        string dq_number "syarat rilis folder Solutions ke Sales/Product"
+        uuid created_by FK
+        uuid product_pic FK "wajib"
+        uuid sales_pic FK "opsional"
+        uuid lead_sa FK
+        uuid assigned_sa FK "SA utama"
+        enum status "Intake, Awaiting Assignment, Assigned, In Progress, Submitted, Won, Handed Over, Closed, Lost, On Hold"
+        enum qualification_state "Scoring, Need Clarification, Manual Review, Qualified"
+        text lost_reason
         date target_submit
-        int bant_score "0-100% dari Gemini"
+        int bant_score "0-100% dihitung backend"
         json use_case_tags
         string gdrive_folder_id
+    }
+    ProjectAssignments {
+        string id_project FK
+        uuid user_id FK "SA tambahan"
+    }
+    Subtasks {
+        string id_subtask PK
+        string id_project FK
+        uuid assigned_sa FK "satu assignee"
+        string title
+        date due_date
+        decimal estimate_hours
+        enum status "open, in_progress, done"
+    }
+    ProjectComments {
+        string id_comment PK
+        string id_project FK
+        uuid author_id FK
+        text body
     }
     Documents {
         string id_doc PK
         string id_project FK
-        enum doc_type "MoM, RFP, PropTek, BOQ, Mandays, HLD"
+        enum doc_type "MoM, RFP, PropTek, BOQ, Mandays, HLD, Requirement"
         enum status "Draft, Reviewed, Final"
         string gdrive_link
         enum folder_type "Inventory, Diagram, Solutions"
@@ -142,7 +178,8 @@ erDiagram
         string id_log PK
         string id_project FK
         uuid sa_id FK
-        enum subtask_category
+        string id_subtask FK
+        enum activity_category
         string gcal_event_id
         decimal duration_hours
         text raw_notes
@@ -151,7 +188,6 @@ erDiagram
     }
 ```
 
-> Catatan: enum dan field di atas dikutip **persis dari spec §3**. Di beberapa titik, model kode
-> aktual sudah menyimpang dari spec (mis. enum `status` proyek, taksonomi `subtask_category`).
-> Divergensi itu dilacak sebagai keputusan di [`docs/ROADMAP.md`](../docs/ROADMAP.md) — dokumen ini
-> tetap memegang versi spec sebagai ground truth.
+> Catatan: enum dan field di atas mengikuti **spec §3** (diperbarui 2026-11-13). Model kode aktual
+> belum mengikutinya (role `Admin`, satu `sales_pic`/`assigned_sa`, enum `status` lama); jaraknya
+> dilacak di [`docs/ROADMAP.md`](../docs/ROADMAP.md) Fase 8–9. Dokumen ini memegang versi spec sebagai ground truth.

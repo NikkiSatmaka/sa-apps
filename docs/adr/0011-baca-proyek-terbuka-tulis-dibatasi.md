@@ -15,3 +15,7 @@ Mengapa tingkat `BACA` dan `STORY` tetap ada di titik keputusan alih-alih dihapu
 - Rekomendasi (RAG) yang menampilkan link Solutions proyek Closed-Win lain kepada SA bukan kebocoran lagi (issue #93 ditutup sebagai sesuai desain).
 - Keputusan 2026-11-10 sebelumnya (Sales PIC boleh membaca Story) tercakup oleh kebijakan ini dan tidak lagi berdiri sendiri.
 - Frontend: halaman daftar proyek Sales/SA masih memfilter milik sendiri lewat `sales_pic=me` / `assigned_to=me`; menampilkan semua proyek di UI adalah keputusan tampilan terpisah.
+
+## Pembaruan 2026-11-13
+
+Penyempit di daftar proyek berubah menjadi satu parameter `involved=me` untuk semua peran (cocok bila user adalah `created_by`, `sales_pic`, `product_pic`, `lead_sa`, SA utama/tambahan, atau collaborator); lihat [ADR 0014](0014-orang-per-project-dan-multi-sa.md). Kebijakan baca terbuka tidak berubah.

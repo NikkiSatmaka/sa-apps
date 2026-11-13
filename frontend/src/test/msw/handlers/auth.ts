@@ -2,7 +2,7 @@ import { http, HttpResponse } from "msw";
 import { backendUser, loginResponse, type Role } from "../../fixtures/users";
 import { api } from "../base";
 
-const ROLES: Role[] = ["Sales", "SA", "Lead_SA", "Admin"];
+const ROLES: Role[] = ["Sales", "Product", "SA", "Lead_SA", "Admin"];
 
 export const authHandlers = [
   http.get(api("/auth/config"), () => HttpResponse.json({ demo_mode: true })),

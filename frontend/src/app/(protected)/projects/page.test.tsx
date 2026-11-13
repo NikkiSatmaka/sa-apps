@@ -36,6 +36,14 @@ describe("Daftar proyek — endpoint & urutan per peran", () => {
     expect(screen.getByText("Daftar proyek yang Anda submit")).toBeInTheDocument();
   });
 
+  it("Product: hanya proyek yang di-submit (sama dengan Sales), urut terbaru", async () => {
+    const urls = serve();
+    setup("Product");
+    await screen.findByText("Alfa Cloud");
+    expect(urls[0].searchParams.get("sales_pic")).toBe("me");
+    expect(screen.getByText("Daftar proyek yang Anda submit")).toBeInTheDocument();
+  });
+
   it("SA: hanya proyek yang ditugaskan, urut terbaru", async () => {
     const urls = serve();
     setup("SA");
@@ -72,16 +80,16 @@ describe("Daftar proyek — endpoint & urutan per peran", () => {
 });
 
 describe("Daftar proyek — tombol Request SA per peran", () => {
-  it.each(["Sales", "SA", "Lead_SA"] as const)("%s melihat '+ Request SA' dan tombol membuka form baru", async (role) => {
+  it.each(["Sales", "Product", "Lead_SA", "Admin"] as const)("%s melihat '+ Request SA' dan tombol membuka form baru", async (role) => {
     serve();
     const { user } = setup(role);
     await user.click(await screen.findByRole("button", { name: "+ Request SA" }));
     expect(router.push).toHaveBeenCalledWith("/projects/new");
   });
 
-  it("Admin tidak melihat '+ Request SA'", async () => {
+  it("SA tidak melihat '+ Request SA' (backend menolak SA membuat proyek)", async () => {
     serve();
-    setup("Admin");
+    setup("SA");
     await screen.findByText("Alfa Cloud");
     expect(screen.queryByRole("button", { name: "+ Request SA" })).not.toBeInTheDocument();
   });
@@ -107,9 +115,10 @@ describe("Daftar proyek — memuat, kosong, error", () => {
 
   it.each([
     ["Sales", "Buat Request SA untuk memulai."],
-    ["SA", "Buat Request SA untuk memulai."],
+    ["Product", "Buat Request SA untuk memulai."],
+    ["SA", "Belum ada proyek yang tersedia."],
     ["Lead_SA", "Buat Request SA untuk memulai."],
-    ["Admin", "Belum ada proyek yang tersedia."],
+    ["Admin", "Buat Request SA untuk memulai."],
   ] as const)("keadaan kosong untuk %s", async (role, petunjuk) => {
     serve([]);
     setup(role);

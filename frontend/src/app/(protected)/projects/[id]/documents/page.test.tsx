@@ -276,7 +276,7 @@ describe("DocumentsPage", () => {
   describe("dokumen Final per peran", () => {
     const finalDoc = () => [makeDocument({ status: "Final" })];
 
-    it.each<Role>(["SA", "Sales"])("%s: tidak bisa mengubah dokumen Final, ada keterangan Hanya Lead SA", async (role) => {
+    it.each<Role>(["SA", "Sales", "Product"])("%s: tidak bisa mengubah dokumen Final, ada keterangan Hanya Lead SA", async (role) => {
       mockBackend({ documents: finalDoc() });
       renderPage(role);
       await loaded();

@@ -20,9 +20,11 @@ describe("HomePage — dashboard sesuai peran", () => {
 
   it.each([
     ["Sales", "Dashboard Sales"],
+    ["Product", "Dashboard Sales"],
     ["SA", "Dashboard SA"],
     ["Lead_SA", "Dashboard Lead SA"],
-    ["Admin", "Dashboard Lead SA"],
+    // Admin = flag pada role fungsional (ADR 0012): beranda mengikuti role, bukan flag.
+    ["Admin", "Dashboard SA"],
   ] as const)("peran %s melihat %s", async (role, judul) => {
     renderWithProviders(<HomePage />, { role });
     expect(await screen.findByRole("heading", { level: 1, name: judul })).toBeInTheDocument();

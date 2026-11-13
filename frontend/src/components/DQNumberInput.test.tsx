@@ -99,8 +99,8 @@ describe("DQNumberInput — belum ada DQ", () => {
 });
 
 describe("DQNumberInput — DQ sudah diset, variasi per peran", () => {
-  it("Sales: hanya baca, tanpa form edit", () => {
-    setup("Sales", "DQ-2024-001");
+  it.each<Role>(["Sales", "Product"])("%s: hanya baca, tanpa form edit", (role) => {
+    setup(role, "DQ-2024-001");
     expect(screen.getByText("DQ-2024-001")).toBeInTheDocument();
     expect(screen.getByText("Tersimpan ✓")).toBeInTheDocument();
     expect(screen.getByText(/Hanya Lead SA yang dapat mengubahnya/)).toBeInTheDocument();

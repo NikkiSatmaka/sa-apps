@@ -8,7 +8,7 @@ const SCORES = { budget: 10, authority: 12, need: 14, timeline: 16 };
 
 function setup(props: Partial<Parameters<typeof BANTOverride>[0]> = {}) {
   return renderWithProviders(
-    <BANTOverride projectId="p1" status="Need Clarification" role="Lead_SA" currentScores={SCORES} {...props} />,
+    <BANTOverride projectId="p1" status="Need Clarification" actor={{ role: "Lead_SA" }} currentScores={SCORES} {...props} />,
   );
 }
 
@@ -18,26 +18,31 @@ async function bukaForm(user: ReturnType<typeof setup>["user"]) {
 }
 
 describe("BANTOverride — visibilitas", () => {
+  const aktor = (role: string, is_admin = false) => ({ role, is_admin });
+
   it.each([
     ["Lead_SA", "Need Clarification"],
     ["Lead_SA", "Manual Review Required"],
     ["Admin", "Need Clarification"],
     ["Admin", "Manual Review Required"],
   ])("tombol muncul untuk %s pada status %s", (role, status) => {
-    setup({ role, status });
+    // "Admin" = SA dengan flag is_admin
+    setup({ actor: role === "Admin" ? aktor("SA", true) : aktor(role), status });
     expect(screen.getByRole("button", { name: "Override skor BANT" })).toBeInTheDocument();
   });
 
   it.each([
     ["SA", "Need Clarification"],
     ["Sales", "Manual Review Required"],
+    ["Product", "Need Clarification"],
     [undefined, "Need Clarification"],
     [null, "Need Clarification"],
     ["Lead_SA", "Assigned"],
     ["Admin", "Pending Assignment"],
     ["Lead_SA", "New"],
   ])("tombol TIDAK muncul untuk peran %s pada status %s", (role, status) => {
-    const { container } = setup({ role, status });
+    const actor = role === "Admin" ? aktor("SA", true) : role ? aktor(role) : undefined;
+    const { container } = setup({ actor, status });
     expect(container).toBeEmptyDOMElement();
   });
 });

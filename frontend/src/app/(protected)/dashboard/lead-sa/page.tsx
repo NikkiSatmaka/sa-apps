@@ -13,6 +13,7 @@ import {
 } from "@/lib/api/assignment";
 import { AssignmentModal } from "@/components/AssignmentModal";
 import { useAuthStore } from "@/store/auth";
+import { isPrivileged } from "@/lib/roles";
 
 /**
  * Dashboard Lead_SA
@@ -625,8 +626,7 @@ function ProjectCard({
   onToast: (message: string, type: "success" | "error") => void;
 }) {
   // Role user untuk gating tombol "Provision Ulang" (Lead_SA/Admin saja)
-  const role = useAuthStore((s) => s.user?.role);
-  const canReprovision = role === "Lead_SA" || role === "Admin";
+  const canReprovision = isPrivileged(useAuthStore((s) => s.user));
   const [isReprovisioning, setIsReprovisioning] = useState(false);
 
   const handleReprovision = async () => {

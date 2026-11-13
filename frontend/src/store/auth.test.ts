@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { useAuthStore } from "./auth";
 
 const store = () => useAuthStore.getState();
-const sa = { id: "u1", email: "sa@example.com", full_name: "Sa Satu", role: "SA" as const };
+const sa = { id: "u1", email: "sa@example.com", full_name: "Sa Satu", role: "SA" as const, is_admin: false };
 
 describe("auth store", () => {
   it("awalnya belum login dan masih memuat", () => {

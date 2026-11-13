@@ -190,34 +190,42 @@ describe("answersFromView", () => {
 });
 
 describe("answerEditMode", () => {
-  it("Sales PIC pada Need Clarification → rescore", () => {
-    expect(answerEditMode("Sales", "u1", "u1", EDITABLE_STATUS)).toBe("rescore");
+  /** Pengguna dengan role fungsional + flag admin (ADR 0012). */
+  const pengguna = (role: string | undefined, id: string | undefined, is_admin = false) => ({ role, id, is_admin });
+  const admin = pengguna("SA", "x", true);
+
+  it.each(["Sales", "Product"])("%s PIC pada Need Clarification → rescore", (role) => {
+    expect(answerEditMode(pengguna(role, "u1"), "u1", EDITABLE_STATUS)).toBe("rescore");
   });
 
-  it.each(["Lead_SA", "Admin"])("%s pada Need Clarification → rescore", (role) => {
-    expect(answerEditMode(role, "x", "u1", EDITABLE_STATUS)).toBe("rescore");
+  it.each([pengguna("Lead_SA", "x"), admin])("%j pada Need Clarification → rescore", (user) => {
+    expect(answerEditMode(user, "u1", EDITABLE_STATUS)).toBe("rescore");
   });
 
-  it("Sales PIC di status lain → none (tidak boleh koreksi)", () => {
-    expect(answerEditMode("Sales", "u1", "u1", "Pending Assignment")).toBe("none");
+  it.each(["Sales", "Product"])("%s PIC di status lain → none (tidak boleh koreksi)", (role) => {
+    expect(answerEditMode(pengguna(role, "u1"), "u1", "Pending Assignment")).toBe("none");
   });
 
-  it("Sales bukan PIC → none, termasuk saat userId/PIC tidak ada", () => {
-    expect(answerEditMode("Sales", "u2", "u1", EDITABLE_STATUS)).toBe("none");
-    expect(answerEditMode("Sales", undefined, undefined, EDITABLE_STATUS)).toBe("none");
-    expect(answerEditMode("Sales", "u1", null, EDITABLE_STATUS)).toBe("none");
+  it.each(["Sales", "Product"])("%s bukan PIC → none, termasuk saat userId/PIC tidak ada", (role) => {
+    expect(answerEditMode(pengguna(role, "u2"), "u1", EDITABLE_STATUS)).toBe("none");
+    expect(answerEditMode(pengguna(role, undefined), undefined, EDITABLE_STATUS)).toBe("none");
+    expect(answerEditMode(pengguna(role, "u1"), null, EDITABLE_STATUS)).toBe("none");
   });
 
-  it.each(["SA", undefined])("peran %s → none", (role) => {
-    expect(answerEditMode(role, "u1", "u1", EDITABLE_STATUS)).toBe("none");
+  it.each([pengguna("SA", "u1"), pengguna(undefined, "u1")])("%j → none", (user) => {
+    expect(answerEditMode(user, "u1", EDITABLE_STATUS)).toBe("none");
   });
 
-  it.each(["Lead_SA", "Admin"])("%s setelah lolos gate → correct", (role) => {
-    expect(answerEditMode(role, "x", "u1", "Pending Assignment")).toBe("correct");
-    expect(answerEditMode(role, "x", "u1", "Closed Win")).toBe("correct");
+  it("tanpa user → none", () => {
+    expect(answerEditMode(null, "u1", EDITABLE_STATUS)).toBe("none");
+  });
+
+  it.each([pengguna("Lead_SA", "x"), admin])("%j setelah lolos gate → correct", (user) => {
+    expect(answerEditMode(user, "u1", "Pending Assignment")).toBe("correct");
+    expect(answerEditMode(user, "u1", "Closed Win")).toBe("correct");
   });
 
   it.each(["New", "Scoring Pending", "Manual Review Required"])("Lead_SA pada status terkunci %s → none", (status) => {
-    expect(answerEditMode("Lead_SA", "x", "u1", status)).toBe("none");
+    expect(answerEditMode(pengguna("Lead_SA", "x"), "u1", status)).toBe("none");
   });
 });

@@ -23,7 +23,7 @@ function setup(role?: Role) {
 }
 
 describe("SubtaskSection — visibilitas per peran", () => {
-  it.each(["Sales"] as const)("%s tidak melihat section apa pun", (role) => {
+  it.each(["Sales", "Product"] as const)("%s tidak melihat section apa pun", (role) => {
     serve();
     const { container } = setup(role);
     expect(container).toBeEmptyDOMElement();

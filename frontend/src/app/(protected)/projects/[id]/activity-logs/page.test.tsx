@@ -78,7 +78,7 @@ describe("ProjectActivityLogsPage", () => {
     expect(await screen.findByText("Gagal memuat data: Tidak berhak")).toBeInTheDocument();
   });
 
-  it.each<Role>(["SA", "Sales", "Lead_SA", "Admin"])("dapat dirender oleh peran %s", async (role) => {
+  it.each<Role>(["SA", "Sales", "Product", "Lead_SA", "Admin"])("dapat dirender oleh peran %s", async (role) => {
     setParams({ id: "p-1" });
     useProject();
     renderWithProviders(<ProjectActivityLogsPage />, { role });

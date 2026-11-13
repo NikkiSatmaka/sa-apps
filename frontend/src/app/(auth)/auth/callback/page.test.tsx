@@ -6,7 +6,7 @@ import { loginResponse, backendUser } from "@/test/fixtures/users";
 import AuthCallbackPage from "./page";
 
 /** Bentuk fragment persis seperti yang dibuat proxy `api/v1/[...path]`. */
-function proxyFragment(role: "SA" | "Admin" = "SA") {
+function proxyFragment(role: "SA" | "Admin" | "Product" = "SA") {
   const { user, tokens } = loginResponse(role);
   return `#${new URLSearchParams({
     access_token: tokens.access_token,
@@ -32,7 +32,12 @@ describe("halaman /auth/callback — token dari fragment (alur proxy)", () => {
     expect(useAuthStore.getState()).toMatchObject({
       isAuthenticated: true,
       isLoading: false,
-      user: { role: "SA", email: backendUser("SA").email, full_name: backendUser("SA").name },
+      user: {
+        role: "SA",
+        is_admin: false,
+        email: backendUser("SA").email,
+        full_name: backendUser("SA").name,
+      },
     });
   });
 
@@ -42,7 +47,8 @@ describe("halaman /auth/callback — token dari fragment (alur proxy)", () => {
     await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/"));
     expect(window.location.hash).toBe("");
     expect(window.location.href).not.toContain("access-Admin");
-    expect(useAuthStore.getState().user?.role).toBe("Admin");
+    // Persona Admin = SA dengan is_admin (ADR 0012)
+    expect(useAuthStore.getState().user).toMatchObject({ role: "SA", is_admin: true });
   });
 
   it("tanpa refresh_token: access token tetap tersimpan, refresh tidak", async () => {

@@ -5,6 +5,7 @@ import { mutate as globalMutate } from "swr";
 import { canOverrideBANT, overrideBANT } from "@/lib/api/bant-override";
 import type { BANTSubScores } from "@/lib/api/projects";
 import { useToastStore } from "@/store/toast";
+import type { Actor } from "@/lib/roles";
 
 /**
  * Tombol + form "Override skor BANT" (#30).
@@ -16,7 +17,8 @@ import { useToastStore } from "@/store/toast";
 interface BANTOverrideProps {
   projectId: string;
   status: string;
-  role: string | undefined | null;
+  /** Pengguna saat ini (role fungsional + flag admin). */
+  actor: Actor | undefined | null;
   /** Boleh memuat field lain (mis. metadata legacy); hanya 4 sub-skor yang dipakai. */
   currentScores?: Record<string, unknown> | null;
 }
@@ -39,7 +41,7 @@ function initialScore(
 export function BANTOverride({
   projectId,
   status,
-  role,
+  actor,
   currentScores,
 }: BANTOverrideProps) {
   const [open, setOpen] = useState(false);
@@ -54,7 +56,7 @@ export function BANTOverride({
   const [submitting, setSubmitting] = useState(false);
   const showToast = useToastStore((s) => s.showToast);
 
-  if (!canOverrideBANT(role, status)) return null;
+  if (!canOverrideBANT(actor, status)) return null;
 
   const parsed = CRITERIA.map(({ key }) => ({ key, n: Number(scores[key]) }));
   const invalid = parsed.some(

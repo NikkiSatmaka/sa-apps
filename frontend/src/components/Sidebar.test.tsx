@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
-import { http, HttpResponse, api, renderWithProviders, setPathname, stubLocation } from "@/test";
+import { http, HttpResponse, api, renderWithProviders, seedAuth, setPathname, stubLocation } from "@/test";
 import { server } from "@/test";
 import { useAuthStore } from "@/store/auth";
 import { useSidebarStore } from "@/store/sidebar";
@@ -14,7 +14,16 @@ function navLinks() {
 }
 
 describe("Sidebar — menu per peran", () => {
-  it("Sales hanya melihat Dashboard, Proyek, Notifikasi (tanpa Activity Log dan menu Admin)", () => {
+  it.each(["Sales", "Product"] as const)(
+    "%s hanya melihat Dashboard, Proyek, Notifikasi (tanpa Activity Log dan menu Admin)",
+    (role) => {
+      renderWithProviders(<Sidebar />, { role });
+      expect(navLinks()).toEqual(["Dashboard", "Proyek", "Notifikasi"]);
+      expect(screen.queryByRole("link", { name: /settings|pengaturan|pengguna/i })).not.toBeInTheDocument();
+    },
+  );
+
+  it("(lanjutan) Sales tanpa menu pengelolaan", () => {
     renderWithProviders(<Sidebar />, { role: "Sales" });
     expect(navLinks()).toEqual(["Dashboard", "Proyek", "Notifikasi"]);
     expect(screen.queryByRole("link", { name: /settings|pengaturan|pengguna/i })).not.toBeInTheDocument();
@@ -26,13 +35,28 @@ describe("Sidebar — menu per peran", () => {
     expect(screen.queryByText("Admin")).not.toBeInTheDocument();
   });
 
-  it("Admin melihat menu umum plus bagian Admin dengan Pengguna, tanpa Pengaturan", () => {
+  it("Admin (SA dengan is_admin) melihat menu SA plus Dashboard Lead SA dan bagian Admin", () => {
     renderWithProviders(<Sidebar />, { role: "Admin" });
-    expect(navLinks()).toEqual(["Dashboard", "Proyek", "Activity Log", "Notifikasi", "Pengguna"]);
+    expect(navLinks()).toEqual([
+      "Dashboard",
+      "Proyek",
+      "Activity Log",
+      "Notifikasi",
+      "Dashboard Lead SA",
+      "Pengguna",
+    ]);
+    expect(screen.getByRole("link", { name: "Dashboard Lead SA" })).toHaveAttribute("href", "/dashboard/lead-sa");
     expect(screen.queryByRole("link", { name: /settings|pengaturan/i })).not.toBeInTheDocument();
     // Label bagian "Admin" (selain peran di footer) hanya ada untuk Admin
     expect(screen.getAllByText("Admin").some((el) => el.className.includes("uppercase"))).toBe(true);
     expect(screen.getByRole("link", { name: "Pengguna" })).toHaveAttribute("href", "/admin/users");
+  });
+
+  it("Lead_SA dengan is_admin tidak mendapat Dashboard Lead SA ganda, tetapi mendapat bagian Admin", () => {
+    seedAuth("Lead_SA", { is_admin: true });
+    renderWithProviders(<Sidebar />);
+    expect(navLinks()).not.toContain("Dashboard Lead SA");
+    expect(navLinks()).toContain("Pengguna");
   });
 
   it("peran belum diketahui hanya menampilkan Dashboard dan Proyek", () => {

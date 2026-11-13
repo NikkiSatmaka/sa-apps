@@ -8,7 +8,8 @@ import { useAuthStore } from "@/store/auth";
 /**
  * Halaman Demo Login Portal SA
  *
- * Menampilkan tombol demo login per role (Sales, SA, Lead SA, Admin).
+ * Menampilkan tombol demo login per persona (Sales, Product, SA, Lead SA, Admin).
+ * Persona "Admin" = SA dengan flag admin (ADR 0012), bukan role tersendiri.
  * Klik tombol demo → POST ke /auth/demo-login → simpan token → redirect dashboard.
  *
  * Halaman ini terpisah dari /login (yang hanya menampilkan Google OAuth).
@@ -27,6 +28,11 @@ const DEMO_ROLES = [
     role: "Sales",
     label: "Login sebagai Sales",
     color: "bg-blue-600 hover:bg-blue-700 focus:ring-blue-500",
+  },
+  {
+    role: "Product",
+    label: "Login sebagai Product",
+    color: "bg-cyan-600 hover:bg-cyan-700 focus:ring-cyan-500",
   },
   {
     role: "SA",
@@ -121,6 +127,7 @@ function DemoContent() {
           email: userData.email,
           full_name: userData.name || userData.full_name,
           role: userData.role,
+          is_admin: userData.is_admin === true,
           avatar_url: userData.avatar_url,
         });
       }

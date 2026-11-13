@@ -2,6 +2,7 @@
 
 import { useAuthStore } from "@/store/auth";
 import { logout } from "@/lib/auth";
+import { labelPeran } from "@/lib/roles";
 
 /**
  * Halaman Profil (/profile) — read-only.
@@ -19,7 +20,7 @@ export default function ProfilePage() {
   const rows: { label: string; value: string }[] = [
     { label: "Nama", value: user.full_name },
     { label: "Email", value: user.email },
-    { label: "Role", value: user.role },
+    { label: "Role", value: labelPeran(user) },
   ];
 
   return (
@@ -35,7 +36,7 @@ export default function ProfilePage() {
           </div>
           <div>
             <p className="text-lg font-medium text-neutral-900">{user.full_name}</p>
-            <p className="text-sm text-neutral-500">{user.role}</p>
+            <p className="text-sm text-neutral-500">{labelPeran(user)}</p>
           </div>
         </div>
 

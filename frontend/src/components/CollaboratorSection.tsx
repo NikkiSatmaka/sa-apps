@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { fetcher, apiRequest } from "@/lib/fetcher";
 import { LoadError } from "./LoadError";
 import { useAuthStore } from "@/store/auth";
+import { isPrivileged, isRequester, isRequesterTerbatas, ROLES } from "@/lib/roles";
 
 /**
  * Section Kolaborator — Menampilkan dan mengelola kolaborator proyek.
@@ -70,22 +71,23 @@ export function CollaboratorSection({
   );
 
   // Batasi kandidat sesuai aturan role penambah (selaras dengan backend):
-  // - Sales hanya bisa menambahkan sesama Sales
+  // - Sales/Product hanya bisa menambahkan sesama Sales/Product
   // - SA hanya bisa menambahkan sesama SA
-  // - Lead_SA / Admin bisa menambahkan role apa pun
+  // - Lead_SA / admin (`is_admin`) bisa menambahkan role apa pun
+  const terbatasRequester = isRequesterTerbatas(user);
+  const terbatasSA = user?.role === "SA" && !isPrivileged(user);
   const searchResults = (searchResultsRaw ?? []).filter((u) => {
-    if (user?.role === "Sales") return u.role === "Sales";
-    if (user?.role === "SA") return u.role === "SA";
-    return true; // Lead_SA / Admin
+    if (terbatasRequester) return u.role === "Sales" || u.role === "Product";
+    if (terbatasSA) return u.role === "SA";
+    return true;
   });
 
   // Keterangan batasan untuk ditampilkan di form
-  const addRestrictionNote =
-    user?.role === "Sales"
-      ? "Sebagai Sales, Anda hanya dapat menambahkan sesama Sales."
-      : user?.role === "SA"
-        ? "Sebagai SA, Anda hanya dapat menambahkan sesama SA."
-        : null;
+  const addRestrictionNote = terbatasRequester
+    ? "Sebagai Sales/Product, Anda hanya dapat menambahkan sesama Sales/Product."
+    : terbatasSA
+      ? "Sebagai SA, Anda hanya dapat menambahkan sesama SA."
+      : null;
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -137,8 +139,8 @@ export function CollaboratorSection({
     }
   };
 
-  // Can add collaborator: SA, Sales, Lead_SA, Admin
-  const canManage = user?.role && ["SA", "Sales", "Lead_SA", "Admin"].includes(user.role);
+  // Can add collaborator: semua role fungsional (SA, Sales, Product, Lead_SA); batasan per role di atas
+  const canManage = !!user?.role && (ROLES as readonly string[]).includes(user.role);
 
   const getRoleBadge = (role: string) => {
     if (role === "viewer")
@@ -232,7 +234,7 @@ export function CollaboratorSection({
                       setSelectedUser(u);
                       setSearchQuery(u.name);
                       // Auto-set contributor only if user is SA
-                      if (u.role !== "SA" && u.role !== "Lead_SA" && u.role !== "Admin") {
+                      if (u.role !== "SA" && u.role !== "Lead_SA") {
                         setSelectedRole("viewer");
                       }
                     }}
@@ -296,13 +298,13 @@ export function CollaboratorSection({
               <button
                 type="button"
                 onClick={() => setSelectedRole("contributor")}
-                disabled={selectedUser?.role === "Sales"}
+                disabled={isRequester(selectedUser)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
                   selectedRole === "contributor"
                     ? "bg-emerald-50 text-emerald-700 border-emerald-300"
                     : "bg-white text-neutral-600 border-neutral-300 hover:bg-neutral-50"
-                } ${selectedUser?.role === "Sales" ? "opacity-50 cursor-not-allowed" : ""}`}
-                title={selectedUser?.role === "Sales" ? "Hanya SA yang bisa menjadi contributor" : ""}
+                } ${isRequester(selectedUser) ? "opacity-50 cursor-not-allowed" : ""}`}
+                title={isRequester(selectedUser) ? "Hanya SA yang bisa menjadi contributor" : ""}
               >
                 ✏️ Contributor — Bisa tambah Activity Log
               </button>

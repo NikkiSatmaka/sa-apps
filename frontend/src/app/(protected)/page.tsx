@@ -9,10 +9,12 @@ import LeadSADashboard from "./dashboard/lead-sa/page";
  * Halaman utama (/) — render dashboard sesuai role
  *
  * Setiap role punya dashboard fungsional sendiri:
- * - Sales: listing proyek miliknya
+ * - Sales dan Product: listing proyek miliknya (dashboard requester)
  * - SA: listing proyek assigned + activity
  * - Lead_SA: overview + utilisasi SA + effort per proyek
- * - Admin: sama dengan Lead_SA
+ *
+ * Admin bukan role melainkan flag `is_admin` (ADR 0012): beranda mengikuti role fungsional;
+ * dashboard Lead SA tetap terjangkau lewat menu samping untuk admin.
  */
 
 function DashboardSkeleton() {
@@ -39,12 +41,11 @@ export default function HomePage() {
 
   switch (user.role) {
     case "Sales":
+    case "Product":
       return <SalesDashboard />;
     case "SA":
       return <SADashboard />;
     case "Lead_SA":
-      return <LeadSADashboard />;
-    case "Admin":
       return <LeadSADashboard />;
     default:
       return <SADashboard />;

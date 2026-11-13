@@ -11,6 +11,7 @@ import { RequirementItemsView } from "@/components/RequirementItemsView";
 import { RequirementSourceChangedBanner } from "@/components/RequirementSourceChangedBanner";
 import { RequirementRegenerateSection } from "@/components/RequirementRegenerateSection";
 import { RequirementItemsEditor } from "@/components/RequirementItemsEditor";
+import { isPrivileged } from "@/lib/roles";
 import {
   createDocument,
   getProjectDocuments,
@@ -100,10 +101,9 @@ export default function DocumentsPage() {
     error: projError,
   } = useSWR<ProjectDetail>(`/projects/${projectId}`, fetcher);
 
-  // Edit butir Requirement: Lead_SA, Admin, atau SA yang ditugaskan (backend yang menegakkan)
+  // Edit butir Requirement: Lead_SA, admin, atau SA yang ditugaskan (backend yang menegakkan)
   const canEditRequirement =
-    user?.role === "Lead_SA" ||
-    user?.role === "Admin" ||
+    isPrivileged(user) ||
     (user?.role === "SA" && !!user.id && project?.assigned_sa?.id === user.id);
 
   // Toast helper
@@ -155,7 +155,7 @@ export default function DocumentsPage() {
   );
 
   // Cek apakah user bisa mengubah status dokumen Final
-  const canChangeFinalStatus = user?.role === "Lead_SA" || user?.role === "Admin";
+  const canChangeFinalStatus = isPrivileged(user);
 
   // Cek apakah proyek sudah punya use_case_tags (sudah scoring)
   const projectHasTags = !!(project?.use_case_tags?.length);

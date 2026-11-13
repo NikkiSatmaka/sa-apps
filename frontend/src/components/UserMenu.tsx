@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuthStore } from "@/store/auth";
 import { logout } from "@/lib/auth";
+import { labelPeran } from "@/lib/roles";
 
 /**
  * UserMenu — dropdown akun pengguna (dipakai di Header dan footer Sidebar)
@@ -78,7 +79,7 @@ export function UserMenu({
               {user?.full_name || "User"}
             </span>
             <span className="block text-xs text-neutral-400 truncate">
-              {user?.role || "—"}
+              {labelPeran(user)}
             </span>
           </span>
         )}
@@ -96,7 +97,7 @@ export function UserMenu({
               {user?.full_name || "User"}
             </p>
             <p className="text-xs text-neutral-500 truncate">{user?.email}</p>
-            <p className="text-xs text-neutral-400 mt-0.5">{user?.role}</p>
+            <p className="text-xs text-neutral-400 mt-0.5">{user?.role && labelPeran(user)}</p>
           </div>
 
           <Link

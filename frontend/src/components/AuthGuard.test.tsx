@@ -12,7 +12,7 @@ const renderGuard = () =>
     </AuthGuard>,
   );
 
-const roles: Role[] = ["Sales", "SA", "Lead_SA", "Admin"];
+const roles: Role[] = ["Sales", "Product", "SA", "Lead_SA", "Admin"];
 
 describe("AuthGuard", () => {
   it("tanpa token: mengalihkan ke /login dan tidak pernah menampilkan konten", async () => {
@@ -54,7 +54,12 @@ describe("AuthGuard", () => {
     const { user, isAuthenticated, isLoading } = useAuthStore.getState();
     expect(isAuthenticated).toBe(true);
     expect(isLoading).toBe(false);
-    expect(user).toMatchObject({ role, email: backendUser(role).email, full_name: backendUser(role).name });
+    expect(user).toMatchObject({
+      role: backendUser(role).role,
+      is_admin: backendUser(role).is_admin,
+      email: backendUser(role).email,
+      full_name: backendUser(role).name,
+    });
   });
 
   it("DIVERGENSI: guard tidak mengecek peran — semua peran melihat konten yang sama, tidak ada pengalihan karena peran", async () => {

@@ -44,6 +44,9 @@ vi.mock("@/components/CollaboratorSection", () => ({
     <div>Stub kolaborator: {initialCollaborators.length}</div>
   ),
 }));
+vi.mock("@/components/PeopleSection", () => ({
+  PeopleSection: ({ project }: { project: { id_project: string } }) => <div>Stub orang: {project.id_project}</div>,
+}));
 vi.mock("@/components/QualificationSection", () => ({
   QualificationSection: () => <div>Stub kualifikasi</div>,
 }));
@@ -116,6 +119,20 @@ describe("Detail proyek — informasi", () => {
     expect(screen.getByText("Security")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Dokumen/ })).toHaveAttribute("href", `/projects/${DETAIL_ID}/documents`);
     expect(screen.getByRole("link", { name: /Riwayat Log/ })).toHaveAttribute("href", `/projects/${DETAIL_ID}/activity-logs`);
+  });
+
+  it("menampilkan Lead SA dan section penggantian orang", async () => {
+    setup("Lead_SA", { lead_sa: { id: "l1", name: "Lead Demo", email: "l@example.com" } });
+    await screen.findByRole("heading", { level: 1, name: "Migrasi Cloud ACME" });
+    expect(screen.getByText("Lead SA:")).toBeInTheDocument();
+    expect(screen.getByText("Lead Demo")).toBeInTheDocument();
+    expect(screen.getByText(`Stub orang: ${DETAIL_ID}`)).toBeInTheDocument();
+  });
+
+  it("Lead SA belum terisi tampil sebagai 'Belum ada'", async () => {
+    setup("Lead_SA", { lead_sa: null });
+    await screen.findByRole("heading", { level: 1, name: "Migrasi Cloud ACME" });
+    expect(screen.getByText("Belum ada")).toBeInTheDocument();
   });
 
   it("menampilkan Dibuat oleh, Product PIC, dan Sales PIC", async () => {

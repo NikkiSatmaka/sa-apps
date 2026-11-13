@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
+import { LoadError } from "@/components/LoadError";
 import { ProjectCard } from "@/components/ProjectCard";
 import { useAuthStore } from "@/store/auth";
 
@@ -58,13 +59,18 @@ export default function SalesDashboard() {
   const user = useAuthStore((state) => state.user);
 
   // Fetch proyek milik Sales saat ini, sorted by updated_at descending
-  const { data: projects, isLoading } = useSWR<SalesProject[]>(
+  const { data: projects, isLoading, error: projectsError, mutate: mutateProjects } = useSWR<SalesProject[]>(
     user ? "/projects?sales_pic=me&sort=-updated_at" : null,
     fetcher
   );
 
   // Fetch ringkasan status proyek milik Sales
-  const { data: statusSummary, isLoading: isLoadingStatus } = useSWR<StatusCount[]>(
+  const {
+    data: statusSummary,
+    isLoading: isLoadingStatus,
+    error: statusError,
+    mutate: mutateStatus,
+  } = useSWR<StatusCount[]>(
     user ? "/projects/status-summary?sales_pic=me" : null,
     fetcher
   );
@@ -112,6 +118,10 @@ export default function SalesDashboard() {
           </div>
         )}
 
+        {statusError && !statusSummary && (
+          <LoadError message="Gagal memuat ringkasan proyek." onRetry={() => mutateStatus()} />
+        )}
+
         {!isLoadingStatus && statusSummary && (
           <div className="rounded-lg border border-neutral-200 bg-white p-5">
             {statusSummary.length === 0 ? (
@@ -155,6 +165,10 @@ export default function SalesDashboard() {
 
       {/* Loading skeleton — ditampilkan saat data belum tersedia (Req 19.5) */}
       {isLoading && <ProjectListSkeleton />}
+
+      {projectsError && !projects && (
+        <LoadError message="Gagal memuat daftar proyek." onRetry={() => mutateProjects()} />
+      )}
 
       {/* Konten utama: daftar proyek atau empty state */}
       {!isLoading && projects && (

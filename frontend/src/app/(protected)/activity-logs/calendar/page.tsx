@@ -2,6 +2,7 @@
 
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
+import { LoadError } from "@/components/LoadError";
 import { CalendarSync } from "@/components/CalendarSync";
 
 /**
@@ -27,7 +28,12 @@ interface Project {
 
 export default function CalendarSyncPage() {
   // Fetch daftar proyek untuk mapping dropdown
-  const { data: rawProjects, isLoading: projectsLoading } = useSWR<ProjectItem[]>(
+  const {
+    data: rawProjects,
+    isLoading: projectsLoading,
+    error: projectsError,
+    mutate: mutateProjects,
+  } = useSWR<ProjectItem[]>(
     "/projects",
     fetcher
   );
@@ -67,6 +73,8 @@ export default function CalendarSyncPage() {
             <div className="h-10 bg-neutral-200 rounded w-full" />
             <div className="h-80 bg-neutral-200 rounded w-full" />
           </div>
+        ) : projectsError && !rawProjects ? (
+          <LoadError message="Gagal memuat daftar proyek." onRetry={() => mutateProjects()} />
         ) : (
           <CalendarSync projects={projects} />
         )}

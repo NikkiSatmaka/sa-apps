@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import useSWR from "swr";
 import { fetcher, apiRequest } from "@/lib/fetcher";
+import { LoadError } from "./LoadError";
 import { useAuthStore } from "@/store/auth";
 
 /**
@@ -49,15 +50,21 @@ export function CollaboratorSection({
   const searchRef = useRef<HTMLDivElement>(null);
 
   // Fetch collaborators
-  const { data, mutate } = useSWR<{ items: Collaborator[]; total: number }>(
+  const { data, mutate, error: listError } = useSWR<{ items: Collaborator[]; total: number }>(
     `/projects/${projectId}/collaborators`,
     fetcher
   );
 
   const collaborators = data?.items ?? initialCollaborators ?? [];
+  // Gagal memuat dan belum ada data dari server: tampilkan error, bukan keadaan kosong.
+  const gagalMemuat = Boolean(listError) && !data;
 
   // Search users
-  const { data: searchResultsRaw } = useSWR<UserSearchResult[]>(
+  const {
+    data: searchResultsRaw,
+    error: searchError,
+    mutate: mutateSearch,
+  } = useSWR<UserSearchResult[]>(
     searchQuery.length >= 2 ? `/projects/users/search?q=${encodeURIComponent(searchQuery)}&limit=10` : null,
     fetcher
   );
@@ -198,8 +205,17 @@ export function CollaboratorSection({
                          focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
             />
 
+            {/* Pencarian gagal: bedakan dari "tidak ada yang cocok" */}
+            {searchQuery.length >= 2 && !selectedUser && searchError && !searchResultsRaw && (
+              <LoadError
+                className="mt-1"
+                message="Gagal mencari user."
+                onRetry={() => mutateSearch()}
+              />
+            )}
+
             {/* Tidak ada kandidat yang cocok setelah filter role */}
-            {searchQuery.length >= 2 && !selectedUser && searchResults.length === 0 && (
+            {searchQuery.length >= 2 && !selectedUser && !searchError && searchResults.length === 0 && (
               <p className="mt-1 text-xs text-neutral-400">
                 Tidak ada user yang cocok dan diizinkan untuk ditambahkan.
               </p>
@@ -306,11 +322,22 @@ export function CollaboratorSection({
         </div>
       )}
 
+      {/* Gagal memuat daftar: tampil di atas daftar awal (bila ada) atau menggantikan keadaan kosong */}
+      {gagalMemuat && (
+        <LoadError
+          className="mb-3"
+          message="Gagal memuat daftar kolaborator."
+          onRetry={() => mutate()}
+        />
+      )}
+
       {/* List collaborators */}
       {collaborators.length === 0 ? (
-        <p className="text-sm text-neutral-500 text-center py-3">
-          Belum ada kolaborator di proyek ini.
-        </p>
+        !gagalMemuat && (
+          <p className="text-sm text-neutral-500 text-center py-3">
+            Belum ada kolaborator di proyek ini.
+          </p>
+        )
       ) : (
         <div className="space-y-2">
           {collaborators.map((c) => (

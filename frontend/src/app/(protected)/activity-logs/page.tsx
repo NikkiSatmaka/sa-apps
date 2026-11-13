@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
+import { LoadError } from "@/components/LoadError";
 import { ActivityLogForm } from "@/components/ActivityLogForm";
 
 /**
@@ -43,7 +44,12 @@ export default function ActivityLogsPage() {
 function ActivityLogsContent() {
   const searchParams = useSearchParams();
   const defaultProjectId = searchParams.get("project") ?? undefined;
-  const { data: rawProjects, isLoading: projectsLoading } = useSWR<ProjectItem[]>(
+  const {
+    data: rawProjects,
+    isLoading: projectsLoading,
+    error: projectsError,
+    mutate: mutateProjects,
+  } = useSWR<ProjectItem[]>(
     "/projects",
     fetcher
   );
@@ -101,6 +107,8 @@ function ActivityLogsContent() {
             <div className="h-10 bg-neutral-200 rounded w-1/2" />
             <div className="h-24 bg-neutral-200 rounded w-full" />
           </div>
+        ) : projectsError && !rawProjects ? (
+          <LoadError message="Gagal memuat daftar proyek." onRetry={() => mutateProjects()} />
         ) : (
           <ActivityLogForm
             projects={projects}

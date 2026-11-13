@@ -3,6 +3,7 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
+import { LoadError } from "./LoadError";
 import {
   AvailableSA,
   PendingProject,
@@ -40,7 +41,12 @@ export function AssignmentModal({
   const [error, setError] = useState<string | null>(null);
 
   // Fetch daftar SA tersedia
-  const { data: saList, isLoading: isLoadingSA } = useSWR<AvailableSA[]>(
+  const {
+    data: saList,
+    isLoading: isLoadingSA,
+    error: saError,
+    mutate: mutateSA,
+  } = useSWR<AvailableSA[]>(
     "/sa/available",
     fetcher
   );
@@ -173,6 +179,10 @@ export function AssignmentModal({
                 </div>
               ))}
             </div>
+          )}
+
+          {saError && !saList && (
+            <LoadError message="Gagal memuat daftar SA." onRetry={() => mutateSA()} />
           )}
 
           {/* Daftar SA */}

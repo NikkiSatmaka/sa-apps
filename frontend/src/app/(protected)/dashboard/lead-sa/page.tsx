@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
+import { LoadError } from "@/components/LoadError";
 import {
   PendingProject,
   AvailableSA,
@@ -87,18 +88,25 @@ export default function LeadSADashboard() {
   const {
     data: pendingProjects,
     isLoading: isLoadingPending,
+    error: pendingError,
     mutate: mutatePending,
   } = useSWR<PendingProject[]>("/projects/pending-assignment", fetcher);
 
   // Fetch overview proyek aktif (count per status)
-  const { data: statusSummary, isLoading: isLoadingStatus } = useSWR<
-    StatusCount[]
-  >("/projects/status-summary", fetcher);
+  const {
+    data: statusSummary,
+    isLoading: isLoadingStatus,
+    error: statusError,
+    mutate: mutateStatus,
+  } = useSWR<StatusCount[]>("/projects/status-summary", fetcher);
 
   // Fetch utilisasi SA (proyek aktif)
-  const { data: saUtilization, isLoading: isLoadingSA } = useSWR<
-    AvailableSA[]
-  >("/sa/available", fetcher);
+  const {
+    data: saUtilization,
+    isLoading: isLoadingSA,
+    error: saError,
+    mutate: mutateSA,
+  } = useSWR<AvailableSA[]>("/sa/available", fetcher);
 
   // Fetch utilisasi SA per bulan
   const utilizationUrl = selectedSAId
@@ -202,6 +210,10 @@ export default function LeadSADashboard() {
         {/* Loading skeleton */}
         {isLoadingPending && <PendingListSkeleton />}
 
+        {pendingError && !pendingProjects && (
+          <LoadError message="Gagal memuat antrian assignment." onRetry={() => mutatePending()} />
+        )}
+
         {/* Daftar proyek pending */}
         {!isLoadingPending && pendingProjects && (
           <>
@@ -240,6 +252,10 @@ export default function LeadSADashboard() {
           </h2>
 
           {isLoadingStatus && <StatusSummarySkeleton />}
+
+          {statusError && !statusSummary && (
+            <LoadError message="Gagal memuat ringkasan proyek aktif." onRetry={() => mutateStatus()} />
+          )}
 
           {!isLoadingStatus && statusSummary && (
             <div className="rounded-lg border border-neutral-200 bg-white p-5">
@@ -289,6 +305,10 @@ export default function LeadSADashboard() {
           </h2>
 
           {isLoadingSA && <SAUtilizationSkeleton />}
+
+          {saError && !saUtilization && (
+            <LoadError message="Gagal memuat utilisasi SA." onRetry={() => mutateSA()} />
+          )}
 
           {!isLoadingSA && saUtilization && (
             <div className="rounded-lg border border-neutral-200 bg-white p-5">
@@ -810,7 +830,7 @@ interface ProjectUtilData {
 /** Komponen section utilisasi per proyek */
 function ProjectUtilizationSection() {
   const router = useRouter();
-  const { data, isLoading } = useSWR<ProjectUtilData[]>(
+  const { data, isLoading, error, mutate } = useSWR<ProjectUtilData[]>(
     "/utilization/projects",
     fetcher
   );
@@ -826,6 +846,10 @@ function ProjectUtilizationSection() {
         </div>
       </div>
     );
+  }
+
+  if (error && !data) {
+    return <LoadError message="Gagal memuat effort per proyek." onRetry={() => mutate()} />;
   }
 
   if (!data || data.length === 0) {

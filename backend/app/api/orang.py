@@ -34,7 +34,8 @@ _ATURAN_FIELD: dict[str, tuple[PeranUser, bool]] = {
 
 def _id_audit() -> str:
     tanggal = datetime.now(timezone.utc).strftime("%Y%m%d")
-    return f"AUDIT-{tanggal}-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    acak = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    return f"AUDIT-{tanggal}-{acak}"
 
 
 def _ringkas(user: Optional[User]) -> Optional[dict]:

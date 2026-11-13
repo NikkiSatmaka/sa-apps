@@ -81,6 +81,10 @@ PENGECUALIAN: dict[tuple[str, str], tuple[str, str]] = {
         ALASAN_ROLE_GATE,
         "SAH-3",
     ),
+    ("PATCH", "/api/v1/projects/{project_id}/people"): (
+        ALASAN_ROLE_GATE,
+        "SAH-11",
+    ),
     ("POST", "/api/v1/projects/{project_id}/assign"): (
         ALASAN_ROLE_GATE,
         "SAH-5",

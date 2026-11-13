@@ -184,6 +184,19 @@ async def test_id_tidak_valid_atau_tidak_ada_ditolak_422(dunia, api):
         assert resp.status_code == 422, resp.text
 
 
+@pytest.mark.parametrize("isi", [b"bukan json", b"[1, 2]"])
+async def test_body_bukan_objek_json_ditolak_422(dunia, api, isi):
+    proyek = await _proyek(dunia)
+
+    resp = await api.client.patch(
+        ORANG.format(proyek.id_project),
+        content=isi,
+        headers={**dunia.h["lead"], "Content-Type": "application/json"},
+    )
+
+    assert resp.status_code == 422, resp.text
+
+
 async def test_proyek_tidak_ada_404(dunia, api):
     resp = await api.client.patch(
         ORANG.format("PRJ-TIDAK-ADA"), json={"sales_pic": None}, headers=dunia.h["lead"]

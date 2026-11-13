@@ -30,12 +30,7 @@ function setup(role?: Role) {
   return renderWithProviders(<TimSASection projectId="p1" />, role ? { role } : {});
 }
 
-const KONTROL = [
-  "+ Tambah SA",
-  "Ganti SA utama",
-  "Jadikan SA utama",
-  "Lepas",
-];
+const KONTROL = [/Tambah SA/, /Ganti SA utama/, /Jadikan .* SA utama/, /^Lepas/];
 
 describe("TimSASection — tampilan", () => {
   it.each(["Sales", "Product", "SA", "Lead_SA", "Admin"] as const)(
@@ -59,7 +54,7 @@ describe("TimSASection — tampilan", () => {
     setup(role);
     await screen.findByText("Andi Utama");
     for (const nama of KONTROL) {
-      expect(screen.queryByRole("button", { name: new RegExp(nama) })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: nama })).not.toBeInTheDocument();
     }
     expect(dipanggil).toBe(false);
   });
@@ -77,10 +72,12 @@ describe("TimSASection — tampilan", () => {
     expect(screen.queryByRole("button", { name: /Tambah SA|Ganti SA utama/ })).not.toBeInTheDocument();
   });
 
-  it("menampilkan skeleton saat memuat", () => {
+  it("menampilkan skeleton saat memuat, lalu tim", async () => {
     serve();
     const { container } = setup("Sales");
     expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
+    expect(await screen.findByText("Andi Utama")).toBeInTheDocument();
+    expect(container.querySelector(".animate-pulse")).not.toBeInTheDocument();
   });
 
   it("error memuat tampil sebagai alert dan bisa dicoba ulang", async () => {

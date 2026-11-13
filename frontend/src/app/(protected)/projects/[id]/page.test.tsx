@@ -109,7 +109,9 @@ describe("Detail proyek — informasi", () => {
     expect(screen.getByText(DETAIL_ID)).toBeInTheDocument();
     expect(screen.getByText(/Terakhir Diubah: 2 Jan 2025/)).toBeInTheDocument();
     expect(screen.getByText("Sales Demo")).toBeInTheDocument();
-    expect(screen.getByText("SA Demo")).toBeInTheDocument();
+    // "SA Demo" tampil di baris info dan di section Tim SA (SA utama).
+    await screen.findByRole("listitem", { name: "SA utama: SA Demo" });
+    expect(screen.getAllByText("SA Demo")).toHaveLength(2);
     expect(screen.getByText("DQ-77")).toBeInTheDocument();
     expect(screen.getByText("31 Desember 2025")).toBeInTheDocument();
     expect(screen.getByText("Cloud Migration")).toBeInTheDocument();

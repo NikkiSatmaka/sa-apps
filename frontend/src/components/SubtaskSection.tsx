@@ -5,7 +5,6 @@ import useSWR from "swr";
 import { fetcher, apiRequest } from "@/lib/fetcher";
 import { LoadError } from "./LoadError";
 import { useAuthStore } from "@/store/auth";
-import type { AvailableSA } from "@/lib/api/assignment";
 import { isPrivileged as isPrivilegedUser } from "@/lib/roles";
 
 /**
@@ -27,6 +26,7 @@ import { isPrivileged as isPrivilegedUser } from "@/lib/roles";
  * - POST   /projects/{id}/subtasks
  * - PATCH  /projects/subtasks/{id}/status
  * - PATCH  /projects/subtasks/{id}/assign
+ * - GET    /projects/{id}/tim-sa (opsi assignee: SA utama + SA tambahan)
  * - DELETE /projects/subtasks/{id}
  */
 
@@ -41,6 +41,16 @@ interface Subtask {
   assigned_sa_name: string | null;
   created_at: string;
   updated_at: string;
+}
+
+interface AnggotaTim {
+  id: string;
+  name: string;
+}
+
+interface TimSA {
+  sa_utama: AnggotaTim | null;
+  sa_tambahan: AnggotaTim[];
 }
 
 interface SubtaskSectionProps {
@@ -80,11 +90,16 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
     fetcher
   );
 
-  // Daftar SA untuk kontrol assign — hanya di-fetch untuk role privileged.
-  const { data: saList } = useSWR<AvailableSA[]>(
-    isPrivileged ? "/sa/available" : null,
+  // Assignee harus anggota tim SA project (ADR 0014): opsi assign datang dari tim SA, hanya
+  // di-fetch untuk role privileged.
+  const { data: tim } = useSWR<TimSA>(
+    isPrivileged ? `/projects/${projectId}/tim-sa` : null,
     fetcher
   );
+  const opsiAssign = [
+    ...(tim?.sa_utama ? [{ id: tim.sa_utama.id, label: `${tim.sa_utama.name} (SA utama)` }] : []),
+    ...(tim?.sa_tambahan ?? []).map((s) => ({ id: s.id, label: `${s.name} (SA tambahan)` })),
+  ];
 
   // Gagal memuat (dan belum ada data lama): tampilkan error, bukan keadaan kosong.
   const gagalMemuat = Boolean(loadError) && !data;
@@ -375,9 +390,9 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
                                  disabled:opacity-50"
                     >
                       <option value="">— Lepas penugasan —</option>
-                      {(saList ?? []).map((sa) => (
+                      {opsiAssign.map((sa) => (
                         <option key={sa.id} value={sa.id}>
-                          {sa.name} ({sa.active_project_count} proyek)
+                          {sa.label}
                         </option>
                       ))}
                     </select>

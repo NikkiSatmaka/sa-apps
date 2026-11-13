@@ -128,11 +128,11 @@ class TestProject:
         await simpan(db_session, user)
         await ditolak(db_session, "chk_projects_status", bangun_project(user.id, status=status))
 
-    async def test_status_pending_dq_ditolak_database_divergensi_spec_adr_0001(self, db_session):
+    async def test_status_pending_dq_ditolak_database(self, db_session):
         """
-        TEMUAN (dilaporkan, bukan diperbaiki): Spesifikasi + ADR 0001 menyatakan `Pending DQ`
-        dipertahankan sebagai status Flow 2, tetapi CHECK `chk_projects_status` menolaknya
-        dan tidak ada kode yang memakainya. Test ini mendokumentasikan perilaku NYATA.
+        `Pending DQ` bukan status proyek (diputuskan 2026-11-10, ADR 0001 / issue #79): DQ yang
+        belum diisi cukup ditandai `dq_number` kosong, sehingga CHECK `chk_projects_status`
+        menolaknya.
         """
         user = bangun_user()
         await simpan(db_session, user)

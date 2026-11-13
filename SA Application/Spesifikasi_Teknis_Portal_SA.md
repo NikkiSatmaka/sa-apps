@@ -25,7 +25,7 @@ Portal ini menggabungkan manajemen proyek (request Sales ke SA) dan manajemen ut
    - Jika *BANT Score* >= 60%: Lolos. Notifikasi *New Opportunity* dikirim ke Lead SA untuk penugasan (*Assignment*).
 
 ### Flow 2: Dokumen, SLA DQ Number, dan Gating System
-1. **Work Stream SA:** SA yang ditugaskan dapat langsung bekerja tanpa harus menunggu DQ Number. SA mengerjakan *Technical Proposal*, *BOQ (AWS Calc)*, dan *Mandays* di folder `Solutions`. (Dokumen HLD ditunda hingga *Closed-Win*).
+1. **Work Stream SA:** Normalnya SA mulai bekerja setelah DQ Number diisi Sales, sama seperti informasi lain yang diisi Sales. Pada kasus urgent yang jarang terjadi, SA yang ditugaskan boleh bekerja sebelum DQ terisi (prerogatif); portal tidak memblokirnya. SA mengerjakan *Technical Proposal*, *BOQ (AWS Calc)*, dan *Mandays* di folder `Solutions`. (Dokumen HLD ditunda hingga *Closed-Win*).
 2. **DQ Number Gating (SLA 5 Hari):**
    - **< 5 Hari:** Jika Sales sudah input DQ, saat dokumen SA berstatus `Reviewed`, link Google Drive akan **terbuka otomatis** untuk Sales beserta notifikasi email.
    - **> 5 Hari:** Jika DQ belum diinput, link dokumen akan **terkunci (Hidden/Locked)**. Sistem mengirimkan reminder (H+3) dan eskalasi ke Sales Manager (H+5).
@@ -34,11 +34,11 @@ Portal ini menggabungkan manajemen proyek (request Sales ke SA) dan manajemen ut
 1. **GCalendar Sync:** Sistem menarik data acara (*events*) dari Google Calendar SA secara *real-time*.
 2. **Mapping oleh SA:** Melalui Portal, SA memetakan kalender ke dalam work item *Subtask* (misal: "Meeting Pre-Implementation", "Create HLD"). *Subtask* adalah work item yang bisa ditugaskan, berbeda dari `ActivityCategory` (taksonomi pengelompokan log) — lihat catatan pada struktur `ActivityLogs`.
 3. **AI Activity Polish:** Saat SA mengetik catatan rapat (*notes*) secara kasual di Portal, Gemini AI merapikan teks tersebut menjadi **Poin Diskusi & Action Items** terstruktur.
-4. **Project Story:** Log aktivitas ini dimasukkan ke dalam *Project Story* global yang dapat diakses oleh Manager dan *Backup SA* (untuk *handover* saat SA cuti).
+4. **Project Story:** Log aktivitas ini dimasukkan ke dalam *Project Story* global yang dapat dibaca **semua pengguna** (keputusan 2026-11-10, lihat catatan hak akses di bawah), termasuk *Backup SA* untuk *handover* saat SA cuti.
 
-   > **Catatan divergensi (keputusan 2026-11-10):** Project Story juga dapat dibaca (dan ringkasan AI-nya diminta) oleh **Sales PIC proyek itu**, agar Sales melihat progres. Story memuat catatan rapat mentah dan versi polish AI, jadi pembukaan akses ini keputusan sadar. Sales bukan PIC tetap tidak berhak, dan Sales PIC tetap tidak boleh menulis activity log/kalender.
+   > **Hak akses proyek (keputusan pemilik produk 2026-11-10):** **semua proyek dapat dilihat oleh semua pengguna terautentikasi**, tanpa batas (detail, daftar, dokumen, Project Story beserta ringkasan AI, kolaborator, subtask, hasil BANT, SLA). Hak **tulis** saja yang dibatasi: SA yang ditugaskan, *contributor*, Lead SA, Admin, dan Sales PIC menurut aturan tiap aksi. Link dokumen folder `Solutions` bagi Sales tetap mengikuti gating DQ Flow 2 dan izin Drive. Story memuat catatan rapat mentah dan versi polish AI; keterbukaannya disengaja. Lihat [`docs/adr/0011-baca-proyek-terbuka-tulis-dibatasi.md`](../docs/adr/0011-baca-proyek-terbuka-tulis-dibatasi.md).
 
-   > **Catatan pemetaan (keputusan grill 2026-10-21):** *Backup SA* **bukan** peran atau entity baru — ia dipenuhi oleh fitur **Project Collaboration**, yaitu *collaborator* dengan akses baca *Project Story*. Lihat [`docs/adr/0002-backup-sa-via-project-collaboration.md`](../docs/adr/0002-backup-sa-via-project-collaboration.md).
+   > **Catatan pemetaan (keputusan grill 2026-10-21):** *Backup SA* **bukan** peran atau entity baru — ia dipenuhi oleh fitur **Project Collaboration**: *collaborator* (terutama *contributor*, yang boleh menulis activity log) menggantikan SA utama saat berhalangan. Karena membaca kini terbuka untuk semua, yang dibedakan collaborator hanyalah hak tulis. Lihat [`docs/adr/0002-backup-sa-via-project-collaboration.md`](../docs/adr/0002-backup-sa-via-project-collaboration.md).
 
 ### Flow 4: Post-Sales & PMO Handover
 1. **Closed-Win Trigger:** Saat proyek berstatus *PO Rilis / Win*, SA menerima notifikasi wajib membuat **HLD (High Level Document)**.
@@ -58,13 +58,13 @@ Portal ini menggabungkan manajemen proyek (request Sales ke SA) dan manajemen ut
 | `dq_number` | String | Input belakangan, syarat rilis dokumen |
 | `sales_pic` | UUID | Relasi ke tabel `Users` |
 | `assigned_sa` | UUID | Relasi ke tabel `Users` |
-| `status` | Enum | New, Pending Assignment, Assigned, Pending DQ, Ready, Closed-Win, Handover Complete, Lost, Need Clarification, Scoring Pending, Manual Review Required |
+| `status` | Enum | New, Pending Assignment, Assigned, Ready, Closed-Win, Handover Complete, Lost, Need Clarification, Scoring Pending, Manual Review Required |
 | `target_submit` | Date | Tanggal batas pengajuan proposal |
 | `bant_score` | Integer | 0-100% didapat dari Gemini API |
 | `use_case_tags` | JSON | Misal: ["App Mod", "DB Migration"] |
 | `gdrive_folder_id` | String | ID Master Folder proyek di GDrive |
 
-> **Catatan enum `status` (keputusan grill 2026-10-21):** set status operasional di atas mengikuti **kode sebagai ground truth** untuk status operasional — `Pending Assignment, Scoring Pending, Need Clarification, Manual Review Required, Handover Complete` lahir dari Flow 1 (AI scoring) dan Flow 4 (handover) yang sudah berjalan. `Pending DQ` **dipertahankan** karena milik Flow 2 (SLA DQ gating). Lihat [`docs/adr/0001-status-enum-code-is-ground-truth-keep-pending-dq.md`](../docs/adr/0001-status-enum-code-is-ground-truth-keep-pending-dq.md).
+> **Catatan enum `status` (keputusan grill 2026-10-21, diperbarui 2026-11-10):** set status operasional di atas mengikuti **kode sebagai ground truth** untuk status operasional — `Pending Assignment, Scoring Pending, Need Clarification, Manual Review Required, Handover Complete` lahir dari Flow 1 (AI scoring) dan Flow 4 (handover) yang sudah berjalan. Status `Pending DQ` **dihapus**: DQ yang belum diisi cukup ditandai `dq_number` kosong, bukan status proyek. Lihat [`docs/adr/0001-status-enum-code-is-ground-truth.md`](../docs/adr/0001-status-enum-code-is-ground-truth.md).
 
 ### B. Tabel `Documents` (Deliverables Tracker)
 | Field Name | Type | Description |

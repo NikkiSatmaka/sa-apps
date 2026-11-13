@@ -63,15 +63,20 @@ async def test_get_documents_kolaborator_boleh_lihat_tetapi_tidak_boleh_generate
 
 
 @pytest.mark.parametrize("role", ["Sales", "SA"])
-async def test_get_documents_pengguna_tanpa_akses_403_tanpa_membocorkan_dokumen(skenario, role):
+async def test_get_documents_pengguna_tak_terkait_boleh_melihat_tetapi_tidak_generate_ulang(
+    skenario, role
+):
+    """Keputusan 2026-11-10: semua proyek dapat dibaca siapa pun; generate ulang tetap dibatasi."""
     s = skenario
     id_project = await s.proyek_lolos_gate()
     _, header = await s.pengguna_baru(role)
 
     resp = await ambil_dokumen(s, id_project, header=header)
 
-    assert resp.status_code == 403
-    assert "documents" not in resp.text and "Login terpusat" not in resp.text
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["total"] == 1 and data["documents"][0]["doc_type"] == "Requirement"
+    assert data["can_regenerate_requirement"] is False
 
 
 async def test_get_documents_tanpa_login_dan_proyek_tidak_ada(skenario):

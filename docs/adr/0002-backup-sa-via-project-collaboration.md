@@ -4,4 +4,4 @@ Spec Flow 3 meminta Project Story dapat diakses "Backup SA" saat SA utama berhal
 
 ## Consequences
 
-- Keputusan pemilik produk 2026-11-10: Sales PIC proyek itu juga boleh membaca Project Story dan meminta ringkasan AI (membalik spec #87 / issue #74). Ini di luar pemetaan Backup SA dan menyimpang dari teks spec Flow 3 yang menyebut "Manager dan Backup SA"; Story memuat catatan rapat mentah dan versi polish AI, jadi pembukaan ini disengaja. Hak tulis Sales PIC (activity log, kalender) tidak berubah.
+- Keputusan pemilik produk 2026-11-10 ([ADR 0011](0011-baca-proyek-terbuka-tulis-dibatasi.md)): semua proyek, termasuk Project Story dan ringkasan AI, dapat dibaca semua pengguna terautentikasi. Akibatnya "akses baca Story" tidak lagi membedakan collaborator; yang bermakna dari Backup SA adalah peran *contributor* (boleh menulis activity log). Hak tulis Sales PIC (activity log, kalender) tidak berubah.

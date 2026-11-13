@@ -144,7 +144,7 @@ async def test_rangkaian_forward_penuh_sampai_closed_win_dengan_satu_audit_per_l
         ("Closed-Win", "Ready"),  # mundur
         ("Assigned", "Assigned"),  # sama
         ("Assigned", "Status-Ngawur"),  # tidak dikenal
-        ("Assigned", "Pending DQ"),  # ada di spec, tetapi bukan bagian state machine ini
+        ("Assigned", "Pending DQ"),  # bukan status proyek (ADR 0001, 2026-11-10)
         ("Need Clarification", "Assigned"),  # status luar jalur linear hanya bisa Lost
         ("Scoring Pending", "Pending Assignment"),
     ],

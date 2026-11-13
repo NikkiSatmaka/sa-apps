@@ -5,7 +5,7 @@ Portal internal untuk tim Solution Architect (SA) di alur pre-sales sampai hando
 ## Peran
 
 **Sales**:
-Orang yang membuat opportunity dan mengisi kualifikasi awal. Bukan bagian dari tim SA; mendapat akses baca ke folder/dokumen tertentu.
+Orang yang membuat opportunity dan mengisi kualifikasi awal. Bukan bagian dari tim SA; dapat melihat semua proyek, tetapi link folder Drive/dokumen tertentu (mis. Solutions) mengikuti gating DQ.
 _Avoid_: Account Executive, AE
 
 **SA** (Solution Architect):
@@ -17,7 +17,7 @@ SA yang mengambil keputusan assignment proyek ke SA dan mengelola subtask. Penga
 _Avoid_: SA Manager
 
 **Backup SA**:
-SA yang diberi akses baca Project Story sebuah proyek untuk handover saat SA utama berhalangan (mis. cuti). Bukan peran atau entity tersendiri — dipetakan sebagai *collaborator* lewat fitur Project Collaboration.
+SA yang menggantikan SA utama sebuah proyek saat berhalangan (mis. cuti), supaya bisa meneruskan dan menulis activity log. Bukan peran atau entity tersendiri — dipetakan sebagai *collaborator* (*contributor*) lewat fitur Project Collaboration.
 _Avoid_: Pengganti SA, substitute SA
 
 ## Proyek & status
@@ -29,9 +29,6 @@ _Avoid_: Deal, lead
 **Project**:
 Entity inti yang melacak satu opportunity dari intake sampai handover. Punya `status`, BANT score, dokumen, dan activity log.
 _Avoid_: Case, ticket
-
-**Pending DQ**:
-Status proyek saat menunggu DQ Number diisi; milik Flow 2 (Dokumen, DQ Number & Gating). Status spec yang wajib dipertahankan meski status operasional lain mengikuti kode.
 
 ## Kualifikasi
 
@@ -58,7 +55,7 @@ Taksonomi untuk mengelompokkan entri activity log (mis. Internal Meeting, Custom
 _Avoid_: Subtask (keduanya berbeda peran), activity type
 
 **Project Story**:
-Catatan naratif/kronologis aktivitas sebuah proyek, dapat diakses Backup SA untuk handover dan Sales PIC proyek itu (read-only, untuk melihat progres; keputusan 2026-11-10). Memuat catatan rapat mentah dan versi polish AI.
+Catatan naratif/kronologis aktivitas sebuah proyek. Dapat dibaca semua pengguna terautentikasi (keputusan 2026-11-10); menulisnya dibatasi SA ditugaskan dan contributor. Memuat catatan rapat mentah dan versi polish AI.
 _Avoid_: Timeline, log narasi
 
 ## Dokumen

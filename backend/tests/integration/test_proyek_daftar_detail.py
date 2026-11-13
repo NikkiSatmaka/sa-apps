@@ -66,21 +66,12 @@ async def dunia(api, db_session):
 # --------------------------------------------------------------------------- daftar per peran
 
 
-@pytest.mark.parametrize(
-    ("aktor", "diharapkan"),
-    [
-        ("sales_a", {"PRJ-A1"}),
-        ("sales_b", {"PRJ-B1", "PRJ-B2"}),
-        ("sa1", {"PRJ-B1"}),
-        ("sa2", {"PRJ-B2"}),  # lewat kolaborator
-        ("lead", {"PRJ-A1", "PRJ-B1", "PRJ-B2"}),
-        ("admin", {"PRJ-A1", "PRJ-B1", "PRJ-B2"}),
-    ],
-)
-async def test_daftar_proyek_dibatasi_per_peran(dunia, aktor, diharapkan):
+@pytest.mark.parametrize("aktor", ["sales_a", "sales_b", "sa1", "sa2", "lead", "admin"])
+async def test_daftar_proyek_terlihat_semua_peran(dunia, aktor):
+    """Keputusan pemilik produk 2026-11-10: semua proyek dapat dilihat semua pengguna."""
     resp = await dunia.api.client.get(URL, headers=bearer(getattr(dunia, aktor)))
 
-    assert await _ids(resp) == diharapkan
+    assert await _ids(resp) == {"PRJ-A1", "PRJ-B1", "PRJ-B2"}
 
 
 async def test_param_sales_pic_dan_assigned_to_hanya_menyempit(dunia):
@@ -89,7 +80,7 @@ async def test_param_sales_pic_dan_assigned_to_hanya_menyempit(dunia):
         "PRJ-B1",
         "PRJ-B2",
     }
-    # Param assigned_to=me untuk Sales tidak memperluas akses
+    # Param assigned_to=me hanya menyempit
     assert await _ids(await c.get(URL, params={"assigned_to": "me"}, headers=h)) == set()
     lead = bearer(dunia.lead)
     assert await _ids(await c.get(URL, params={"sales_pic": "me"}, headers=lead)) == set()
@@ -117,7 +108,7 @@ async def test_filter_status_dan_urutan_serta_bidang_respons(dunia):
     assert b1["created_at"] and b1["updated_at"]
 
 
-async def test_status_summary_per_peran_dan_penyempit(dunia):
+async def test_status_summary_semua_peran_melihat_semua_proyek_dan_penyempit(dunia):
     c = dunia.api.client
     lead = (await c.get(f"{URL}/status-summary", headers=bearer(dunia.lead))).json()["data"]
     assert {s["status"]: s["count"] for s in lead} == {
@@ -125,8 +116,9 @@ async def test_status_summary_per_peran_dan_penyempit(dunia):
         "Assigned": 1,
         "Pending Assignment": 1,
     }
-    sa2 = (await c.get(f"{URL}/status-summary", headers=bearer(dunia.sa2))).json()["data"]
-    assert sa2 == [{"status": "Pending Assignment", "count": 1}]
+    for aktor in (dunia.sa2, dunia.sales_a):
+        data = (await c.get(f"{URL}/status-summary", headers=bearer(aktor))).json()["data"]
+        assert {s["status"]: s["count"] for s in data} == {s["status"]: s["count"] for s in lead}
     mine = (
         await c.get(
             f"{URL}/status-summary", params={"sales_pic": "me"}, headers=bearer(dunia.sales_b)
@@ -148,22 +140,11 @@ async def test_daftar_tanpa_login_ditolak(api):
 # --------------------------------------------------------------------------- detail & akses
 
 
-@pytest.mark.parametrize(
-    ("aktor", "kode"),
-    [
-        ("sales_b", 200),  # Sales PIC
-        ("sa1", 200),  # assigned SA
-        ("sa2", 200),  # kolaborator
-        ("lead", 200),
-        ("admin", 200),
-        ("sales_a", 403),  # Sales lain
-    ],
-)
-async def test_detail_proyek_akses_per_peran(dunia, aktor, kode):
+@pytest.mark.parametrize("aktor", ["sales_b", "sa1", "sa2", "lead", "admin", "sales_a"])
+async def test_detail_proyek_terbuka_untuk_semua_peran(dunia, aktor):
+    """Keputusan 2026-11-10: Sales PIC, SA ditugaskan, pihak tak terkait, dan Lead/Admin semuanya 200."""
     resp = await dunia.api.client.get(f"{URL}/PRJ-B1", headers=bearer(getattr(dunia, aktor)))
-    if aktor == "sa2":  # sa2 hanya kolaborator B2, bukan B1
-        kode = 403
-    assert resp.status_code == kode
+    assert resp.status_code == 200, resp.text
 
 
 async def test_detail_proyek_tidak_ada_404(dunia):

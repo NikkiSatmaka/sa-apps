@@ -1,9 +1,9 @@
 """
 Akses BACA pada status SLA, hasil BANT, dan rekomendasi (tiket #88, spec #87).
 
-Matriks peran × aksi di Postgres nyata: pihak berhak (Lead_SA, Admin, Sales PIC, SA ditugaskan,
-collaborator viewer/contributor) mendapat 200; pihak tak terkait mendapat 403 dengan pesan
-generik DAN tanpa efek samping — tracker SLA tidak berubah, tidak ada panggilan LLM/Drive/Gmail.
+Matriks peran × aksi di Postgres nyata. Keputusan pemilik produk 2026-11-10: SEMUA proyek dapat
+dibaca semua pengguna terautentikasi (Lead_SA, Admin, Sales PIC, SA ditugaskan, collaborator, dan
+pihak tak terkait) -> 200. Hanya akses TULIS yang dibatasi (lihat test K2-K5).
 """
 
 import pytest
@@ -19,7 +19,6 @@ from tests.integration.support_akses import (
 
 pytestmark = pytest.mark.usefixtures("komit_sesi_request")
 
-PESAN_403 = "Anda tidak memiliki akses ke proyek ini."
 ENDPOINT = ["sla-status", "bant-result", "recommendations"]
 
 
@@ -37,23 +36,16 @@ async def test_pihak_berhak_membaca_200(api, skenario_akses, aksi, aktor):
 
 @pytest.mark.parametrize("aksi", ENDPOINT)
 @pytest.mark.parametrize("aktor", AKTOR_TIDAK_BERHAK)
-async def test_pihak_tak_terkait_403_tanpa_efek_samping(
-    api, db_session, skenario_akses, fake_llm, fake_drive, fake_gmail, aksi, aktor
+async def test_pihak_tak_terkait_tetap_boleh_membaca_tanpa_panggilan_luar(
+    api, skenario_akses, fake_llm, fake_drive, fake_gmail, aksi, aktor
 ):
+    """Keputusan 2026-11-10: semua proyek dapat dibaca siapa pun. Membaca tidak memicu LLM/Drive/Gmail."""
     resp = await api.client.get(_url(aksi), headers=skenario_akses.header(aktor))
 
-    assert resp.status_code == 403
-    assert resp.json()["message"] == PESAN_403
-    # tidak ada panggilan LLM/Drive/Gmail
+    assert resp.status_code == 200, resp.text
     assert fake_llm.jumlah() == 0
     assert fake_drive.panggilan == []
     assert fake_gmail.percobaan == []
-    # tracker SLA tidak disentuh (pembacaan sah akan mengubahnya ke 'red')
-    sla = (
-        await db_session.execute(select(SLATracking).where(SLATracking.project_id == ID_PROYEK))
-    ).scalar_one()
-    await db_session.refresh(sla)
-    assert (sla.current_status, sla.days_elapsed) == ("green", 0)
 
 
 async def test_sla_status_pihak_berhak_tetap_menghitung_ulang(api, skenario_akses):
@@ -75,10 +67,8 @@ async def test_tanpa_login_401(api, skenario_akses, aksi):
     assert (await api.client.get(_url(aksi))).status_code in (401, 403)
 
 
-async def test_sla_tanpa_tracker_404_untuk_berhak_dan_403_untuk_pihak_luar(
-    api, db_session, skenario_akses
-):
-    """Urutan: proyek ada → cek akses → baru tracker. Pihak luar tak boleh tahu soal tracker."""
+async def test_sla_tanpa_tracker_404_untuk_semua_pihak(api, db_session, skenario_akses):
+    """Proyek ada, tracker belum ada -> 404 untuk siapa pun (membaca terbuka untuk semua)."""
     await db_session.execute(SLATracking.__table__.delete())
     await db_session.commit()
 
@@ -86,7 +76,7 @@ async def test_sla_tanpa_tracker_404_untuk_berhak_dan_403_untuk_pihak_luar(
     luar = await api.client.get(_url("sla-status"), headers=skenario_akses.header("sa_luar"))
 
     assert berhak.status_code == 404
-    assert luar.status_code == 403
+    assert luar.status_code == 404
 
 
 async def test_rekomendasi_untuk_proyek_diminta_tetap_lintas_proyek(api, skenario_akses):

@@ -110,7 +110,7 @@ async def test_daftar_subtask_boleh_untuk_pihak_terkait_proyek(dunia, api, peran
     assert isi["total"] == 1 and isi["items"][0]["assigned_sa_name"] == dunia.sa.name
 
 
-async def test_daftar_subtask_collaborator_boleh_dan_pihak_tak_terkait_ditolak(dunia, api):
+async def test_daftar_subtask_semua_pengguna_boleh_membaca_termasuk_pihak_tak_terkait(dunia, api):
     pid, _ = await _siapkan(dunia)
     kolaborator = bangun_user(role="SA", email="kolab-t58@portal-sa.local")
     dunia.db.add(kolaborator)
@@ -123,7 +123,8 @@ async def test_daftar_subtask_collaborator_boleh_dan_pihak_tak_terkait_ditolak(d
     sales_lain = await api.client.get(SUBTASK_PROYEK.format(pid), headers=dunia.h["sales_lain"])
 
     assert kolab.status_code == 200
-    assert (sa_lain.status_code, sales_lain.status_code) == (403, 403)
+    # Keputusan 2026-11-10: membaca terbuka untuk semua pengguna terautentikasi.
+    assert (sa_lain.status_code, sales_lain.status_code) == (200, 200)
 
 
 async def test_daftar_subtask_urut_pembuatan_nama_sa_dan_null_bila_belum_ditugaskan(dunia, api):

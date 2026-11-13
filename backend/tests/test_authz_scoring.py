@@ -107,20 +107,18 @@ class TestScoringReadsAuth:
         response = client.get("/api/v1/projects/PRJ-20250101-ABC123/bant-result")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_bant_result_user_tak_terkait_403(self):
-        """Diubah di #88 (sebelumnya mengunci akses terbuka): user tak terkait → 403."""
+    def test_bant_result_user_tak_terkait_boleh_membaca(self):
+        """Keputusan 2026-11-10: semua proyek dapat dibaca siapa pun (sebelumnya 403, #88)."""
         project = _make_project()  # user tak terkait sama sekali
         mock_session = AsyncMock()
-        # query 1: proyek; query 2 (cek collaborator): bukan collaborator
-        mock_session.execute = AsyncMock(
-            side_effect=[_execute_result_scalar(project), _execute_result_scalar(None)]
-        )
+        # hanya query proyek: membaca terbuka, tidak ada cek collaborator lagi
+        mock_session.execute = AsyncMock(side_effect=[_execute_result_scalar(project)])
         _override_db(mock_session)
         _override_current_user(_make_user(role="SA"))
 
         client = TestClient(app)
         response = client.get("/api/v1/projects/PRJ-20250101-ABC123/bant-result")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_200_OK
 
     def test_bant_result_sa_ditugaskan_200(self):
         user = _make_user(role="SA")
@@ -145,20 +143,18 @@ class TestScoringReadsAuth:
         response = client.get("/api/v1/projects/PRJ-20250101-ABC123/recommendations")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_recommendations_user_tak_terkait_403(self):
-        """Diubah di #88 (sebelumnya mengunci akses terbuka): user tak terkait → 403."""
+    def test_recommendations_user_tak_terkait_boleh_membaca(self):
+        """Keputusan 2026-11-10: semua proyek dapat dibaca siapa pun (sebelumnya 403, #88)."""
         project = _make_project()
         project.use_case_tags = []  # jalur cepat: tanpa panggil scoring_engine
         mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(
-            side_effect=[_execute_result_scalar(project), _execute_result_scalar(None)]
-        )
+        mock_session.execute = AsyncMock(side_effect=[_execute_result_scalar(project)])
         _override_db(mock_session)
         _override_current_user(_make_user(role="SA"))
 
         client = TestClient(app)
         response = client.get("/api/v1/projects/PRJ-20250101-ABC123/recommendations")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_200_OK
 
     def test_recommendations_sales_pic_200(self):
         user = _make_user(role="Sales")

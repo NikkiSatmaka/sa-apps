@@ -40,16 +40,12 @@ def _project_a(sales_pic=None, assigned_sa=None):
     return p
 
 
-def _list(user, project, *, collaborator=False):
+def _list(user, project):
     docs = MagicMock()
     docs.scalars.return_value.all.return_value = []
     session = AsyncMock()
     session.execute = AsyncMock(
-        side_effect=[
-            _result_scalar(project),
-            _result_scalar(object() if collaborator else None),  # query collaborator
-            docs,
-        ]
+        side_effect=[_result_scalar(project), docs]  # BACA terbuka: tanpa query collaborator
     )
 
     async def _db():
@@ -60,14 +56,15 @@ def _list(user, project, *, collaborator=False):
     return TestClient(app).get(LIST_URL)
 
 
-def test_daftar_dokumen_ditolak_untuk_sales_proyek_lain():
+def test_daftar_dokumen_boleh_untuk_sales_proyek_lain():
+    """Keputusan 2026-11-10: semua proyek dapat dibaca siapa pun."""
     resp = _list(_make_user("Sales"), _project_a())
-    assert resp.status_code == 403
+    assert resp.status_code == 200
 
 
-def test_daftar_dokumen_ditolak_untuk_sa_tidak_ditugaskan():
+def test_daftar_dokumen_boleh_untuk_sa_tidak_ditugaskan():
     resp = _list(_make_user("SA"), _project_a(assigned_sa=uuid.uuid4()))
-    assert resp.status_code == 403
+    assert resp.status_code == 200
 
 
 @pytest.mark.parametrize("role", ["Lead_SA", "Admin"])
@@ -86,7 +83,7 @@ def test_daftar_dokumen_boleh_untuk_sa_ditugaskan():
 
 
 def test_daftar_dokumen_boleh_untuk_collaborator_baca():
-    resp = _list(_make_user("SA"), _project_a(assigned_sa=uuid.uuid4()), collaborator=True)
+    resp = _list(_make_user("SA"), _project_a(assigned_sa=uuid.uuid4()))
     assert resp.status_code == 200
 
 

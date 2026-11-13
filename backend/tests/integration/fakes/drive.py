@@ -26,6 +26,7 @@ OPERASI = (
     "lock_solutions_folder",
     "unlock_solutions_folder",
     "provision_handover",
+    "reassign_sa_access",
 )
 
 
@@ -141,6 +142,22 @@ class FakeDrive:
         self.izin[deliverables][delivery_email] = "reader"
         return deliverables
 
+    async def reassign_sa_access(
+        self, master_folder_id: str, old_sa_email: str | None, new_sa_email: str
+    ) -> None:
+        self._mulai(
+            "reassign_sa_access",
+            master_folder_id=master_folder_id,
+            old_sa_email=old_sa_email,
+            new_sa_email=new_sa_email,
+        )
+        izin = self.izin.setdefault(master_folder_id, {})
+        izin[new_sa_email] = "writer"
+        if old_sa_email and old_sa_email != new_sa_email:
+            izin.pop(old_sa_email, None)
+
     def pasang(self, monkeypatch: pytest.MonkeyPatch) -> None:
         for operasi in OPERASI:
-            monkeypatch.setattr(folder_provisioner, operasi, getattr(self, operasi))
+            monkeypatch.setattr(
+                folder_provisioner, operasi, getattr(self, operasi), raising=False
+            )

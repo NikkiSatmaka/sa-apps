@@ -355,6 +355,95 @@ class TestUnlockSolutionsFolder:
 
 
 # =============================================================================
+# Test: reassign_sa_access (#77)
+# =============================================================================
+
+
+def _daftar_izin(mock_drive_service, *izin):
+    """Atur hasil permissions().list: pasangan (id, email)."""
+    perm_list_mock = MagicMock()
+    perm_list_mock.execute.return_value = {
+        "permissions": [{"id": i, "emailAddress": e} for i, e in izin]
+    }
+    mock_drive_service.permissions.return_value.list.return_value = perm_list_mock
+
+
+class TestReassignSaAccess:
+    """Pindahkan akses Editor folder master dari SA lama ke SA baru."""
+
+    @pytest.mark.asyncio
+    async def test_beri_editor_ke_sa_baru_dan_cabut_sa_lama(
+        self, provisioner_with_service, mock_drive_service
+    ):
+        _daftar_izin(mock_drive_service, ("perm_lama", "lama@company.com"))
+
+        await provisioner_with_service.reassign_sa_access(
+            master_folder_id="master_001",
+            old_sa_email="lama@company.com",
+            new_sa_email="baru@company.com",
+        )
+
+        buat = mock_drive_service.permissions.return_value.create
+        buat.assert_called_once()
+        assert buat.call_args.kwargs["fileId"] == "master_001"
+        assert buat.call_args.kwargs["body"] == {
+            "type": "user",
+            "role": "writer",
+            "emailAddress": "baru@company.com",
+        }
+        hapus = mock_drive_service.permissions.return_value.delete
+        hapus.assert_called_once_with(fileId="master_001", permissionId="perm_lama")
+
+    @pytest.mark.asyncio
+    async def test_sa_baru_yang_sudah_punya_akses_tidak_dibuat_ulang(
+        self, provisioner_with_service, mock_drive_service
+    ):
+        _daftar_izin(
+            mock_drive_service,
+            ("perm_lama", "lama@company.com"),
+            ("perm_baru", "Baru@Company.com"),
+        )
+
+        await provisioner_with_service.reassign_sa_access("master_001", "lama@company.com", "baru@company.com")
+
+        mock_drive_service.permissions.return_value.create.assert_not_called()
+        mock_drive_service.permissions.return_value.delete.assert_called_once_with(
+            fileId="master_001", permissionId="perm_lama"
+        )
+
+    @pytest.mark.asyncio
+    async def test_sa_lama_tanpa_izin_tidak_ada_yang_dihapus(
+        self, provisioner_with_service, mock_drive_service
+    ):
+        _daftar_izin(mock_drive_service)
+
+        await provisioner_with_service.reassign_sa_access("master_001", "lama@company.com", "baru@company.com")
+
+        mock_drive_service.permissions.return_value.create.assert_called_once()
+        mock_drive_service.permissions.return_value.delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_tanpa_sa_lama_hanya_memberi_akses(
+        self, provisioner_with_service, mock_drive_service
+    ):
+        _daftar_izin(mock_drive_service)
+
+        await provisioner_with_service.reassign_sa_access("master_001", None, "baru@company.com")
+
+        mock_drive_service.permissions.return_value.create.assert_called_once()
+        mock_drive_service.permissions.return_value.delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sa_sama_tidak_mengubah_apa_pun(
+        self, provisioner_with_service, mock_drive_service
+    ):
+        await provisioner_with_service.reassign_sa_access("master_001", "sama@company.com", "SAMA@company.com")
+
+        mock_drive_service.permissions.return_value.create.assert_not_called()
+        mock_drive_service.permissions.return_value.delete.assert_not_called()
+
+
+# =============================================================================
 # Test: provision_handover
 # =============================================================================
 

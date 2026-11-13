@@ -198,6 +198,57 @@ def test_upgrade_dari_013_mempertahankan_requirement_lama_dengan_nilai_bawaan(da
     assert _sql(url, "SELECT requirement_generation_status FROM projects")[0][0] is None
 
 
+def _audit(url: str, id_audit: str, performed_by: str | None) -> None:
+    _sql(
+        url,
+        "INSERT INTO audit_logs (id, entity_type, entity_id, action, performed_by, new_value) "
+        "VALUES (:i, 'folder', 'PRJ-MIG', 'lock', :u, '{}')",
+        {"i": id_audit, "u": performed_by},
+    )
+
+
+def test_016_audit_performed_by_nullable_dan_sla_escalated_at(database_kosong_url):
+    """#77: aksi otomatis SLA ditulis tanpa user sistem; eskalasi dicatat sekali per tracker."""
+    url = database_kosong_url
+    jalankan_alembic(url, "upgrade", "head")
+    _isi_user_dan_proyek(url)
+
+    _audit(url, "AUD-OTOMATIS", None)
+    _audit(url, "AUD-MANUAL", USER_ID)
+
+    assert {b[0] for b in _sql(url, "SELECT id FROM audit_logs")} == {"AUD-OTOMATIS", "AUD-MANUAL"}
+    kolom = _sql(
+        url,
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'sla_tracking' AND column_name = 'escalated_at'",
+    )
+    assert [k[0] for k in kolom] == ["escalated_at"]
+
+
+def test_downgrade_015_membuang_audit_otomatis_dan_kolom_escalated_at_lalu_naik_lagi(
+    database_kosong_url,
+):
+    url = database_kosong_url
+    jalankan_alembic(url, "upgrade", "head")
+    _isi_user_dan_proyek(url)
+    _audit(url, "AUD-OTOMATIS", None)
+    _audit(url, "AUD-MANUAL", USER_ID)
+
+    jalankan_alembic(url, "downgrade", "015")
+
+    assert _versi(url) == "015"
+    assert {b[0] for b in _sql(url, "SELECT id FROM audit_logs")} == {"AUD-MANUAL"}
+    assert _sql(
+        url,
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = 'sla_tracking' AND column_name = 'escalated_at'",
+    ) == []
+
+    jalankan_alembic(url, "upgrade", "head")
+    assert _versi(url) == _head()
+    _audit(url, "AUD-OTOMATIS-2", None)
+
+
 # --------------------------------------------------------------------------- constraint dokumen
 
 

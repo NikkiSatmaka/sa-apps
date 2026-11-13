@@ -8,7 +8,6 @@ Waktu dikendalikan lewat `bekukan_waktu` (jam `sla_timer` digeser); tidak ada sl
 sesinya sendiri; email dijadwalkan di background sehingga ditahan/dilepas lewat `fake_gmail`.
 """
 
-import uuid
 from datetime import timedelta
 
 import pytest
@@ -30,8 +29,6 @@ from tests.integration.support_assignment import (
     proyek_aktif_sla,
 )
 
-SISTEM_ID = uuid.UUID(int=0)
-
 
 @pytest.fixture(autouse=True)
 def _sesi_service_terpatch(monkeypatch, session_factory):
@@ -42,26 +39,6 @@ def _sesi_service_terpatch(monkeypatch, session_factory):
 @pytest.fixture
 async def dunia(db_session):
     return await bangun_dunia(db_session)
-
-
-@pytest.fixture
-async def user_sistem(db_session):
-    """
-    User sistem (UUID nol) sebagai pelaku audit aksi otomatis. Tabel `audit_logs.performed_by`
-    ber-FK ke `users`, dan belum ada migration yang membuat user ini (temuan tiket #58).
-    """
-    from app.models import User
-
-    db_session.add(
-        User(
-            id=SISTEM_ID,
-            email="sistem-t58@portal-sa.local",
-            name="Sistem",
-            role="SA",
-            google_id="g-sistem-t58",
-        )
-    )
-    await db_session.commit()
 
 
 @pytest.fixture
@@ -158,9 +135,7 @@ async def test_reminder_memicu_email_ke_sales_lewat_gmail_palsu(dunia, jam, fake
 # ----------------------------------------------------------------------------- eskalasi H+5 & lock
 
 
-async def test_h5_eskalasi_ke_manager_dan_sales_serta_lock_solutions(
-    dunia, jam, fake_drive, user_sistem
-):
+async def test_h5_eskalasi_ke_manager_dan_sales_serta_lock_solutions(dunia, jam, fake_drive):
     proyek = await proyek_aktif_sla(dunia, fake_drive)
     solutions = proyek.gdrive_solutions_folder_id
     assert fake_drive.peran(solutions, dunia.sales.email) == "reader"
@@ -191,10 +166,12 @@ async def test_h5_eskalasi_ke_manager_dan_sales_serta_lock_solutions(
     # Jejak audit lock tercatat.
     audit = await daftar_audit(dunia.db, proyek.id_project, "lock")
     assert len(audit) == 1 and audit[0].new_value["is_locked"] is True
+    # Aksi otomatis: pelaku NULL (tidak ada user sistem; #77).
+    assert audit[0].performed_by is None
 
 
-async def test_audit_gagal_tanpa_user_sistem_tidak_menggagalkan_lock(dunia, jam, fake_drive):
-    """Tanpa user sistem audit tak bisa ditulis (FK), tetapi lock dan siklus cron tetap selesai."""
+async def test_audit_lock_tertulis_tanpa_user_sistem_dengan_pelaku_null(dunia, jam, fake_drive):
+    """#77: tidak ada user sistem; audit aksi otomatis tertulis dengan `performed_by` NULL."""
     proyek = await proyek_aktif_sla(dunia, fake_drive)
 
     jam.ke(T0 + timedelta(days=5))
@@ -204,7 +181,8 @@ async def test_audit_gagal_tanpa_user_sistem_tidak_menggagalkan_lock(dunia, jam,
     sla = await ambil_sla(dunia.db, proyek.id_project)
     assert (sla.is_locked, sla.current_status) == (True, "red")
     assert fake_drive.peran(proyek.gdrive_solutions_folder_id, dunia.sales.email) is None
-    assert await daftar_audit(dunia.db, proyek.id_project, "lock") == []
+    [audit] = await daftar_audit(dunia.db, proyek.id_project, "lock")
+    assert audit.performed_by is None and audit.entity_type == "folder"
 
 
 async def test_eskalasi_dan_lock_hanya_sekali_walau_diproses_berulang(dunia, jam, fake_drive):
@@ -258,6 +236,32 @@ async def test_lock_gagal_di_drive_tidak_mengunci_dan_dicoba_lagi_pada_siklus_be
     assert fake_drive.peran(solutions, dunia.sales.email) is None
 
 
+async def test_eskalasi_hanya_sekali_walau_lock_gagal_terus_dan_lock_tetap_dicoba_tiap_siklus(
+    dunia, jam, fake_drive
+):
+    """#77: lock gagal tidak boleh membuat eskalasi dikirim ulang tiap siklus (3 siklus = 9 notif)."""
+    proyek = await proyek_aktif_sla(dunia, fake_drive)
+    solutions = proyek.gdrive_solutions_folder_id
+    fake_drive.fail_next("lock_solutions_folder", times=2)
+
+    jam.ke(T0 + timedelta(days=5))
+    pertama = await _proses(dunia.db)
+    jam.ke(T0 + timedelta(days=5, hours=1))
+    kedua = await _proses(dunia.db)
+    jam.ke(T0 + timedelta(days=5, hours=2))
+    ketiga = await _proses(dunia.db)
+
+    assert [s["escalations_sent"] for s in (pertama, kedua, ketiga)] == [1, 0, 0]
+    assert [s["locks_performed"] for s in (pertama, kedua, ketiga)] == [0, 0, 1]
+    # Tiga penerima (Lead_SA, Admin, Sales) sekali saja, bukan sembilan.
+    assert len(await daftar_notif(dunia.db, proyek.id_project, "sla_escalation")) == 3
+    sla = await ambil_sla(dunia.db, proyek.id_project)
+    assert sla.escalated_at == T0 + timedelta(days=5)
+    assert len(fake_drive.panggilan_operasi("lock_solutions_folder")) == 3
+    assert sla.is_locked is True and fake_drive.peran(solutions, dunia.sales.email) is None
+    assert len(await daftar_audit(dunia.db, proyek.id_project, "lock")) == 1
+
+
 async def test_error_satu_proyek_tidak_menghentikan_proyek_lain(
     dunia, jam, fake_drive, monkeypatch
 ):
@@ -305,7 +309,7 @@ async def test_dq_diinput_sebelum_lock_menghentikan_timer_dan_tidak_ada_aksi_lan
 
 
 async def test_dq_diinput_setelah_lock_membuka_kembali_solutions_untuk_sales(
-    dunia, jam, fake_drive, api, user_sistem
+    dunia, jam, fake_drive, api
 ):
     proyek = await proyek_aktif_sla(dunia, fake_drive)
     solutions = proyek.gdrive_solutions_folder_id
@@ -329,6 +333,7 @@ async def test_dq_diinput_setelah_lock_membuka_kembali_solutions_untuk_sales(
     audit = await daftar_audit(dunia.db, proyek.id_project, "unlock")
     assert len(audit) == 1
     assert audit[0].new_value["delay_days"] == 6 and audit[0].old_value["is_locked"] is True
+    assert audit[0].performed_by is None
 
 
 async def test_unlock_gagal_di_drive_timer_berhenti_tapi_folder_tetap_terkunci(
@@ -344,6 +349,54 @@ async def test_unlock_gagal_di_drive_timer_berhenti_tapi_folder_tetap_terkunci(
     assert sla.stopped_at is not None
     assert sla.is_locked is True and sla.unlocked_at is None
     assert await daftar_audit(dunia.db, proyek.id_project, "unlock") == []
+
+
+async def test_unlock_yang_gagal_saat_stop_timer_dicoba_ulang_oleh_cron(dunia, jam, fake_drive):
+    """#77: timer berhenti tetapi folder masih terkunci -> siklus cron berikutnya membukanya."""
+    proyek = await proyek_aktif_sla(dunia, fake_drive)
+    solutions = proyek.gdrive_solutions_folder_id
+    jam.ke(T0 + timedelta(days=6))
+    await _proses(dunia.db)
+    fake_drive.fail_next("unlock_solutions_folder")
+    await sla_timer.stop_timer(proyek.id_project, dunia.db)
+    assert (await ambil_sla(dunia.db, proyek.id_project)).is_locked is True
+
+    jam.ke(T0 + timedelta(days=6, hours=1))
+    stats = await _proses(dunia.db)
+
+    assert stats["unlocks_retried"] == 1 and stats["errors"] == []
+    sla = await ambil_sla(dunia.db, proyek.id_project)
+    assert (sla.is_locked, sla.unlocked_at) == (False, T0 + timedelta(days=6, hours=1))
+    assert fake_drive.peran(solutions, dunia.sales.email) == "reader"
+    [audit] = await daftar_audit(dunia.db, proyek.id_project, "unlock")
+    assert audit.performed_by is None and audit.new_value["is_locked"] is False
+
+    jam.ke(T0 + timedelta(days=6, hours=2))
+    stats = await _proses(dunia.db)
+    assert stats["unlocks_retried"] == 0
+    assert len(fake_drive.panggilan_operasi("unlock_solutions_folder")) == 2
+
+
+async def test_unlock_yang_terus_gagal_dicoba_tiap_siklus_tanpa_error_dan_tanpa_audit_ganda(
+    dunia, jam, fake_drive
+):
+    proyek = await proyek_aktif_sla(dunia, fake_drive)
+    jam.ke(T0 + timedelta(days=6))
+    await _proses(dunia.db)
+    fake_drive.fail_next("unlock_solutions_folder", times=3)
+    await sla_timer.stop_timer(proyek.id_project, dunia.db)
+
+    for jam_ke in (1, 2):
+        jam.ke(T0 + timedelta(days=6, hours=jam_ke))
+        stats = await _proses(dunia.db)
+        assert stats["unlocks_retried"] == 0 and stats["errors"] == []
+    assert (await ambil_sla(dunia.db, proyek.id_project)).is_locked is True
+    assert await daftar_audit(dunia.db, proyek.id_project, "unlock") == []
+
+    jam.ke(T0 + timedelta(days=6, hours=3))
+    stats = await _proses(dunia.db)
+    assert stats["unlocks_retried"] == 1
+    assert len(await daftar_audit(dunia.db, proyek.id_project, "unlock")) == 1
 
 
 async def test_stop_timer_idempoten_dan_tanpa_tracker_mengembalikan_none(dunia, jam):

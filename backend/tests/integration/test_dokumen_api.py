@@ -158,8 +158,12 @@ async def test_daftar_dokumen_collaborator_diizinkan(api, db_session):
     assert resp.json()["data"]["total"] == 1
 
 
-@pytest.mark.parametrize("peran", ["SA", "Sales"])
-async def test_daftar_dokumen_tanpa_hubungan_ke_proyek_403(api, db_session, peran):
+@pytest.mark.parametrize(("peran", "terlihat"), [("SA", 1), ("Sales", 0)])
+async def test_daftar_dokumen_tanpa_hubungan_ke_proyek_tetap_200(api, db_session, peran, terlihat):
+    """
+    Keputusan 2026-11-10: semua proyek dapat dibaca siapa pun. SA tak terkait melihat dokumen;
+    Sales bukan PIC tetap tidak melihat link folder Solutions (gating Drive/DQ, bukan akses proyek).
+    """
     dunia = await siapkan_dunia(api, db_session)
     proyek = await buat_proyek(db_session, dunia)
     await buat_dokumen(db_session, proyek, dunia)
@@ -167,12 +171,12 @@ async def test_daftar_dokumen_tanpa_hubungan_ke_proyek_403(api, db_session, pera
 
     resp = await api.client.get(f"{API}/projects/{proyek.id_project}/documents", headers=header)
 
-    assert resp.status_code == 403
-    assert resp.json()["message"] == "Anda tidak memiliki akses ke proyek ini."
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["total"] == terlihat
 
 
-async def test_daftar_dokumen_sa_proyek_lain_dan_sales_proyek_lain_403(api, db_session):
-    """SA demo ditugaskan di proyek A, bukan B; Sales demo PIC proyek A, bukan B."""
+async def test_daftar_dokumen_sa_proyek_lain_dan_sales_proyek_lain_tetap_200(api, db_session):
+    """SA demo ditugaskan di proyek A, bukan B; Sales demo PIC proyek A, bukan B: keduanya boleh baca B."""
     dunia = await siapkan_dunia(api, db_session)
     sales_lain, _ = await user_baru(db_session, "Sales")
     from tests.integration.model_helpers import bangun_project
@@ -184,7 +188,7 @@ async def test_daftar_dokumen_sa_proyek_lain_dan_sales_proyek_lain_403(api, db_s
         resp = await api.client.get(
             f"{API}/projects/{proyek_b.id_project}/documents", headers=dunia.header[peran]
         )
-        assert resp.status_code == 403, peran
+        assert resp.status_code == 200, peran
 
 
 async def test_daftar_dokumen_proyek_tidak_ada_404_dan_urutan_terbaru_di_atas(api, db_session):

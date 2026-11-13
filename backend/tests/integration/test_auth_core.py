@@ -18,7 +18,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core import database
 from app.core.config import settings
-from app.core.dependencies import ensure_project_access
+from app.core.dependencies import TingkatAkses, ensure_project_access
 from app.models import Project, User
 from app.models.project_collaborator import ProjectCollaborator
 from tests._auth_support import buat_token, pasang_google
@@ -309,34 +309,48 @@ async def test_ensure_project_access_diizinkan_untuk_aktor_berhak(db_session, sk
 
 
 @pytest.mark.parametrize("aktor", DITOLAK)
-async def test_ensure_project_access_menolak_pihak_luar(db_session, skenario, aktor):
+async def test_ensure_project_access_menolak_pihak_luar_untuk_tulis(db_session, skenario, aktor):
     proyek, a = skenario
     with pytest.raises(HTTPException) as exc:
-        await ensure_project_access(db_session, proyek, a[aktor])
+        await ensure_project_access(db_session, proyek, a[aktor], TingkatAkses.UBAH_PROYEK)
     assert exc.value.status_code == 403
 
 
+@pytest.mark.parametrize("aktor", DITOLAK)
+async def test_ensure_project_access_baca_terbuka_untuk_pihak_luar(db_session, skenario, aktor):
+    """Keputusan 2026-11-10: semua proyek dapat dibaca semua pengguna; hanya tulis yang dibatasi."""
+    proyek, a = skenario
+    assert await ensure_project_access(db_session, proyek, a[aktor]) is None
+
+
 async def test_keanggotaan_collaborator_berlaku_per_proyek(db_session, skenario):
+    """Contributor proyek lain boleh menulis di proyek itu saja, bukan di proyek ini."""
     proyek, a = skenario
     lain = (
         await db_session.execute(select(Project).where(Project.id_project == "PRJ-AUTHZ-2"))
     ).scalar_one()
-    await ensure_project_access(db_session, lain, a["kolab_lain"])
+    await db_session.execute(
+        ProjectCollaborator.__table__.update()
+        .where(ProjectCollaborator.user_id == a["kolab_lain"].id)
+        .values(role="contributor")
+    )
+    await db_session.commit()
+    await ensure_project_access(db_session, lain, a["kolab_lain"], TingkatAkses.TULIS)
     with pytest.raises(HTTPException):
-        await ensure_project_access(db_session, proyek, a["kolab_lain"])
+        await ensure_project_access(db_session, proyek, a["kolab_lain"], TingkatAkses.TULIS)
 
 
-async def test_mencabut_collaborator_mencabut_akses(db_session, skenario):
+async def test_mencabut_collaborator_mencabut_akses_tulis(db_session, skenario):
     proyek, a = skenario
-    await ensure_project_access(db_session, proyek, a["kolab_viewer"])
+    await ensure_project_access(db_session, proyek, a["kolab_contrib"], TingkatAkses.TULIS)
     await db_session.execute(
         ProjectCollaborator.__table__.delete().where(
-            ProjectCollaborator.user_id == a["kolab_viewer"].id
+            ProjectCollaborator.user_id == a["kolab_contrib"].id
         )
     )
     await db_session.commit()
     with pytest.raises(HTTPException):
-        await ensure_project_access(db_session, proyek, a["kolab_viewer"])
+        await ensure_project_access(db_session, proyek, a["kolab_contrib"], TingkatAkses.TULIS)
 
 
 def _token_user(user: User) -> dict[str, str]:
@@ -353,12 +367,13 @@ async def test_http_baca_subtask_diizinkan(api, skenario, aktor):
 
 
 @pytest.mark.parametrize("aktor", DITOLAK)
-async def test_http_baca_subtask_pihak_luar_403(api, skenario, aktor):
+async def test_http_baca_subtask_pihak_luar_tetap_200(api, skenario, aktor):
+    """Keputusan 2026-11-10: membaca terbuka untuk semua pengguna terautentikasi."""
     proyek, a = skenario
     resp = await api.client.get(
         f"/api/v1/projects/{proyek.id_project}/subtasks", headers=_token_user(a[aktor])
     )
-    assert resp.status_code == 403
+    assert resp.status_code == 200, resp.text
 
 
 @pytest.mark.parametrize("aktor", ["sales_pic", "sa", "lead", "admin", "kolab_contrib"])

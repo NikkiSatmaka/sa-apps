@@ -99,13 +99,14 @@ async def test_daftar_boleh_untuk_pihak_terkait_proyek(api, db_session, peran_ak
 
 
 @pytest.mark.parametrize("peran", ["SA", "Sales"])
-async def test_daftar_user_tak_terkait_ditolak_403(api, db_session, peran):
+async def test_daftar_user_tak_terkait_tetap_boleh_membaca(api, db_session, peran):
+    """Keputusan 2026-11-10: semua proyek dapat dibaca siapa pun (menambah/menghapus tetap dibatasi)."""
     _, _, proyek = await _skenario(db_session)
     orang_luar = await buat_user(db_session, peran)
 
     resp = await api.client.get(_url(proyek.id_project), headers=bearer(orang_luar))
 
-    assert resp.status_code == 403
+    assert resp.status_code == 200, resp.text
 
 
 async def test_daftar_proyek_tidak_ada_404_dan_tanpa_token_401(api, db_session):
@@ -407,18 +408,24 @@ async def test_hapus_oleh_pihak_berwenang_menghapus_baris(api, db_session, pelak
     assert await _jumlah(db_session, proyek.id_project) == 0
 
 
-async def test_hapus_kolaborator_kehilangan_akses_dan_boleh_ditambah_lagi(api, db_session):
+async def test_hapus_kolaborator_kehilangan_akses_tulis_dan_boleh_ditambah_lagi(api, db_session):
     sales, sa, proyek = await _skenario(db_session)
     target = await buat_user(db_session, "SA")
-    await buat_kolaborator(db_session, proyek, target, sa)
+    await buat_kolaborator(db_session, proyek, target, sa, "contributor")
+    ubah = {"project_name": "Diubah kolaborator"}
+    url_proyek = f"{PROYEK}/{proyek.id_project}"
     assert (
-        await api.client.get(_url(proyek.id_project), headers=bearer(target))
+        await api.client.patch(url_proyek, json=ubah, headers=bearer(target))
     ).status_code == 200
 
     await api.client.delete(_url(proyek.id_project, target.id), headers=bearer(sa))
 
+    # Membaca tetap terbuka, tetapi hak tulis (contributor) hilang bersama baris kolaboratornya.
     assert (
         await api.client.get(_url(proyek.id_project), headers=bearer(target))
+    ).status_code == 200
+    assert (
+        await api.client.patch(url_proyek, json=ubah, headers=bearer(target))
     ).status_code == 403
     ulang = await api.client.post(
         _url(proyek.id_project), json={"user_id": str(target.id)}, headers=bearer(sa)

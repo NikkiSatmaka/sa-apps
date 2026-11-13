@@ -91,7 +91,7 @@ def test_daftar_dokumen_mengembalikan_requirement_dengan_link_kosong_dan_butir()
     sa = _make_user("SA")
     project = _make_project()
     project.assigned_sa = sa.id  # akses proyek wajib (ensure_project_access)
-    _setup(sa, [_result_scalar(project), _result_scalar(None), result])
+    _setup(sa, [_result_scalar(project), result])  # BACA terbuka: tanpa query collaborator
     resp = TestClient(app).get(f"/api/v1/projects/{PRJ}/documents")
     assert resp.status_code == 200
     [doc] = resp.json()["data"]["documents"]

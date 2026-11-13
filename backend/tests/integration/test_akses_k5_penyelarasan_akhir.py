@@ -166,10 +166,9 @@ async def _keadaan(db, proyek: Project) -> dict:
 
 # (nama, method, path, body, aktor berhak, status sukses yang diharapkan untuk berhak)
 RUTE_MIGRASI = [
-    ("detail-proyek", "GET", "/projects/{p}", None,
-     ["sales_pic", "sa", "lead", "admin", "kolab_viewer", "kolab_contrib"], {200}),
-    ("daftar-kolaborator", "GET", "/projects/{p}/collaborators", None,
-     ["sales_pic", "sa", "lead", "admin", "kolab_viewer", "kolab_contrib"], {200}),
+    # BACA terbuka untuk semua pengguna terautentikasi (keputusan 2026-11-10).
+    ("detail-proyek", "GET", "/projects/{p}", None, list(SEMUA_AKTOR), {200}),
+    ("daftar-kolaborator", "GET", "/projects/{p}/collaborators", None, list(SEMUA_AKTOR), {200}),
     ("hapus-kolaborator", "DELETE", "/projects/{p}/collaborators/{kolab_lain_id}", None,
      ["sales_pic", "sa", "lead", "admin"], {200, 404}),
     ("ubah-status", "PATCH", "/projects/{p}/status", {"new_status": "Ready"},

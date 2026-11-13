@@ -247,7 +247,6 @@ def test_get_dokumen_mengembalikan_flag_source_changed(status, overridden, hash_
     sa = _make_user("SA")
     results = [
         _result_scalar(_project_with_answers(assigned_sa=sa.id)),
-        _result_scalar(None),  # cek collaborator (ensure_project_access)
         _docs_result([req]),
         _result(items=sumber),
     ]

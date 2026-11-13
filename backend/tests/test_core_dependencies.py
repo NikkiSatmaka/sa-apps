@@ -13,7 +13,12 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
 from app.core.database import get_db
-from app.core.dependencies import ensure_project_access, get_current_user, require_role
+from app.core.dependencies import (
+    TingkatAkses,
+    ensure_project_access,
+    get_current_user,
+    require_role,
+)
 from app.core.exceptions import register_exception_handlers
 from tests._auth_support import SesiPalsu, buat_token, user_palsu
 
@@ -151,15 +156,18 @@ class TestEnsureProjectAccess:
         await ensure_project_access(SesiPalsu(kolab), _proyek(), user)
 
     @pytest.mark.parametrize("role", ["Sales", "SA"])
-    async def test_pihak_luar_403(self, role):
+    async def test_pihak_luar_boleh_membaca_tetapi_tulis_403(self, role):
+        """Keputusan 2026-11-10: baca terbuka untuk semua; tulis tetap dibatasi."""
+        user = user_palsu(role)
+        assert await ensure_project_access(SesiPalsu(None), _proyek(), user) is None
         with pytest.raises(HTTPException) as exc:
-            await ensure_project_access(SesiPalsu(None), _proyek(), user_palsu(role))
+            await ensure_project_access(SesiPalsu(None), _proyek(), user, TingkatAkses.TULIS)
         assert exc.value.status_code == 403
         assert exc.value.detail == "Anda tidak memiliki akses ke proyek ini."
 
-    async def test_proyek_belum_ada_sa_tidak_memberi_akses_ke_user_acak(self):
+    async def test_proyek_belum_ada_sa_tidak_memberi_akses_tulis_ke_user_acak(self):
         """assigned_sa=None tidak boleh cocok dengan user mana pun."""
         with pytest.raises(HTTPException):
             await ensure_project_access(
-                SesiPalsu(None), _proyek(assigned_sa=None), user_palsu("SA")
+                SesiPalsu(None), _proyek(assigned_sa=None), user_palsu("SA"), TingkatAkses.TULIS
             )

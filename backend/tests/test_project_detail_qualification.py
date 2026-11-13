@@ -64,10 +64,10 @@ def _project(**kw):
     return Project(**d)
 
 
-def _get(project, user, *, collaborator=False, extra_lookups=0):
-    """Urutan execute: project, cek collaborator, [lookup user...], daftar collaborators, Source document."""
+def _get(project, user, *, extra_lookups=0):
+    """Urutan execute: project, [lookup user...], daftar collaborators, Source document (BACA terbuka: tanpa cek collaborator)."""
     session = AsyncMock()
-    seq = [_res(project), _res(MagicMock() if collaborator else None)]
+    seq = [_res(project)]
     seq += [_res(None)] * extra_lookups
     seq += [_res(items=[]), _res(items=[])]
     session.execute = AsyncMock(side_effect=seq)
@@ -122,15 +122,16 @@ def test_assigned_sa_bisa_melihat():
 
 
 def test_collaborator_bisa_membaca():
-    r = _get(_baru(), _user("SA"), collaborator=True)
+    r = _get(_baru(), _user("SA"))
     assert r.status_code == 200
     assert r.json()["data"]["qualification"]["answers"]["lingkungan"] == "Hybrid"
 
 
-def test_user_tanpa_akses_ditolak_dan_tidak_bocor():
+def test_user_tak_terkait_boleh_membaca_detail_termasuk_kualifikasi():
+    """Keputusan 2026-11-10: semua proyek dapat dibaca semua pengguna terautentikasi."""
     r = _get(_baru(), _user("Sales"))
-    assert r.status_code == 403
-    assert "qualification" not in r.text
+    assert r.status_code == 200
+    assert "qualification" in r.json()["data"]
 
 
 def test_skor_di_bawah_60_menyertakan_feedback():

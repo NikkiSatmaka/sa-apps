@@ -268,7 +268,8 @@ def test_detail_proyek_menampilkan_daftar_source_document_tanpa_teks_penuh():
     assert "extracted_text" not in item
 
 
-def test_detail_proyek_sesuai_akses_proyek_403_untuk_orang_lain():
+def test_detail_proyek_terbuka_untuk_orang_lain():
+    """Keputusan 2026-11-10: semua proyek dapat dibaca semua pengguna terautentikasi."""
     resp = _detail(_user("Sales"), _proyek(uuid.uuid4()), [])
-    assert resp.status_code == 403
-    assert "source_documents" not in resp.text
+    assert resp.status_code == 200
+    assert resp.json()["data"]["source_documents"] == []

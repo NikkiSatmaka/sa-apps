@@ -6,7 +6,9 @@ Dua lapis yang diuji lewat antarmuka publik `app.core.dependencies`:
 - `hubungan_proyek` / `ensure_project_access` — membaca relasi dari DB (sesi palsu) lalu memutuskan.
 
 Matriks yang dikunci mengikuti spec #87 ("akses proyek" = Lead_SA, Admin, Sales PIC,
-SA ditugaskan, collaborator; `viewer` hanya baca).
+SA ditugaskan, collaborator; `viewer` hanya baca), dengan satu pembalikan: keputusan pemilik
+produk 2026-11-10 membuka tingkat BACA dan STORY untuk SEMUA pengguna terautentikasi (semua proyek
+dapat dilihat siapa pun); hanya akses tulis/kelola yang dibatasi.
 """
 
 import uuid
@@ -48,21 +50,10 @@ HUBUNGAN = {
 
 # tingkat → himpunan hubungan yang BOLEH (sumber kebenaran: matriks spec #87)
 MATRIKS = {
-    TingkatAkses.BACA: {
-        "privileged",
-        "sales_pic",
-        "sa_ditugaskan",
-        "kolab_viewer",
-        "kolab_contributor",
-    },
-    # Story/ringkasan AI: Sales PIC BOLEH (keputusan pemilik produk 2026-11-10; membalik spec #87)
-    TingkatAkses.STORY: {
-        "privileged",
-        "sales_pic",
-        "sa_ditugaskan",
-        "kolab_viewer",
-        "kolab_contributor",
-    },
+    # Baca terbuka untuk semua, termasuk pihak luar (keputusan 2026-11-10)
+    TingkatAkses.BACA: set(HUBUNGAN),
+    # Story/ringkasan AI: sama, terbuka untuk semua (keputusan 2026-11-10; membalik spec #87)
+    TingkatAkses.STORY: set(HUBUNGAN),
     # Tulis activity log / map kalender / unggah dokumen: viewer & Sales PIC tidak
     TingkatAkses.TULIS: {"privileged", "sa_ditugaskan", "kolab_contributor"},
     # PATCH proyek: seperti sekarang + viewer ditolak
@@ -104,9 +95,13 @@ def test_setiap_tingkat_punya_baris_matriks():
 
 @pytest.mark.parametrize("tingkat", list(TingkatAkses))
 def test_butuh_kolaborator_diturunkan_dari_aturan_bukan_daftar_terpisah(tingkat):
-    """Atribut tingkat: query collaborator hanya bila ada collaborator yang diizinkan pada matriks."""
+    """
+    Atribut tingkat: query collaborator hanya bila keputusannya bergantung pada collaborator,
+    yaitu ada collaborator yang diizinkan DAN tingkat itu tidak terbuka untuk semua pengguna.
+    """
+    terbuka_untuk_semua = MATRIKS[tingkat] == set(HUBUNGAN)
     ada_kolaborator_diizinkan = bool(MATRIKS[tingkat] & {"kolab_viewer", "kolab_contributor"})
-    assert tingkat.butuh_kolaborator is ada_kolaborator_diizinkan
+    assert tingkat.butuh_kolaborator is (ada_kolaborator_diizinkan and not terbuka_untuk_semua)
 
 
 @pytest.mark.parametrize(("nama", "tingkat", "diharapkan"), KASUS)
@@ -114,9 +109,9 @@ def test_izinkan_sesuai_matriks(nama, tingkat, diharapkan):
     assert izinkan(HUBUNGAN[nama], tingkat) is diharapkan
 
 
-def test_tingkat_default_adalah_baca():
+def test_tingkat_default_adalah_baca_dan_terbuka_untuk_semua():
     assert izinkan(SALES_PIC) is True
-    assert izinkan(PIHAK_LUAR) is False
+    assert izinkan(PIHAK_LUAR) is True
 
 
 def test_pertanyaan_khusus_pada_hubungan():
@@ -177,14 +172,16 @@ async def test_assigned_sa_kosong_tidak_cocok_dengan_user_mana_pun():
 # --------------------------------------------------------------------------- ensure_project_access
 
 
-async def test_ensure_default_baca_menolak_pihak_luar():
-    with pytest.raises(HTTPException) as exc:
-        await ensure_project_access(SesiPalsu(None), _proyek(), user_palsu("SA"))
-    assert exc.value.status_code == 403
-    assert exc.value.detail == PESAN_403
+@pytest.mark.parametrize("peran", ["Sales", "SA"])
+async def test_ensure_default_baca_membolehkan_pihak_luar(peran):
+    """Keputusan 2026-11-10: semua proyek dapat dibaca siapa pun."""
+    assert await ensure_project_access(SesiPalsu(None), _proyek(), user_palsu(peran)) is None
 
 
-@pytest.mark.parametrize("tingkat", list(TingkatAkses))
+TINGKAT_TERBATAS = [t for t in TingkatAkses if t not in (TingkatAkses.BACA, TingkatAkses.STORY)]
+
+
+@pytest.mark.parametrize("tingkat", TINGKAT_TERBATAS)
 async def test_ensure_pesan_403_generik_untuk_semua_tingkat(tingkat):
     """Pesan sama di semua tingkat agar alasan penolakan tidak bocor."""
     with pytest.raises(HTTPException) as exc:
@@ -221,11 +218,13 @@ async def test_ensure_sales_pic_boleh_story_tapi_ditolak_tulis():
     assert exc.value.status_code == 403
 
 
-async def test_ensure_sales_bukan_pic_ditolak_story():
+async def test_ensure_sales_bukan_pic_boleh_story_tetapi_ditolak_tulis():
+    """Keputusan 2026-11-10: Story terbuka untuk semua; Sales bukan PIC tetap tak boleh menulis."""
     user = user_palsu("Sales")
     proyek = _proyek(sales_pic=uuid.uuid4())
+    await ensure_project_access(SesiPalsu(None), proyek, user, tingkat=TingkatAkses.STORY)
     with pytest.raises(HTTPException) as exc:
-        await ensure_project_access(SesiPalsu(None), proyek, user, tingkat=TingkatAkses.STORY)
+        await ensure_project_access(SesiPalsu(None), proyek, user, tingkat=TingkatAkses.TULIS)
     assert exc.value.status_code == 403
 
 
@@ -283,10 +282,25 @@ async def test_tingkat_tanpa_collaborator_tidak_query_db(tingkat):
         await ensure_project_access(SesiTerlarang(), _proyek(), user_palsu("SA"), tingkat=tingkat)
 
 
+@pytest.mark.parametrize("tingkat", [TingkatAkses.BACA, TingkatAkses.STORY])
+async def test_tingkat_baca_terbuka_tidak_query_collaborator(tingkat):
+    """Keputusannya selalu 'ya' -> tidak perlu membaca collaborator (hemat satu query per request)."""
+
+    class SesiTerlarang:
+        async def execute(self, _stmt):
+            raise AssertionError("tidak boleh query collaborator")
+
+    await ensure_project_access(SesiTerlarang(), _proyek(), user_palsu("SA"), tingkat=tingkat)
+
+
 async def test_ensure_pesan_khusus_menggantikan_pesan_generik_status_tetap_403():
     with pytest.raises(HTTPException) as exc:
         await ensure_project_access(
-            SesiPalsu(None), _proyek(), user_palsu("SA"), pesan="Pesan kontrak lama."
+            SesiPalsu(None),
+            _proyek(),
+            user_palsu("SA"),
+            tingkat=TingkatAkses.TULIS,
+            pesan="Pesan kontrak lama.",
         )
     assert exc.value.status_code == 403
     assert exc.value.detail == "Pesan kontrak lama."

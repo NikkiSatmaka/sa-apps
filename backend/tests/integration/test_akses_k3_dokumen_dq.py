@@ -286,15 +286,28 @@ async def test_solutions_sales_pic_dengan_dq_hanya_reviewed_dan_final(
 
 
 @pytest.mark.parametrize("dq", [None, "DQ-10001"])
-@pytest.mark.parametrize("aktor", ["sales_luar", "kolab_lain", "sa_luar"])
-async def test_solutions_pihak_tak_berhak_403(api, db_session, skenario_akses, aktor, dq):
+async def test_solutions_sales_bukan_pic_403(api, db_session, skenario_akses, dq):
+    """Link Solutions bagi Sales mengikuti gating Drive: hanya PIC proyek itu (bukan soal baca-terbuka)."""
+    await _siapkan_proyek(db_session, skenario_akses, dq=dq)
+    await _dokumen(db_session, skenario_akses, status="Final")
+
+    resp = await api.client.get(_url_solutions(), headers=skenario_akses.header("sales_luar"))
+
+    assert resp.status_code == 403
+    assert resp.json()["message"] == PESAN_403
+
+
+@pytest.mark.parametrize("dq", [None, "DQ-10001"])
+@pytest.mark.parametrize("aktor", ["kolab_lain", "sa_luar"])
+async def test_solutions_sa_tak_terkait_boleh_melihat(api, db_session, skenario_akses, aktor, dq):
+    """Keputusan 2026-11-10: semua SA melihat semua proyek, termasuk link Solutions (tanpa gating DQ)."""
     await _siapkan_proyek(db_session, skenario_akses, dq=dq)
     await _dokumen(db_session, skenario_akses, status="Final")
 
     resp = await api.client.get(_url_solutions(), headers=skenario_akses.header(aktor))
 
-    assert resp.status_code == 403
-    assert resp.json()["message"] == PESAN_403
+    assert resp.status_code == 200, resp.text
+    assert [d["status"] for d in resp.json()["data"]["documents"]] == ["Final"]
 
 
 async def test_solutions_sales_collaborator_bukan_pic_403(api, db_session, skenario_akses):

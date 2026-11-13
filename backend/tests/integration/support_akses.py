@@ -25,9 +25,13 @@ from tests.integration.model_helpers import bangun_sla, bangun_user, simpan
 
 ID_PROYEK = "PRJ-AKSES-1"
 
-# Hubungan yang berhak membaca (matriks #87: akses proyek) dan yang tidak.
-AKTOR_BACA = ["sales_pic", "sa", "lead", "admin", "kolab_viewer", "kolab_contrib"]
+# Keputusan pemilik produk 2026-11-10: SEMUA proyek dapat DIBACA semua pengguna terautentikasi;
+# hanya akses TULIS yang dibatasi. Karena itu aktor tak terkait (collaborator proyek lain, Sales
+# dan SA tak terkait) ikut membaca; `AKTOR_TIDAK_BERHAK` kini berarti "tak terkait": ditolak untuk
+# aksi tulis/kelola, tetapi BUKAN untuk membaca.
+AKTOR_TERKAIT = ["sales_pic", "sa", "lead", "admin", "kolab_viewer", "kolab_contrib"]
 AKTOR_TIDAK_BERHAK = ["kolab_lain", "sales_luar", "sa_luar"]
+AKTOR_BACA = AKTOR_TERKAIT + AKTOR_TIDAK_BERHAK
 
 
 @dataclass

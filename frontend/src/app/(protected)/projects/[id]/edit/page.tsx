@@ -153,7 +153,7 @@ export default function EditProjectPage() {
   const isLegacy = project.qualification?.legacy !== false;
   const editMode = isLegacy
     ? "none"
-    : answerEditMode(user?.role, user?.id, project.sales_pic?.id, project.status);
+    : answerEditMode(user, project.sales_pic?.id, project.status);
   if (!isLegacy && answers === null && project.qualification && schema) {
     setAnswers(answersFromView(schema, project.qualification.answers));
   }

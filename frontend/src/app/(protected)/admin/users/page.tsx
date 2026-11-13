@@ -7,11 +7,12 @@ import { fetcher, apiRequest } from "@/lib/fetcher";
 import { LoadError } from "@/components/LoadError";
 import { useAuthStore } from "@/store/auth";
 import { useToastStore } from "@/store/toast";
+import { isAdmin, ROLES } from "@/lib/roles";
 
 /**
  * Halaman Pengguna (Admin) — daftar user dan ubah peran.
  *
- * Hanya bisa diakses oleh role Admin. Data dari `/admin/users`.
+ * Hanya bisa diakses oleh user dengan flag `is_admin` (ADR 0012). Data dari `/admin/users`.
  */
 
 interface UserItem {
@@ -19,9 +20,9 @@ interface UserItem {
   name: string;
   email: string;
   role: string;
+  is_admin: boolean;
 }
 
-const ROLES = ["Sales", "SA", "Lead_SA", "Admin"];
 
 function UserRoleManager() {
   const { showToast } = useToastStore();
@@ -48,10 +49,31 @@ function UserRoleManager() {
     }
   };
 
+  const handleToggleAdmin = async (target: UserItem) => {
+    const jadikan = !target.is_admin;
+    try {
+      await apiRequest(`/admin/users/${target.id}/admin`, {
+        method: "PATCH",
+        body: { is_admin: jadikan },
+      });
+      showToast(
+        "success",
+        jadikan ? `${target.name} dijadikan admin.` : `Flag admin ${target.name} dicabut.`,
+      );
+      mutate();
+    } catch (err: unknown) {
+      // Pesan backend (mis. 409 admin terakhir tidak dapat dicabut) ditampilkan apa adanya.
+      const message = err instanceof Error ? err.message : "Gagal mengubah flag admin.";
+      showToast("error", message);
+    }
+  };
+
   return (
     <div className="rounded-lg border border-neutral-200 bg-white p-5">
       <h2 className="text-sm font-semibold text-neutral-900 mb-1">User & Role Management</h2>
-      <p className="text-xs text-neutral-500 mb-4">Atur role setiap user: Sales, SA, Lead SA, atau Admin.</p>
+      <p className="text-xs text-neutral-500 mb-4">
+        Atur role setiap user (Sales, Product, SA, atau Lead SA). Admin adalah flag tambahan yang menempel pada satu role.
+      </p>
 
       {isLoading ? (
         <div className="space-y-2 animate-pulse">
@@ -81,13 +103,17 @@ function UserRoleManager() {
                   <td className="px-3 py-2.5 text-neutral-600">{u.email}</td>
                   <td className="px-3 py-2.5">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                      u.role === "Admin" ? "bg-purple-100 text-purple-700"
-                      : u.role === "Lead_SA" ? "bg-blue-100 text-blue-700"
+                      u.role === "Lead_SA" ? "bg-blue-100 text-blue-700"
                       : u.role === "SA" ? "bg-green-100 text-green-700"
                       : "bg-neutral-100 text-neutral-700"
                     }`}>
                       {u.role}
                     </span>
+                    {u.is_admin && (
+                      <span className="ml-1.5 px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                        Admin
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2.5 text-center">
                     <button
@@ -95,6 +121,12 @@ function UserRoleManager() {
                       className="px-2 py-1 text-xs text-primary-600 hover:bg-primary-50 rounded"
                     >
                       Ubah Role
+                    </button>
+                    <button
+                      onClick={() => handleToggleAdmin(u)}
+                      className="px-2 py-1 text-xs text-purple-700 hover:bg-purple-50 rounded"
+                    >
+                      {u.is_admin ? "Cabut Admin" : "Jadikan Admin"}
                     </button>
                   </td>
                 </tr>
@@ -147,8 +179,8 @@ export default function AdminUsersPage() {
   const router = useRouter();
   const { user } = useAuthStore();
 
-  // Role guard — redirect jika bukan Admin.
-  if (user && user.role !== "Admin") {
+  // Guard — redirect jika bukan admin (flag `is_admin`, bukan role).
+  if (user && !isAdmin(user)) {
     router.push("/");
     return null;
   }

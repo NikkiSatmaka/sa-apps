@@ -70,6 +70,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
           email: userData.email,
           full_name: userData.name,
           role: userData.role,
+          is_admin: userData.is_admin === true,
           avatar_url: userData.avatar_url,
         });
       } catch {

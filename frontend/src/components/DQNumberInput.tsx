@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useAuthStore } from "@/store/auth";
+import { isPrivileged, isRequesterTerbatas } from "@/lib/roles";
 
 /**
  * Komponen input DQ Number dengan validasi format
@@ -38,10 +39,10 @@ export function DQNumberInput({
   const [error, setError] = useState<string | null>(null);
   const [touched, setTouched] = useState(false);
 
-  // Cek apakah user adalah Sales dan DQ sudah diset (tidak bisa edit)
-  const isSalesWithDQ = user?.role === "Sales" && currentValue !== null;
-  // Lead SA boleh edit DQ yang sudah diset
-  const canEdit = !currentValue || user?.role === "Lead_SA" || user?.role === "Admin";
+  // Sales/Product (bukan privileged) tidak bisa mengubah DQ yang sudah diset
+  const isSalesWithDQ = isRequesterTerbatas(user) && currentValue !== null;
+  // Lead SA dan admin boleh edit DQ yang sudah diset
+  const canEdit = !currentValue || isPrivileged(user);
 
   /**
    * Validasi format DQ Number secara real-time

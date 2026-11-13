@@ -7,6 +7,7 @@ import { fetcher } from "@/lib/fetcher";
 import { LoadError } from "@/components/LoadError";
 import { useAuthStore } from "@/store/auth";
 import { ProjectCard } from "@/components/ProjectCard";
+import { bisaMembuatProyek, isPrivileged, isRequester } from "@/lib/roles";
 
 /**
  * Halaman /projects — Daftar proyek dengan search dan filter status
@@ -46,14 +47,13 @@ export default function ProjectsPage() {
   // Tentukan endpoint berdasarkan role
   const getEndpoint = () => {
     if (!user) return null;
-    switch (user.role) {
-      case "Sales":
-        return "/projects?sales_pic=me&sort=-updated_at";
-      case "SA":
-        return "/projects?assigned_to=me&sort=-updated_at";
-      default:
-        return "/projects?sort=-updated_at";
-    }
+    // Lead_SA/admin melihat semua; requester (Sales/Product) hanya yang ia buat (PIC dicatat di
+    // `sales_pic` sampai product_pic ada, #117); SA hanya yang ditugaskan. Sementara; #109 mengubah
+    // daftar menjadi semua proyek dengan sakelar `involved=me`.
+    if (isPrivileged(user)) return "/projects?sort=-updated_at";
+    if (isRequester(user)) return "/projects?sales_pic=me&sort=-updated_at";
+    if (user.role === "SA") return "/projects?assigned_to=me&sort=-updated_at";
+    return "/projects?sort=-updated_at";
   };
 
   const { data: projects, isLoading, error, mutate } = useSWR<ProjectItem[]>(
@@ -92,15 +92,17 @@ export default function ProjectsPage() {
         <div>
           <h1 className="text-2xl font-semibold text-neutral-900">Proyek</h1>
           <p className="mt-1 text-neutral-500 text-sm">
-            {user?.role === "Sales"
-              ? "Daftar proyek yang Anda submit"
-              : user?.role === "SA"
-                ? "Proyek yang ditugaskan kepada Anda"
-                : "Semua proyek"}
-            {/* Catatan: tombol "Request SA" tersedia untuk Sales, SA, dan Lead SA */}
+            {isPrivileged(user)
+              ? "Semua proyek"
+              : isRequester(user)
+                ? "Daftar proyek yang Anda submit"
+                : user?.role === "SA"
+                  ? "Proyek yang ditugaskan kepada Anda"
+                  : "Semua proyek"}
+            {/* Catatan: tombol "Request SA" tersedia untuk Sales, Product, Lead SA, dan admin */}
           </p>
         </div>
-        {["Sales", "SA", "Lead_SA"].includes(user?.role ?? "") && (
+        {bisaMembuatProyek(user) && (
           <button
             onClick={() => router.push("/projects/new")}
             className="px-4 py-2 text-sm font-medium text-white bg-primary-600
@@ -193,7 +195,7 @@ export default function ProjectsPage() {
               <p className="text-sm text-neutral-500 mb-4">
                 {searchQuery || statusFilter
                   ? "Coba ubah kata kunci atau filter status."
-                  : ["Sales", "SA", "Lead_SA"].includes(user?.role ?? "")
+                  : bisaMembuatProyek(user)
                     ? "Buat Request SA untuk memulai."
                     : "Belum ada proyek yang tersedia."}
               </p>

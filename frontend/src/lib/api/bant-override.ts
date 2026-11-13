@@ -4,6 +4,7 @@
  */
 
 import { apiRequest } from "../fetcher";
+import { isPrivileged, type Actor } from "../roles";
 import type { BANTSubScores } from "./projects";
 
 export interface BANTOverrideResult {
@@ -19,13 +20,13 @@ export const OVERRIDE_ALLOWED_STATUSES = [
   "Manual Review Required",
 ] as const;
 
-/** Tombol override hanya untuk Lead_SA/Admin pada status yang relevan. */
+/** Tombol override hanya untuk Lead_SA/admin (is_admin) pada status yang relevan. */
 export function canOverrideBANT(
-  role: string | undefined | null,
+  actor: Actor | undefined | null,
   status: string
 ): boolean {
   return (
-    (role === "Lead_SA" || role === "Admin") &&
+    isPrivileged(actor) &&
     (OVERRIDE_ALLOWED_STATUSES as readonly string[]).includes(status)
   );
 }

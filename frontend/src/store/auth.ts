@@ -13,7 +13,9 @@ interface User {
   id: string;
   email: string;
   full_name: string;
-  role: "SA" | "Lead_SA" | "Sales" | "Admin";
+  role: "SA" | "Lead_SA" | "Sales" | "Product";
+  /** Flag kemampuan admin yang menempel pada role fungsional (ADR 0012). */
+  is_admin: boolean;
   avatar_url?: string;
 }
 

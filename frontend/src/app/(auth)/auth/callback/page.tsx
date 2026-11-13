@@ -77,6 +77,7 @@ function CallbackContent() {
             email: userData.email,
             full_name: userData.name || userData.full_name,
             role: userData.role,
+            is_admin: userData.is_admin === true,
             avatar_url: userData.avatar_url,
           });
 
@@ -134,6 +135,7 @@ function CallbackContent() {
           email: data.user.email,
           full_name: data.user.name,
           role: data.user.role,
+          is_admin: data.user.is_admin === true,
           avatar_url: data.user.avatar_url,
         });
 

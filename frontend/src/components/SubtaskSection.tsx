@@ -6,6 +6,7 @@ import { fetcher, apiRequest } from "@/lib/fetcher";
 import { LoadError } from "./LoadError";
 import { useAuthStore } from "@/store/auth";
 import type { AvailableSA } from "@/lib/api/assignment";
+import { isPrivileged as isPrivilegedUser } from "@/lib/roles";
 
 /**
  * Section Subtask — work item yang bisa ditugaskan per proyek.
@@ -15,7 +16,7 @@ import type { AvailableSA } from "@/lib/api/assignment";
  *   satu tombol "Tandai selesai" (`→ done`). Tidak ada tombol "Mulai" manual —
  *   transisi ke `in_progress` terjadi otomatis saat mencatat activity log
  *   terhadap subtask (lihat ADR 0008).
- * - Lead_SA/Admin: melihat seluruh daftar plus kontrol tambah, hapus, dan
+ * - Lead_SA/admin (`is_admin`): melihat seluruh daftar plus kontrol tambah, hapus, dan
  *   assign/reassign subtask ke SA.
  *
  * Badge status per item + ringkasan "N/M selesai" di header dihitung dari data
@@ -62,7 +63,7 @@ function statusBadge(status: SubtaskStatus): { label: string; className: string 
 export function SubtaskSection({ projectId }: SubtaskSectionProps) {
   const { user } = useAuthStore();
 
-  const isPrivileged = user?.role === "Lead_SA" || user?.role === "Admin";
+  const isPrivileged = isPrivilegedUser(user);
   const isSA = user?.role === "SA";
 
   const [newTitle, setNewTitle] = useState("");

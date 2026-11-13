@@ -6,6 +6,7 @@ import { useSidebarStore } from "@/store/sidebar";
 import { useAuthStore } from "@/store/auth";
 import { logout } from "@/lib/auth";
 import { UserMenu } from "@/components/UserMenu";
+import { isAdmin, type Actor } from "@/lib/roles";
 
 /**
  * Sidebar Navigation — collapsible (Requirement 19.7)
@@ -93,35 +94,47 @@ const allNavItems: NavItem[] = [
   { label: "Notifikasi", href: "/notifications", icon: BellIcon },
 ];
 
+// Dashboard Lead SA untuk admin yang bukan Lead_SA (beranda mereka mengikuti role fungsionalnya)
+const leadDashboardNavItem: NavItem = {
+  label: "Dashboard Lead SA",
+  href: "/dashboard/lead-sa",
+  icon: DashboardIcon,
+};
+
 // Item navigasi khusus Admin
 const adminNavItems: NavItem[] = [
   { label: "Pengguna", href: "/admin/users", icon: UsersIcon },
 ];
 
 /**
- * Filter item navigasi berdasarkan role user
- * - Sales: Dashboard, Proyek, Notifikasi
- * - SA: Dashboard, Proyek, Activity Log, Dokumen, Notifikasi
- * - Lead_SA: Dashboard, Proyek, Activity Log, Dokumen, Notifikasi
- * - Admin: Semua + Pengguna
+ * Filter item navigasi berdasarkan role fungsional + flag admin (ADR 0012)
+ * - Sales/Product: Dashboard, Proyek, Notifikasi
+ * - SA/Lead_SA: Dashboard, Proyek, Activity Log, Notifikasi
+ * - Admin (flag): menu role-nya + Dashboard Lead SA (bila bukan Lead_SA); bagian Admin terpisah
  */
-function getNavItemsForRole(role?: string): NavItem[] {
-  switch (role) {
+function getNavItemsForUser(user?: Actor | null): NavItem[] {
+  let items: NavItem[];
+  switch (user?.role) {
     case "Sales":
-      return allNavItems.filter((item) =>
+    case "Product":
+      items = allNavItems.filter((item) =>
         ["Dashboard", "Proyek", "Notifikasi"].includes(item.label)
       );
+      break;
     case "SA":
     case "Lead_SA":
-      return allNavItems;
-    case "Admin":
-      return allNavItems;
+      items = allNavItems;
+      break;
     default:
       // Jika role belum diketahui, tampilkan minimal
       return allNavItems.filter((item) =>
         ["Dashboard", "Proyek"].includes(item.label)
       );
   }
+  if (isAdmin(user) && user?.role !== "Lead_SA") {
+    items = [...items, leadDashboardNavItem];
+  }
+  return items;
 }
 
 export function Sidebar() {
@@ -130,7 +143,7 @@ export function Sidebar() {
   const pathname = usePathname();
 
   // Dapatkan item navigasi sesuai role
-  const navItems = getNavItemsForRole(user?.role);
+  const navItems = getNavItemsForUser(user);
 
   /** Logout: reset store lalu revoke session + redirect ke /login */
   const handleLogout = () => {
@@ -222,7 +235,7 @@ export function Sidebar() {
           })}
 
           {/* Admin-only menu items */}
-          {user?.role === "Admin" && (
+          {isAdmin(user) && (
             <>
               <li className="pt-3 mt-3 border-t border-neutral-100">
                 {isOpen && (

@@ -6,6 +6,7 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import { ProjectStory } from "@/components/ProjectStory";
 import { useAuthStore } from "@/store/auth";
+import { isRequesterTerbatas } from "@/lib/roles";
 
 /**
  * Halaman riwayat Activity Log per proyek (Project Story lengkap).
@@ -26,7 +27,7 @@ export default function ProjectActivityLogsPage() {
   const params = useParams();
   const projectId = params.id as string;
   // Sales PIC boleh membaca Story tetapi tidak boleh menulis log
-  const bisaMenulis = useAuthStore((s) => s.user?.role) !== "Sales";
+  const bisaMenulis = !isRequesterTerbatas(useAuthStore((s) => s.user));
 
   const { data: project } = useSWR<ProjectSummary>(`/projects/${projectId}`, fetcher);
 

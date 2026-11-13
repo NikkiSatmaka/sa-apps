@@ -41,7 +41,7 @@ describe("BANTOverride — visibilitas", () => {
     ["Admin", "Pending Assignment"],
     ["Lead_SA", "New"],
   ])("tombol TIDAK muncul untuk peran %s pada status %s", (role, status) => {
-    const actor = role === "Admin" ? aktor("SA", true) : role ? aktor(role) : role;
+    const actor = role === "Admin" ? aktor("SA", true) : role ? aktor(role) : undefined;
     const { container } = setup({ actor, status });
     expect(container).toBeEmptyDOMElement();
   });

@@ -17,6 +17,7 @@ import type { QualificationView } from "@/lib/qualification";
 import { BANTOverride } from "@/components/BANTOverride";
 import { SourceDocumentSection, type SourceDocumentItem } from "@/components/SourceDocumentSection";
 import type { HandoverStatus } from "@/lib/api/handover";
+import { isPrivileged } from "@/lib/roles";
 
 /**
  * Halaman Detail Proyek
@@ -105,7 +106,7 @@ export default function ProjectDetailPage() {
     handoverStatus &&
     (!handoverStatus.pmo_email || !handoverStatus.delivery_email);
 
-  const canDelete = user?.role === "Lead_SA" || user?.role === "Admin";
+  const canDelete = isPrivileged(user);
 
   const handleDeleteProject = async () => {
     if (!project) return;
@@ -157,7 +158,7 @@ export default function ProjectDetailPage() {
             <div className="flex items-center gap-2">
               {/* Tombol Assign SA — hanya Lead_SA/Admin dan status Pending Assignment */}
               {project.status === "Pending Assignment" &&
-                (user?.role === "Lead_SA" || user?.role === "Admin") && (
+                isPrivileged(user) && (
                 <button
                   onClick={() => setShowAssignModal(true)}
                   className="px-3 py-1.5 text-sm font-medium text-white bg-primary-600
@@ -170,13 +171,13 @@ export default function ProjectDetailPage() {
               <BANTOverride
                 projectId={project.id_project}
                 status={project.status}
-                role={user?.role}
+                actor={user}
                 currentScores={project.bant_detail}
               />
               {/* Tombol Reassign SA — hanya Lead_SA/Admin dan proyek sudah punya SA */}
               {project.assigned_sa &&
                 ["Assigned", "Ready", "Pending Assignment"].includes(project.status) &&
-                (user?.role === "Lead_SA" || user?.role === "Admin") && (
+                isPrivileged(user) && (
                 <button
                   onClick={() => setShowReassignModal(true)}
                   className="px-3 py-1.5 text-sm font-medium text-amber-700 border border-amber-300

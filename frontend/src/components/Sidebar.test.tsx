@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
-import { http, HttpResponse, api, renderWithProviders, setPathname, stubLocation } from "@/test";
+import { http, HttpResponse, api, renderWithProviders, seedAuth, setPathname, stubLocation } from "@/test";
 import { server } from "@/test";
 import { useAuthStore } from "@/store/auth";
 import { useSidebarStore } from "@/store/sidebar";
@@ -53,8 +53,8 @@ describe("Sidebar — menu per peran", () => {
   });
 
   it("Lead_SA dengan is_admin tidak mendapat Dashboard Lead SA ganda, tetapi mendapat bagian Admin", () => {
-    renderWithProviders(<Sidebar />, { role: "Lead_SA" });
-    useAuthStore.setState((s) => ({ user: s.user && { ...s.user, is_admin: true } }));
+    seedAuth("Lead_SA", { is_admin: true });
+    renderWithProviders(<Sidebar />);
     expect(navLinks()).not.toContain("Dashboard Lead SA");
     expect(navLinks()).toContain("Pengguna");
   });

@@ -179,7 +179,7 @@ describe("Manajemen Pengguna Admin", () => {
     await user.selectOptions(within(modal).getByRole("combobox"), "Sales");
     await user.click(within(modal).getByRole("button", { name: "Simpan" }));
 
-    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Admin terakhir tidak dapat di-demote"));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Role tidak valid"));
     expect(screen.getByRole("heading", { name: "Ubah Role" })).toBeInTheDocument();
   });
 });

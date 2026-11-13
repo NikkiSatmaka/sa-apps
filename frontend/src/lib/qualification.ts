@@ -9,6 +9,7 @@
 
 import useSWR from "swr";
 import { fetcher } from "./fetcher";
+import { isPrivileged, isRequester, type Actor } from "./roles";
 
 export type QuestionType = "number" | "choice" | "text" | "short" | "email" | "date";
 
@@ -146,18 +147,18 @@ export type AnswerEditMode = "rescore" | "correct" | "none";
 
 /**
  * Mode edit jawaban kuesioner (mencerminkan aturan backend; backend tetap penentu):
- * - "rescore": Need Clarification untuk Sales PIC, Lead_SA, atau Admin → skor dihitung ulang.
- * - "correct": Lead_SA/Admin setelah lolos gate → koreksi tanpa re-score.
+ * - "rescore": Need Clarification untuk Sales/Product PIC, Lead_SA, atau admin → skor dihitung ulang.
+ * - "correct": Lead_SA/admin setelah lolos gate → koreksi tanpa re-score.
  * - "none": selain itu (kontrol edit tidak ditampilkan).
  */
 export function answerEditMode(
-  role: string | undefined,
-  userId: string | undefined,
+  user: (Actor & { id?: string }) | null | undefined,
   salesPicId: string | null | undefined,
   status: string
 ): AnswerEditMode {
-  const privileged = role === "Lead_SA" || role === "Admin";
-  const isPic = role === "Sales" && !!userId && userId === salesPicId;
+  const privileged = isPrivileged(user);
+  // PIC project dicatat di `sales_pic` (pembuat Sales atau Product) sampai product_pic ada (#117)
+  const isPic = isRequester(user) && !!user?.id && user.id === salesPicId;
   if (!privileged && !isPic) return "none";
   if (status === EDITABLE_STATUS) return "rescore";
   if (privileged && !LOCKED_STATUSES.includes(status)) return "correct";

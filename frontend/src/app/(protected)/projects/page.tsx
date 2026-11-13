@@ -47,8 +47,9 @@ export default function ProjectsPage() {
   // Tentukan endpoint berdasarkan role
   const getEndpoint = () => {
     if (!user) return null;
-    // Lead_SA/admin melihat semua; requester (Sales/Product) hanya yang ia buat (PIC dicatat di
-    // `sales_pic` sampai product_pic ada, #117); SA hanya yang ditugaskan. Sementara; #109 mengubah
+    // Lead_SA/admin melihat semua; requester (Sales/Product) hanya project yang ia PIC-i (backend:
+    // `sales_pic=me` mencocokkan sales_pic atau product_pic, #117); SA hanya yang ditugaskan.
+    // Sementara; #109 mengubah
     // daftar menjadi semua proyek dengan sakelar `involved=me`.
     if (isPrivileged(user)) return "/projects?sort=-updated_at";
     if (isRequester(user)) return "/projects?sales_pic=me&sort=-updated_at";

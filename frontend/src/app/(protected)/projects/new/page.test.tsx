@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { delay } from "msw";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api, errorEnvelope, http, HttpResponse, renderWithProviders, router, server, successEnvelope } from "@/test";
 import { makeOpportunitySchema } from "@/test/fixtures/opportunity";
 import { makeCreateProjectResponse } from "@/test/fixtures/projects";
@@ -484,6 +484,7 @@ describe("NewProjectPage — pengiriman", () => {
   it("timer redirect dibersihkan saat unmount: berpindah halaman sebelum 2 detik tidak memicu router.push (#83)", async () => {
     useSchema();
     capturePost(() => created({ scoring_triggered: true, bant_score: null, sub_scores: null, status: "Scoring Pending" }));
+    useOrang();
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
     const { unmount } = renderWithProviders(<NewProjectPage />, { role: "Sales" });
@@ -592,8 +593,9 @@ describe("NewProjectPage — pengiriman", () => {
 });
 
 describe("NewProjectPage — Product dan Sales PIC (ADR 0014)", () => {
+  beforeEach(useSchema);
+
   async function kirimHingga(user: ReturnType<typeof userEvent.setup>, pilih: () => Promise<void>) {
-    useSchema();
     const captured = capturePost(() => created());
     await isiLangkah1(user);
     await pilih();
@@ -652,7 +654,6 @@ describe("NewProjectPage — Product dan Sales PIC (ADR 0014)", () => {
   });
 
   it("memetakan error 422 product_pic dari backend ke field di langkah 1", async () => {
-    useSchema();
     capturePost(() =>
       HttpResponse.json(errorEnvelope("Validasi gagal", [{ field: "product_pic", reason: "Product PIC wajib dipilih." }]), {
         status: 422,

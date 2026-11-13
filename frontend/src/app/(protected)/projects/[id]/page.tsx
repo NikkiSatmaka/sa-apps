@@ -51,7 +51,10 @@ interface ProjectDetail {
   qualification?: QualificationView;
   use_case_tags: string[];
   target_submit: string | null;
-  sales_pic: { id: string | null; name: string | null; email: string | null };
+  created_by?: { id: string | null; name: string | null; email: string | null } | null;
+  product_pic?: { id: string | null; name: string | null; email: string | null } | null;
+  /** Opsional (ADR 0014): project boleh tanpa Sales. */
+  sales_pic: { id: string | null; name: string | null; email: string | null } | null;
   assigned_sa: { id: string | null; name: string | null; email: string | null } | null;
   collaborators: {
     id: string;
@@ -223,6 +226,8 @@ export default function ProjectDetailPage() {
           <div className="bg-white border border-neutral-200 rounded-lg p-5">
             <h2 className="text-sm font-semibold text-neutral-700 mb-3">Informasi Proyek</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <InfoRow label="Dibuat oleh" value={project.created_by?.name || "—"} />
+              <InfoRow label="Product PIC" value={project.product_pic?.name || "—"} />
               <InfoRow label="Sales PIC" value={project.sales_pic?.name || "—"} />
               <InfoRow label="SA Ditugaskan" value={project.assigned_sa?.name || "Belum di-assign"} />
               <InfoRow label="DQ Number" value={project.dq_number || "Belum diinput"} mono={!!project.dq_number} />

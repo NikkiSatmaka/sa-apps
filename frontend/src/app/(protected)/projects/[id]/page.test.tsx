@@ -124,7 +124,7 @@ describe("Detail proyek — informasi", () => {
   it("menampilkan Lead SA dan section penggantian orang", async () => {
     setup("Lead_SA", { lead_sa: { id: "l1", name: "Lead Demo", email: "l@example.com" } });
     await screen.findByRole("heading", { level: 1, name: "Migrasi Cloud ACME" });
-    expect(screen.getByText("Lead SA")).toBeInTheDocument();
+    expect(screen.getByText("Lead SA:")).toBeInTheDocument();
     expect(screen.getByText("Lead Demo")).toBeInTheDocument();
     expect(screen.getByText(`Stub orang: ${DETAIL_ID}`)).toBeInTheDocument();
   });

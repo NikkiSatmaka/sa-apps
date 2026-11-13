@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { screen, within } from "@testing-library/react";
-import { http, HttpResponse, api, renderWithProviders, router, server, successEnvelope } from "@/test";
+import { screen, waitFor, within } from "@testing-library/react";
+import { http, HttpResponse, api, gagalLaluBerhasil, renderWithProviders, router, selaluGagal, server, successEnvelope } from "@/test";
 import { makeSalesProject } from "@/test/fixtures/shell";
 import SalesDashboard from "./page";
 
@@ -94,18 +94,40 @@ describe("Dashboard Sales", () => {
     expect(screen.queryByText("Belum ada proyek")).not.toBeInTheDocument();
   });
 
-  it("error: halaman tidak menampilkan data maupun empty state (tidak ada UI error khusus)", async () => {
-    // Perilaku nyata: dashboard Sales tidak punya keadaan error; hanya header yang tersisa.
-    server.use(
-      http.get(api("/projects"), () => HttpResponse.json({ message: "boom" }, { status: 500 })),
-      http.get(api("/projects/status-summary"), () => HttpResponse.json({ message: "boom" }, { status: 500 })),
-    );
+  it("error memuat proyek: pesan error (bukan empty state) dan coba lagi memuat ulang daftar", async () => {
+    server.use(gagalLaluBerhasil("/projects", [makeSalesProject({ project_name: "Pulih", customer_name: "PT P" })]));
+    const { user } = renderWithProviders(<SalesDashboard />, { role: "Sales" });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat daftar proyek.");
+    expect(screen.queryByText("Belum ada proyek")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+
+    expect(await screen.findByRole("button", { name: "Proyek Pulih - PT P" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("error memuat ringkasan: pesan error di bagian Overview (bukan 'Belum ada data'), bisa dicoba ulang", async () => {
+    server.use(gagalLaluBerhasil("/projects/status-summary", [{ status: "Assigned", count: 3 }]));
+    const { user } = renderWithProviders(<SalesDashboard />, { role: "Sales" });
+    const overview = screen.getByRole("heading", { name: "Overview Proyek" }).closest("section")!;
+
+    expect(await within(overview).findByRole("alert")).toHaveTextContent("Gagal memuat ringkasan proyek.");
+    expect(within(overview).queryByText("Belum ada data proyek.")).not.toBeInTheDocument();
+
+    await user.click(within(overview).getByRole("button", { name: "Coba lagi" }));
+
+    expect(await within(overview).findByText("Assigned")).toBeInTheDocument();
+    expect(within(overview).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("error di kedua permintaan: dua pesan error terpisah, tanpa empty state", async () => {
+    server.use(selaluGagal("/projects"), selaluGagal("/projects/status-summary"));
     renderWithProviders(<SalesDashboard />, { role: "Sales" });
-    await new Promise((r) => setTimeout(r, 50));
-    expect(screen.getByRole("heading", { level: 1, name: "Dashboard Sales" })).toBeInTheDocument();
+
+    await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
     expect(screen.queryByText("Belum ada proyek")).not.toBeInTheDocument();
     expect(screen.queryByText("Belum ada data proyek.")).not.toBeInTheDocument();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("status tak dikenal tetap ditampilkan dengan gaya netral", async () => {

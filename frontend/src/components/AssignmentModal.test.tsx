@@ -1,6 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { HttpResponse, api, errorEnvelope, http, renderWithProviders, server, successEnvelope } from "@/test";
+import { HttpResponse, api, errorEnvelope, gagalLaluBerhasil, http, renderWithProviders, server, successEnvelope } from "@/test";
 import { makeAvailableSA, makePendingProject } from "@/test/fixtures/operations";
 import { AssignmentModal } from "./AssignmentModal";
 
@@ -147,11 +147,17 @@ describe("AssignmentModal", () => {
     expect(assign).not.toHaveBeenCalled();
   });
 
-  it("tidak menampilkan daftar SA maupun pesan error bila daftar SA gagal dimuat (perilaku nyata)", async () => {
-    server.use(http.get(api("/sa/available"), () => HttpResponse.json(errorEnvelope("gagal"), { status: 500 })));
-    const { container } = setup();
-    await waitFor(() => expect(container.querySelectorAll(".animate-pulse")).toHaveLength(0));
+  it("daftar SA gagal dimuat: pesan error (bukan 'Tidak ada SA'), coba lagi memuat ulang, konfirmasi tetap nonaktif", async () => {
+    server.use(gagalLaluBerhasil("/sa/available", [makeAvailableSA({ name: "Pulih Santoso" })]));
+    const { user } = setup();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat daftar SA.");
     expect(screen.queryByText("Tidak ada SA yang tersedia saat ini.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Konfirmasi Assignment" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+
+    expect(await screen.findByText("Pulih Santoso")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  api, errorEnvelope, http, HttpResponse, renderWithProviders, router, server, setParams, stubLocation,
+  api, errorEnvelope, gagalLaluBerhasil, http, HttpResponse, renderWithProviders, router, server, setParams, stubLocation,
   successEnvelope, type Role,
 } from "@/test";
 import { DETAIL_ID, makeProjectDetail, makeSourceDoc, makeStoryItem } from "@/test/fixtures/project-detail";
@@ -432,6 +432,23 @@ describe("Detail proyek — handover Closed-Win", () => {
     await waitFor(() => expect(screen.queryByText("Konfigurasi Handover")).not.toBeInTheDocument());
   });
 
+  it("handover-status gagal dimuat: pesan error di bagian Handover (form konfigurasi tidak hilang diam-diam), coba lagi memuat ulang", async () => {
+    server.use(
+      gagalLaluBerhasil(`/projects/${DETAIL_ID}/handover-status`, {
+        is_ready: true, has_hld_final: true, is_closed_win: true, pmo_email: null, delivery_email: null,
+      }),
+    );
+    const { user } = setup("Lead_SA", { status: "Closed-Win" });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat status handover.");
+    expect(screen.queryByText("Stub config form pmo=- delivery=-")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+
+    expect(await screen.findByText("Stub config form pmo=- delivery=-")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("handover-status tidak diminta bila bukan Closed-Win", async () => {
     let dipanggil = false;
     server.use(http.get(api(`/projects/${DETAIL_ID}/handover-status`), () => { dipanggil = true; return HttpResponse.json(successEnvelope({})); }));
@@ -452,6 +469,19 @@ describe("Detail proyek — Project Story", () => {
     setup("Lead_SA");
     expect(await screen.findByText("Belum ada activity log untuk proyek ini.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Summarize" })).not.toBeInTheDocument();
+  });
+
+  it("story gagal dimuat: pesan error (bukan 'Belum ada activity log'), coba lagi memuat ulang", async () => {
+    server.use(gagalLaluBerhasil(`/projects/${DETAIL_ID}/story`, { items: [makeStoryItem({ raw_notes: "catatan pulih" })], total: 1 }));
+    const { user } = setup("Lead_SA");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat activity log proyek.");
+    expect(screen.queryByText("Belum ada activity log untuk proyek ini.")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+
+    expect(await screen.findByText("catatan pulih")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("skeleton saat memuat story", async () => {

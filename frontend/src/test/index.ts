@@ -6,4 +6,5 @@ export * from "./navigation";
 export * from "./render";
 export { api } from "./msw/base";
 export { server } from "./msw/server";
+export { gagalLaluBerhasil, selaluGagal } from "./msw/gagal-sekali";
 export { successEnvelope, errorEnvelope } from "./fixtures/envelope";

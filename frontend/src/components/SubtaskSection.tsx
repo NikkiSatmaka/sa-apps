@@ -3,6 +3,7 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { fetcher, apiRequest } from "@/lib/fetcher";
+import { LoadError } from "./LoadError";
 import { useAuthStore } from "@/store/auth";
 import type { AvailableSA } from "@/lib/api/assignment";
 
@@ -73,7 +74,7 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
   // id_subtask yang panel assign-nya terbuka (Lead_SA/Admin).
   const [assignOpenId, setAssignOpenId] = useState<string | null>(null);
 
-  const { data, mutate, isLoading } = useSWR<{ items: Subtask[]; total: number }>(
+  const { data, mutate, isLoading, error: loadError } = useSWR<{ items: Subtask[]; total: number }>(
     `/projects/${projectId}/subtasks`,
     fetcher
   );
@@ -83,6 +84,9 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
     isPrivileged ? "/sa/available" : null,
     fetcher
   );
+
+  // Gagal memuat (dan belum ada data lama): tampilkan error, bukan keadaan kosong.
+  const gagalMemuat = Boolean(loadError) && !data;
 
   const allSubtasks = data?.items ?? [];
 
@@ -256,8 +260,13 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
         </div>
       )}
 
+      {/* Gagal memuat: jangan tampilkan keadaan kosong yang menyesatkan */}
+      {gagalMemuat && (
+        <LoadError message="Gagal memuat daftar subtask." onRetry={() => mutate()} />
+      )}
+
       {/* Daftar subtask */}
-      {!isLoading && visibleSubtasks.length === 0 ? (
+      {!isLoading && !gagalMemuat && visibleSubtasks.length === 0 ? (
         <p className="text-sm text-neutral-500 text-center py-3">
           {isPrivileged
             ? "Belum ada subtask di proyek ini."

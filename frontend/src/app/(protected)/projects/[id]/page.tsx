@@ -6,6 +6,7 @@ import useSWR from "swr";
 import { fetcher, apiRequest } from "@/lib/fetcher";
 import { useAuthStore } from "@/store/auth";
 import { HandoverModal } from "@/components/HandoverModal";
+import { LoadError } from "@/components/LoadError";
 import { HandoverConfigForm } from "@/components/HandoverConfigForm";
 import { AssignmentModal } from "@/components/AssignmentModal";
 import { ReassignModal } from "@/components/ReassignModal";
@@ -87,7 +88,11 @@ export default function ProjectDetailPage() {
   );
 
   // Fetch handover status (hanya jika proyek Closed-Win)
-  const { data: handoverStatus, mutate: mutateHandoverStatus } = useSWR<HandoverStatus>(
+  const {
+    data: handoverStatus,
+    error: handoverError,
+    mutate: mutateHandoverStatus,
+  } = useSWR<HandoverStatus>(
     project?.status === "Closed-Win" ? `/projects/${projectId}/handover-status` : null,
     fetcher
   );
@@ -323,6 +328,14 @@ export default function ProjectDetailPage() {
             initialCollaborators={project.collaborators}
           />
 
+          {/* Gagal memuat status handover: form konfigurasi tak boleh hilang tanpa penjelasan */}
+          {project.status === "Closed-Win" && handoverError && !handoverStatus && (
+            <LoadError
+              message="Gagal memuat status handover."
+              onRetry={() => mutateHandoverStatus()}
+            />
+          )}
+
           {/* Section: Konfigurasi Handover */}
           {shouldShowConfigForm && (
             <div className="bg-white border border-amber-200 rounded-lg p-5">
@@ -445,7 +458,7 @@ function ProjectActivitySection({ projectId }: { projectId: string }) {
   const [summary, setSummary] = useState<string | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
 
-  const { data, isLoading } = useSWR<{
+  const { data, isLoading, error, mutate } = useSWR<{
     items: {
       id_log: string;
       subtask_category: string;
@@ -538,7 +551,9 @@ function ProjectActivitySection({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      {(!data || data.items.length === 0) ? (
+      {error && !data ? (
+        <LoadError message="Gagal memuat activity log proyek." onRetry={() => mutate()} />
+      ) : (!data || data.items.length === 0) ? (
         <p className="text-sm text-neutral-500 text-center py-4">
           Belum ada activity log untuk proyek ini.
         </p>

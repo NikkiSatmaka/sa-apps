@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
+import { LoadError } from "@/components/LoadError";
 import { useAuthStore } from "@/store/auth";
 import { ProjectCard } from "@/components/ProjectCard";
 
@@ -55,7 +56,7 @@ export default function ProjectsPage() {
     }
   };
 
-  const { data: projects, isLoading } = useSWR<ProjectItem[]>(
+  const { data: projects, isLoading, error, mutate } = useSWR<ProjectItem[]>(
     getEndpoint(),
     fetcher
   );
@@ -170,6 +171,10 @@ export default function ProjectsPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {error && !projects && (
+        <LoadError message="Gagal memuat daftar proyek." onRetry={() => mutate()} />
       )}
 
       {/* Konten */}

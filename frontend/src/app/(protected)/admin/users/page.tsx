@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { fetcher, apiRequest } from "@/lib/fetcher";
+import { LoadError } from "@/components/LoadError";
 import { useAuthStore } from "@/store/auth";
 import { useToastStore } from "@/store/toast";
 
@@ -24,7 +25,7 @@ const ROLES = ["Sales", "SA", "Lead_SA", "Admin"];
 
 function UserRoleManager() {
   const { showToast } = useToastStore();
-  const { data: users, isLoading, mutate } = useSWR<UserItem[]>("/admin/users", fetcher);
+  const { data: users, isLoading, error, mutate } = useSWR<UserItem[]>("/admin/users", fetcher);
   const [editingUser, setEditingUser] = useState<UserItem | null>(null);
   const [newRole, setNewRole] = useState("");
 
@@ -58,6 +59,8 @@ function UserRoleManager() {
           <div className="h-10 bg-neutral-100 rounded" />
           <div className="h-10 bg-neutral-100 rounded" />
         </div>
+      ) : error && !users ? (
+        <LoadError message="Gagal memuat daftar user." onRetry={() => mutate()} />
       ) : !users || users.length === 0 ? (
         <p className="text-sm text-neutral-500 text-center py-4">Belum ada user terdaftar.</p>
       ) : (

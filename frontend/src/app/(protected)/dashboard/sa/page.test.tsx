@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { screen, within } from "@testing-library/react";
-import { http, HttpResponse, api, renderWithProviders, router, server, successEnvelope } from "@/test";
+import { screen, waitFor, within } from "@testing-library/react";
+import { http, HttpResponse, api, gagalLaluBerhasil, renderWithProviders, router, selaluGagal, server, successEnvelope } from "@/test";
 import { makeSAProject } from "@/test/fixtures/shell";
 import SADashboard from "./page";
 
@@ -113,15 +113,37 @@ describe("Dashboard SA", () => {
     expect(warna(5, "Lainnya")).toContain("bg-neutral-100");
   });
 
-  it("error: tidak ada UI error khusus — tidak menampilkan daftar maupun empty state", async () => {
-    server.use(
-      http.get(api("/projects"), () => HttpResponse.json({ message: "boom" }, { status: 500 })),
-      http.get(api("/projects/status-summary"), () => HttpResponse.json({ message: "boom" }, { status: 500 })),
-    );
-    renderWithProviders(<SADashboard />, { role: "SA" });
-    await new Promise((r) => setTimeout(r, 50));
-    expect(screen.getByRole("heading", { level: 1, name: "Dashboard SA" })).toBeInTheDocument();
+  it("error memuat proyek: pesan error (bukan empty state), coba lagi memuat ulang daftar", async () => {
+    server.use(gagalLaluBerhasil("/projects", [makeSAProject({ project_name: "Pulih", customer_name: "PT P" })]));
+    const { user } = renderWithProviders(<SADashboard />, { role: "SA" });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat daftar proyek.");
     expect(screen.queryByText(/Belum ada proyek/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("article")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+
+    expect(await screen.findByRole("article", { name: "Proyek Pulih - PT P" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("error memuat ringkasan: pesan error di Overview (bukan 'Belum ada data'), bisa dicoba ulang", async () => {
+    server.use(gagalLaluBerhasil("/projects/status-summary", [{ status: "Assigned", count: 3 }]));
+    const { user } = renderWithProviders(<SADashboard />, { role: "SA" });
+    const overview = screen.getByRole("heading", { name: "Overview Proyek" }).closest("section")!;
+
+    expect(await within(overview).findByRole("alert")).toHaveTextContent("Gagal memuat ringkasan proyek.");
+    expect(within(overview).queryByText("Belum ada data proyek.")).not.toBeInTheDocument();
+
+    await user.click(within(overview).getByRole("button", { name: "Coba lagi" }));
+
+    expect(await within(overview).findByText("Assigned")).toBeInTheDocument();
+  });
+
+  it("error di kedua permintaan: dua pesan error terpisah", async () => {
+    server.use(selaluGagal("/projects"), selaluGagal("/projects/status-summary"));
+    renderWithProviders(<SADashboard />, { role: "SA" });
+
+    await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
+    expect(screen.queryByText(/Belum ada proyek/)).not.toBeInTheDocument();
   });
 });

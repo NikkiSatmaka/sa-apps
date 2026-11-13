@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
+import { LoadError } from "@/components/LoadError";
 import { SLABadge } from "@/components/SLABadge";
 
 /**
@@ -92,13 +93,18 @@ export default function SADashboard() {
   const router = useRouter();
 
   // Fetch proyek yang ditugaskan ke SA yang login
-  const { data: projects, isLoading } = useSWR<SAProject[]>(
+  const { data: projects, isLoading, error: projectsError, mutate: mutateProjects } = useSWR<SAProject[]>(
     "/projects?assigned_to=me&sort=-updated_at",
     fetcher
   );
 
   // Fetch ringkasan status proyek SA
-  const { data: statusSummary, isLoading: isLoadingStatus } = useSWR<StatusCount[]>(
+  const {
+    data: statusSummary,
+    isLoading: isLoadingStatus,
+    error: statusError,
+    mutate: mutateStatus,
+  } = useSWR<StatusCount[]>(
     "/projects/status-summary?assigned_to=me",
     fetcher
   );
@@ -146,6 +152,10 @@ export default function SADashboard() {
           </div>
         )}
 
+        {statusError && !statusSummary && (
+          <LoadError message="Gagal memuat ringkasan proyek." onRetry={() => mutateStatus()} />
+        )}
+
         {!isLoadingStatus && statusSummary && (
           <div className="rounded-lg border border-neutral-200 bg-white p-5">
             {statusSummary.length === 0 ? (
@@ -189,6 +199,10 @@ export default function SADashboard() {
 
       {/* Loading skeleton (Requirement 19.5) */}
       {isLoading && <ProjectListSkeleton />}
+
+      {projectsError && !projects && (
+        <LoadError message="Gagal memuat daftar proyek." onRetry={() => mutateProjects()} />
+      )}
 
       {/* Empty state */}
       {!isLoading && projects && projects.length === 0 && (

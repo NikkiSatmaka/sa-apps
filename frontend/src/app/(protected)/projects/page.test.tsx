@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { api, errorEnvelope, http, HttpResponse, renderWithProviders, router, server, successEnvelope, type Role } from "@/test";
+import { api, gagalLaluBerhasil, http, HttpResponse, renderWithProviders, router, server, successEnvelope, type Role } from "@/test";
 import { makeProject } from "@/test/fixtures/projects";
 import ProjectsPage from "./page";
 
@@ -119,15 +119,19 @@ describe("Daftar proyek — memuat, kosong, error", () => {
     expect(screen.getByText("Menampilkan 0 dari 0 proyek")).toBeInTheDocument();
   });
 
-  it("error server: tidak crash, tidak ada kartu dan tidak ada pesan error (perilaku nyata)", async () => {
-    server.use(http.get(api("/projects"), () => HttpResponse.json(errorEnvelope("Server error"), { status: 500 })));
-    const { container } = setup("Lead_SA");
-    await waitFor(() => expect(container.querySelector(".animate-pulse")).not.toBeInTheDocument());
-    // Divergensi: halaman mengabaikan `error` SWR — tidak ada pesan error maupun keadaan kosong.
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { level: 3 })).not.toBeInTheDocument();
+  it("error server: pesan error (bukan 'Belum ada proyek'), coba lagi memuat ulang daftar", async () => {
+    server.use(gagalLaluBerhasil("/projects", proyek));
+    const { user } = setup("Lead_SA");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat daftar proyek.");
     expect(screen.queryByText("Belum ada proyek")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Menampilkan \d+ dari \d+ proyek/)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Proyek", level: 1 })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Coba lagi" }));
+
+    expect(await screen.findByText("Alfa Cloud")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 

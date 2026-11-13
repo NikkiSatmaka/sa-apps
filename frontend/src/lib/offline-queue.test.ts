@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse, server, setOnline } from "@/test";
 import {
   dequeueSubmission,
+  discardFailedItems,
   enqueueSubmission,
+  getFailedItems,
+  getPendingItems,
   getQueuedItems,
   initOfflineSync,
   isOnline,
@@ -120,12 +123,101 @@ describe("syncOfflineQueue", () => {
     expect(getQueuedItems()).toEqual([]);
   });
 
-  it("error klien 4xx dibuang dari antrean (tidak akan pernah berhasil) dan dihitung synced", async () => {
-    enqueueSubmission(URL_API, "POST", 1);
-    server.use(http.post(URL_API, () => HttpResponse.json({}, { status: 422 })));
+  it.each([401, 403, 409, 422])(
+    "error klien %i: item TIDAK dibuang (data tidak hilang diam-diam), ditandai gagal dengan alasan, dihitung failed",
+    async (status) => {
+      enqueueSubmission(URL_API, "POST", { catatan: "penting" });
+      server.use(http.post(URL_API, () => HttpResponse.json({}, { status })));
 
-    await expect(syncOfflineQueue()).resolves.toEqual({ synced: 1, failed: 0 });
-    expect(getQueuedItems()).toEqual([]);
+      await expect(syncOfflineQueue()).resolves.toEqual({ synced: 0, failed: 1 });
+
+      const sisa = getQueuedItems();
+      expect(sisa).toHaveLength(1);
+      expect(sisa[0].body).toBe('{"catatan":"penting"}');
+      expect(sisa[0].failure).toContain(String(status));
+      expect(getFailedItems()).toHaveLength(1);
+      expect(getPendingItems()).toHaveLength(0);
+    },
+  );
+
+  it("item gagal permanen tidak dikirim ulang pada sinkronisasi berikutnya dan tidak dihitung lagi", async () => {
+    enqueueSubmission(URL_API, "POST", 1);
+    const hit = vi.fn();
+    server.use(http.post(URL_API, () => { hit(); return HttpResponse.json({}, { status: 422 }); }));
+
+    await syncOfflineQueue();
+    await expect(syncOfflineQueue()).resolves.toEqual({ synced: 0, failed: 0 });
+
+    expect(hit).toHaveBeenCalledTimes(1);
+    expect(getFailedItems()).toHaveLength(1);
+  });
+
+  it("item gagal permanen tidak menghalangi item lain yang valid", async () => {
+    enqueueSubmission(URL_API + "/a", "POST", "a");
+    enqueueSubmission(URL_API + "/b", "POST", "b");
+    server.use(
+      http.post(URL_API + "/a", () => HttpResponse.json({}, { status: 409 })),
+      http.post(URL_API + "/b", () => HttpResponse.json({})),
+    );
+
+    await expect(syncOfflineQueue()).resolves.toEqual({ synced: 1, failed: 1 });
+
+    expect(getQueuedItems().map((i) => i.url)).toEqual([URL_API + "/a"]);
+  });
+
+  it.each([408, 429])("status %i dianggap sementara: item tetap menunggu dan dicoba lagi", async (status) => {
+    enqueueSubmission(URL_API, "POST", 1);
+    server.use(http.post(URL_API, () => new HttpResponse(null, { status })));
+
+    await expect(syncOfflineQueue()).resolves.toEqual({ synced: 0, failed: 1 });
+
+    expect(getPendingItems()).toHaveLength(1);
+    expect(getPendingItems()[0].retryCount).toBe(1);
+    expect(getFailedItems()).toHaveLength(0);
+  });
+
+  it("5xx berulang punya batas: setelah 5 percobaan item ditandai gagal (alasan memuat status), tidak dikirim lagi", async () => {
+    enqueueSubmission(URL_API, "POST", 1);
+    const hit = vi.fn();
+    server.use(http.post(URL_API, () => { hit(); return new HttpResponse(null, { status: 503 }); }));
+
+    for (let i = 0; i < 4; i++) await syncOfflineQueue();
+    expect(getPendingItems()).toHaveLength(1);
+    expect(getPendingItems()[0].retryCount).toBe(4);
+
+    await syncOfflineQueue(); // percobaan ke-5
+    expect(getPendingItems()).toHaveLength(0);
+    expect(getFailedItems()).toHaveLength(1);
+    expect(getFailedItems()[0].failure).toContain("503");
+
+    await syncOfflineQueue();
+    expect(hit).toHaveBeenCalledTimes(5);
+  });
+
+  it("jaringan putus tidak dibatasi: item tetap menunggu berapa pun percobaannya", async () => {
+    enqueueSubmission(URL_API, "POST", 1);
+    server.use(http.post(URL_API, () => HttpResponse.error()));
+
+    for (let i = 0; i < 7; i++) await syncOfflineQueue();
+
+    expect(getPendingItems()).toHaveLength(1);
+    expect(getFailedItems()).toHaveLength(0);
+  });
+
+  it("discardFailedItems membuang hanya item gagal, menyisakan yang masih menunggu, dan memberi tahu UI", async () => {
+    enqueueSubmission(URL_API + "/a", "POST", "a");
+    enqueueSubmission(URL_API + "/b", "POST", "b");
+    server.use(
+      http.post(URL_API + "/a", () => HttpResponse.json({}, { status: 422 })),
+      http.post(URL_API + "/b", () => HttpResponse.error()),
+    );
+    await syncOfflineQueue();
+    vi.mocked(window.dispatchEvent).mockClear();
+
+    discardFailedItems();
+
+    expect(getQueuedItems().map((i) => i.url)).toEqual([URL_API + "/b"]);
+    expect(eventsDiterbitkan()).toBe(1);
   });
 
   it("error server 5xx: tetap di antrean dengan retryCount bertambah; percobaan ulang berhasil", async () => {

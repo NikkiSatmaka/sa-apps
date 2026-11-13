@@ -45,6 +45,28 @@ describe("CalendarSyncPage", () => {
     expect(screen.queryByText("Tidak ada proyek tersedia untuk di-mapping.")).not.toBeInTheDocument();
   });
 
+  it("status proyek diteruskan: memilih proyek Handover Complete mengisi fase Implementation (bukan selalu Pre-Implementation)", async () => {
+    server.use(
+      http.get(api("/projects"), () =>
+        HttpResponse.json(
+          successEnvelope([
+            makeProject({ id_project: "p-1", project_name: "Masih Pre-Sales", status: "Assigned" }),
+            makeProject({ id_project: "p-2", project_name: "Sudah Handover", status: "Handover Complete" }),
+          ])
+        )
+      )
+    );
+    const { user } = renderWithProviders(<CalendarSyncPage />, { role: "SA" });
+    await screen.findByRole("button", { name: "Sync Calendar" });
+    await openMappingModal(user);
+
+    await user.selectOptions(screen.getByLabelText(/^Proyek/), "p-2");
+    expect(screen.getByLabelText(/^Fase Proyek/)).toHaveValue("Implementation");
+
+    await user.selectOptions(screen.getByLabelText(/^Proyek/), "p-1");
+    expect(screen.getByLabelText(/^Fase Proyek/)).toHaveValue("Pre-Implementation");
+  });
+
   it("daftar proyek kosong: modal mapping memperingatkan tidak ada proyek", async () => {
     server.use(http.get(api("/projects"), () => HttpResponse.json(successEnvelope([]))));
     const { user } = renderWithProviders(<CalendarSyncPage />, { role: "SA" });

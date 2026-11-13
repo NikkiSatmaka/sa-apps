@@ -17,6 +17,12 @@ class AssignRequest(BaseModel):
         ...,
         description="UUID dari SA yang akan ditugaskan ke proyek",
     )
+    lead_sa_id: Optional[uuid.UUID] = Field(
+        default=None,
+        description=(
+            "UUID Lead_SA proyek (opsional). Bila kosong, yang meng-assign menjadi `lead_sa`."
+        ),
+    )
 
 
 class SAAvailability(BaseModel):

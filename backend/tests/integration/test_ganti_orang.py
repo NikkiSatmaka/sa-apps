@@ -41,7 +41,11 @@ async def _user(dunia, role, nama):
 
 async def _proyek(dunia, **o):
     o.setdefault("product_pic", dunia.produk.id)
-    return await dunia.buat_proyek(**o)
+    sales_pic = o.pop("sales_pic", None)
+    proyek = await dunia.buat_proyek(**o)  # `dunia.sales` jadi sales_pic bawaan
+    proyek.sales_pic = sales_pic
+    await dunia.db.commit()
+    return proyek
 
 
 # ------------------------------------------------------------------------------ authz

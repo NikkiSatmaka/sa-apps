@@ -14,6 +14,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.orang import tentukan_lead_sa
 from app.core.database import get_db
 from app.core.dependencies import PERAN_DAPAT_DITUGASKAN, adalah_privileged, get_current_user
 from app.models.activity_log import ActivityLog
@@ -700,6 +701,9 @@ async def assign_sa_to_project(
             ),
         )
 
+    # === 2a. Tentukan Lead_SA proyek (wajib sejak Assigned; ADR 0014) ===
+    lead_sa_id = await tentukan_lead_sa(db, body.lead_sa_id, current_user)
+
     # === 2b. Lookup email Sales (requester) untuk provisioning folder ===
     sales_result = await db.execute(select(User).where(User.id == project.sales_pic))
     sales_user = sales_result.scalar_one_or_none()
@@ -709,6 +713,7 @@ async def assign_sa_to_project(
     now = datetime.now(timezone.utc)
     project.status = "Assigned"
     project.assigned_sa = body.sa_id
+    project.lead_sa = lead_sa_id
     project.assigned_at = now
     project.updated_at = now
     # Tandai provisioning akan berjalan (background task men-set 'provisioned'/'failed')
@@ -873,6 +878,11 @@ async def reassign_sa_to_project(
                 f"yang bisa ditugaskan."
             ),
         )
+
+    # `lead_sa` wajib sejak Assigned (ADR 0014): isi bila kosong; yang sudah ada tidak ditimpa
+    # (penggantian lewat PATCH /projects/{id}/people).
+    if project.lead_sa is None:
+        project.lead_sa = await tentukan_lead_sa(db, body.lead_sa_id, current_user)
 
     # === 3. Update proyek ===
     now = datetime.now(timezone.utc)

@@ -442,7 +442,9 @@ async def get_project_detail(
     await ensure_project_access(db, project, current_user, TingkatAkses.BACA)
 
     # Nama created_by, Product PIC, dan Sales PIC (opsional)
-    orang = await _muat_user(db, (project.created_by, project.product_pic, project.sales_pic))
+    orang = await _muat_user(
+        db, (project.created_by, project.product_pic, project.sales_pic, project.lead_sa)
+    )
 
     # Fetch nama SA assigned
     sa_name = None
@@ -528,6 +530,7 @@ async def get_project_detail(
         "created_by": _ringkas_orang(orang.get(project.created_by), project.created_by),
         "product_pic": _ringkas_orang(orang.get(project.product_pic), project.product_pic),
         "sales_pic": _ringkas_orang(orang.get(project.sales_pic), project.sales_pic),
+        "lead_sa": _ringkas_orang(orang.get(project.lead_sa), project.lead_sa),
         "assigned_sa": {
             "id": str(project.assigned_sa) if project.assigned_sa else None,
             "name": sa_name,

@@ -15,10 +15,10 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import (
-    adalah_privileged,
-    adalah_sales_terbatas,
-    PeranUser,
+    PERAN_REQUESTER,
     TingkatAkses,
+    adalah_privileged,
+    adalah_requester_terbatas,
     ensure_project_access,
 )
 from app.models.document import Document
@@ -75,19 +75,19 @@ async def terapkan_dq(
             ),
         )
 
-    if project.dq_number is not None and adalah_sales_terbatas(user):
+    if project.dq_number is not None and adalah_requester_terbatas(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
-                "DQ Number sudah tersimpan dan tidak bisa diubah oleh Sales. "
+                "DQ Number sudah tersimpan dan tidak bisa diubah oleh Sales/Product. "
                 "Hubungi Lead SA untuk perubahan."
             ),
         )
 
-    if not (user.role == PeranUser.SALES or adalah_privileged(user)):
+    if not (user.role in PERAN_REQUESTER or adalah_privileged(user)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Hanya Sales atau Lead_SA yang dapat menginput DQ Number.",
+            detail="Hanya Sales, Product, atau Lead_SA yang dapat menginput DQ Number.",
         )
 
     pertama_kali = project.dq_number is None and nilai_baru is not None
@@ -121,7 +121,7 @@ def dokumen_terlihat(user: User, project: Project, dokumen: Document) -> bool:
     proyek itu, DQ sudah terisi, dan dokumen berstatus Reviewed/Final. Dokumen non-Solutions
     dan peran lain tidak berubah.
     """
-    if dokumen.folder_type != FOLDER_SOLUTIONS or not adalah_sales_terbatas(user):
+    if dokumen.folder_type != FOLDER_SOLUTIONS or not adalah_requester_terbatas(user):
         return True
     return (
         project.sales_pic == user.id

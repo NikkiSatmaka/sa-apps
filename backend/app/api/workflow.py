@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import (
+    PERAN_REQUESTER,
     TingkatAkses,
     adalah_privileged,
     ensure_project_access,
@@ -98,7 +99,7 @@ def _generate_audit_id() -> str:
 
 def _pesan_ditolak_ubah_status(peran: str) -> str:
     """Pesan 403 per peran (kontrak lama dipertahankan); aturannya ada di TingkatAkses.UBAH_STATUS."""
-    if peran == "Sales":
+    if peran in PERAN_REQUESTER:
         return "Anda hanya dapat mengubah status proyek milik Anda sendiri."
     if peran == "SA":
         return "Anda hanya dapat mengubah status proyek yang ditugaskan kepada Anda."

@@ -74,7 +74,9 @@ async def test_product_pic_boleh_ubah_status_proyek_miliknya_tapi_bukan_milik_la
     milik_lain = await _proyek_milik(db_session, lain)
 
     ok = await api.client.patch(
-        f"{API}/projects/{miliknya.id_project}/status", json={"new_status": "Ready"}, headers=h_produk
+        f"{API}/projects/{miliknya.id_project}/status",
+        json={"new_status": "Ready"},
+        headers=h_produk,
     )
     ditolak = await api.client.patch(
         f"{API}/projects/{milik_lain.id_project}/status",
@@ -118,9 +120,13 @@ async def test_product_tanpa_dq_tidak_melihat_dokumen_solutions_seperti_sales(ap
     produk, h_produk = await user_baru_b6(db_session, "Product")
     proyek = await _proyek_milik(db_session, produk)
     sa, _ = await user_baru_b6(db_session, "SA")
-    await simpan(db_session, bangun_document(proyek.id_project, sa.id, doc_type="PropTek", status="Final"))
+    await simpan(
+        db_session, bangun_document(proyek.id_project, sa.id, doc_type="PropTek", status="Final")
+    )
 
-    resp = await api.client.get(f"{API}/projects/{proyek.id_project}/documents/solutions", headers=h_produk)
+    resp = await api.client.get(
+        f"{API}/projects/{proyek.id_project}/documents/solutions", headers=h_produk
+    )
 
     assert resp.status_code == 200
     assert resp.json()["data"] == {"documents": [], "total": 0, "dq_required": True}

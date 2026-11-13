@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.dependencies import (
     TingkatAkses,
-    adalah_sales_terbatas,
+    adalah_requester_terbatas,
     ensure_project_access,
     get_current_user,
 )
@@ -139,14 +139,14 @@ async def get_solutions_documents(
 
     await ensure_project_access(db, project, current_user, TingkatAkses.BACA)
     # Sales hanya boleh melihat link Solutions bila PIC proyek ini (collaborator Sales tidak).
-    if adalah_sales_terbatas(current_user) and project.sales_pic != current_user.id:
+    if adalah_requester_terbatas(current_user) and project.sales_pic != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Anda tidak memiliki akses ke proyek ini.",
         )
 
     # === 2. Gating untuk Sales: DQ Number harus ada ===
-    if adalah_sales_terbatas(current_user) and project.dq_number is None:
+    if adalah_requester_terbatas(current_user) and project.dq_number is None:
         # Sembunyikan link Solutions — return list kosong
         return success_response(
             data={"documents": [], "total": 0, "dq_required": True},

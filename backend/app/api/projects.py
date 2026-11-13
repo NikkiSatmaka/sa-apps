@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.dependencies import (
     TingkatAkses,
+    boleh_membuat_proyek,
     adalah_privileged,
     ensure_project_access,
     get_current_user,
@@ -739,7 +740,7 @@ async def update_project(
     summary="Submit request SA (request proyek pre-sales baru)",
     description=(
         "Endpoint untuk mengajukan Request SA (proyek pre-sales baru). "
-        "Dapat diakses oleh role Sales, SA, dan Lead_SA. "
+        "Dapat diakses oleh role Sales, Product, Lead_SA, dan `is_admin` (SA ditolak). "
         "Menerima form data + file attachment (PDF/DOCX, max 20MB/file, max 5 files). "
         "Menerima jawaban Kuesioner kualifikasi (qualification_answers, JSON); skor BANT "
         "dihitung backend. Tanpa file: gate 60 langsung diterapkan. Dengan file: status 'Scoring Pending' "
@@ -797,6 +798,12 @@ async def create_project(
     4. Trigger Scoring_Engine async jika ada file valid
     5. Return 201 dengan data proyek + hasil upload per file
     """
+    if not boleh_membuat_proyek(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hanya Sales, Product, Lead_SA, atau Admin yang dapat membuat proyek.",
+        )
+
     # === Validasi manual untuk field yang diterima sebagai Form ===
 
     # Trim whitespace

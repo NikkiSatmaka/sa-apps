@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import adalah_privileged, get_current_user
+from app.core.dependencies import PERAN_DAPAT_DITUGASKAN, adalah_privileged, get_current_user
 from app.models.activity_log import ActivityLog
 from app.models.notification_log import NotificationLog
 from app.models.project import Project
@@ -272,8 +272,8 @@ async def get_available_sa(
     # Status terminal — proyek yang sudah selesai/tidak aktif
     terminal_statuses = ("Closed-Win", "Handover Complete", "Lost")
 
-    # Query semua user dengan role SA
-    sa_result = await db.execute(select(User).where(User.role == "SA").order_by(User.name))
+    # Query semua kandidat SA: user berrole SA atau Lead_SA (ADR 0012)
+    sa_result = await db.execute(select(User).where(User.role.in_(PERAN_DAPAT_DITUGASKAN)).order_by(User.name))
     sa_users = sa_result.scalars().all()
 
     # Hitung jumlah proyek aktif per SA menggunakan subquery
@@ -690,12 +690,13 @@ async def assign_sa_to_project(
             detail=f"SA dengan ID '{body.sa_id}' tidak ditemukan.",
         )
 
-    if sa_user.role != "SA":
+    if sa_user.role not in PERAN_DAPAT_DITUGASKAN:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 f"User '{sa_user.name}' memiliki role '{sa_user.role}', "
-                f"bukan 'SA'. Hanya user dengan role SA yang bisa ditugaskan."
+                f"bukan 'SA' atau 'Lead_SA'. Hanya user dengan role SA atau Lead_SA "
+                f"yang bisa ditugaskan."
             ),
         )
 
@@ -863,12 +864,13 @@ async def reassign_sa_to_project(
             detail=f"SA dengan ID '{body.sa_id}' tidak ditemukan.",
         )
 
-    if sa_user.role != "SA":
+    if sa_user.role not in PERAN_DAPAT_DITUGASKAN:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 f"User '{sa_user.name}' memiliki role '{sa_user.role}', "
-                f"bukan 'SA'. Hanya user dengan role SA yang bisa ditugaskan."
+                f"bukan 'SA' atau 'Lead_SA'. Hanya user dengan role SA atau Lead_SA "
+                f"yang bisa ditugaskan."
             ),
         )
 

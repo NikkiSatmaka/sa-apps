@@ -128,6 +128,13 @@ class PeranUser(StrEnum):
     LEAD_SA = "Lead_SA"
 
 
+# Pembuat dan pemantau project: Product memakai tingkat izin yang sama dengan Sales (ADR 0012).
+PERAN_REQUESTER = (PeranUser.SALES, PeranUser.PRODUCT)
+
+# Role yang boleh ditugaskan sebagai SA (`assigned_sa`): SA dan Lead_SA (ADR 0012).
+PERAN_DAPAT_DITUGASKAN = (PeranUser.SA, PeranUser.LEAD_SA)
+
+
 def adalah_admin(user: User) -> bool:
     """True hanya bila flag `is_admin` bernilai True (bukan sekadar truthy: objek tiruan/None
     tidak boleh lolos sebagai admin)."""
@@ -139,12 +146,19 @@ def adalah_privileged(user: User) -> bool:
     return user.role == PeranUser.LEAD_SA or adalah_admin(user)
 
 
-def adalah_sales_terbatas(user: User) -> bool:
-    """Berrole Sales dan bukan privileged: dikenai pembatasan khusus Sales (mis. gating DQ).
+def adalah_requester_terbatas(user: User) -> bool:
+    """Berrole Sales atau Product dan bukan privileged: dikenai pembatasan khusus requester
+    (mis. gating DQ).
 
-    Pemilik flag `is_admin` berrole Sales tidak dibatasi, sama seperti Admin sebelum ADR 0012.
+    Pemilik flag `is_admin` berrole Sales/Product tidak dibatasi, sama seperti Admin sebelum
+    ADR 0012.
     """
-    return user.role == PeranUser.SALES and not adalah_privileged(user)
+    return user.role in PERAN_REQUESTER and not adalah_privileged(user)
+
+
+def boleh_membuat_proyek(user: User) -> bool:
+    """Pembuat project: Sales, Product, Lead_SA, atau `is_admin`; SA tidak boleh."""
+    return user.role in PERAN_REQUESTER or adalah_privileged(user)
 
 
 def require_privileged(current_user: User = Depends(get_current_user)) -> User:
@@ -238,8 +252,8 @@ class Aturan:
     """Siapa yang berhak pada satu tingkat. Lead_SA/Admin SELALU berhak, tidak dicantumkan.
 
     `sales_pic` / `sa_ditugaskan` / `kolaborator` = hubungan yang diizinkan. Bila
-    `cocokkan_peran`, Sales PIC hanya berlaku untuk user berperan Sales dan SA ditugaskan hanya
-    untuk berperan SA (dicocokkan lewat id DAN peran).
+    `cocokkan_peran`, Sales PIC hanya berlaku untuk user berperan Sales atau Product
+    (`PERAN_REQUESTER`) dan SA ditugaskan hanya untuk berperan SA (dicocokkan lewat id DAN peran).
     """
 
     keterangan: str
@@ -258,9 +272,9 @@ class Aturan:
     def mengizinkan(self, h: HubunganProyek) -> bool:
         if h.privileged or self.semua_pengguna:
             return True
-        if self.sales_pic and h.sales_pic and self._peran_cocok(h, PeranUser.SALES):
+        if self.sales_pic and h.sales_pic and self._peran_cocok(h, PERAN_REQUESTER):
             return True
-        if self.sa_ditugaskan and h.sa_ditugaskan and self._peran_cocok(h, PeranUser.SA):
+        if self.sa_ditugaskan and h.sa_ditugaskan and self._peran_cocok(h, (PeranUser.SA,)):
             return True
         match self.kolaborator:
             case AksesKolaborator.SEMUA:
@@ -270,8 +284,8 @@ class Aturan:
             case _:
                 return False
 
-    def _peran_cocok(self, h: HubunganProyek, peran: PeranUser) -> bool:
-        return not self.cocokkan_peran or h.peran == peran
+    def _peran_cocok(self, h: HubunganProyek, peran: tuple[PeranUser, ...]) -> bool:
+        return not self.cocokkan_peran or h.peran in peran
 
 
 _ATURAN: dict[TingkatAkses, Aturan] = {

@@ -222,6 +222,24 @@ async def test_assign_proyek_tidak_ada_404_dan_sa_tidak_ada_404(dunia, api):
     assert (await ambil_proyek(dunia.db, proyek.id_project)).status == "Pending Assignment"
 
 
+async def test_assign_lead_sa_diizinkan_sebagai_assigned_sa(dunia, api):
+    """ADR 0012: SA dan Lead_SA sama-sama bisa ditugaskan sebagai `assigned_sa`."""
+    proyek = await dunia.buat_proyek()
+
+    resp = await api.client.post(
+        ASSIGN.format(proyek.id_project),
+        json={"sa_id": str(dunia.lead.id)},
+        headers=dunia.h["lead"],
+    )
+
+    assert resp.status_code == 200, resp.text
+    p = await ambil_proyek(dunia.db, proyek.id_project)
+    assert (p.status, p.assigned_sa) == ("Assigned", dunia.lead.id)
+    assert {s.assigned_sa for s in await daftar_subtask(dunia.db, proyek.id_project)} == {
+        dunia.lead.id
+    }
+
+
 async def test_assign_sa_pemilik_flag_admin_diizinkan(dunia, api):
     """Admin menempel pada role fungsional (ADR 0012): admin berrole SA bisa ditugaskan."""
     proyek = await dunia.buat_proyek()
@@ -237,7 +255,7 @@ async def test_assign_sa_pemilik_flag_admin_diizinkan(dunia, api):
     assert (p.status, p.assigned_sa) == ("Assigned", dunia.admin.id)
 
 
-@pytest.mark.parametrize("target", ["sales_lain", "lead"])
+@pytest.mark.parametrize("target", ["sales_lain", "produk"])
 async def test_assign_target_bukan_sa_ditolak(dunia, api, target):
     proyek = await dunia.buat_proyek()
 
@@ -565,6 +583,19 @@ async def test_reassign_status_tidak_valid_ditolak(dunia, api, status):
     assert (await ambil_proyek(dunia.db, proyek.id_project)).assigned_sa == dunia.sa.id
 
 
+async def test_reassign_ke_lead_sa_diizinkan(dunia, api):
+    proyek = await dunia.buat_proyek(status="Assigned", assigned_sa=dunia.sa.id)
+
+    resp = await api.client.post(
+        REASSIGN.format(proyek.id_project),
+        json={"sa_id": str(dunia.lead.id)},
+        headers=dunia.h["lead"],
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert (await ambil_proyek(dunia.db, proyek.id_project)).assigned_sa == dunia.lead.id
+
+
 async def test_reassign_proyek_tidak_ada_sa_tidak_ada_dan_target_bukan_sa(dunia, api):
     import uuid
 
@@ -580,8 +611,12 @@ async def test_reassign_proyek_tidak_ada_sa_tidak_ada_dan_target_bukan_sa(dunia,
     bukan_sa = await api.client.post(
         url, json={"sa_id": str(dunia.sales_lain.id)}, headers=dunia.h["lead"]
     )
+    produk = await api.client.post(
+        url, json={"sa_id": str(dunia.produk.id)}, headers=dunia.h["lead"]
+    )
 
     assert (tanpa_proyek.status_code, tanpa_sa.status_code, bukan_sa.status_code) == (404, 404, 400)
+    assert produk.status_code == 400
     assert (await ambil_proyek(dunia.db, proyek.id_project)).assigned_sa == dunia.sa.id
     assert await daftar_notif(dunia.db, proyek.id_project, "assignment") == []
 

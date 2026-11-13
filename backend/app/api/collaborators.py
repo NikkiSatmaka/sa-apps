@@ -15,6 +15,7 @@ from app.core.database import get_db
 from app.core.dependencies import (
     adalah_privileged,
     PeranKolaborator,
+    PERAN_REQUESTER,
     PeranUser,
     TingkatAkses,
     ensure_project_access,
@@ -165,14 +166,18 @@ async def add_collaborator(
         )
 
     # === Aturan role penambah terhadap role target ===
-    # - Sales hanya bisa menambahkan sesama Sales
+    # - Sales/Product hanya bisa menambahkan sesama Sales/Product
     # - SA hanya bisa menambahkan sesama SA
     # - Lead_SA / Admin bisa menambahkan role apa pun
     privileged = adalah_privileged(current_user)
-    if not privileged and current_user.role == "Sales" and target_user.role != "Sales":
+    if (
+        not privileged
+        and current_user.role in PERAN_REQUESTER
+        and target_user.role not in PERAN_REQUESTER
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Sales hanya dapat menambahkan sesama Sales sebagai kolaborator.",
+            detail="Sales/Product hanya dapat menambahkan sesama Sales/Product sebagai kolaborator.",
         )
     if not privileged and current_user.role == "SA" and target_user.role != "SA":
         raise HTTPException(

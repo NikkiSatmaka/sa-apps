@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import (
+    PERAN_REQUESTER,
     TingkatAkses,
     adalah_privileged,
     ensure_project_access,
@@ -71,8 +72,8 @@ async def get_handover_status(
         current_user,
         TingkatAkses.HANDOVER,
         pesan=(
-            "Role Sales tidak memiliki akses ke fitur handover."
-            if current_user.role == "Sales"
+            "Role Sales/Product tidak memiliki akses ke fitur handover."
+            if current_user.role in PERAN_REQUESTER
             else "Anda hanya dapat melihat status handover proyek yang ditugaskan kepada Anda."
         ),
     )
@@ -199,8 +200,8 @@ async def trigger_handover(
         current_user,
         TingkatAkses.HANDOVER,
         pesan=(
-            "Role Sales tidak memiliki akses untuk memicu handover."
-            if current_user.role == "Sales"
+            "Role Sales/Product tidak memiliki akses untuk memicu handover."
+            if current_user.role in PERAN_REQUESTER
             else "Anda hanya dapat memicu handover proyek yang ditugaskan kepada Anda."
         ),
     )

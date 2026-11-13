@@ -208,6 +208,8 @@ class Aturan:
     """
 
     keterangan: str
+    # Terbuka untuk SEMUA pengguna terautentikasi (tingkat baca; tulis tetap dibatasi).
+    semua_pengguna: bool = False
     sales_pic: bool = False
     sa_ditugaskan: bool = False
     kolaborator: AksesKolaborator = AksesKolaborator.TIDAK
@@ -215,10 +217,11 @@ class Aturan:
 
     @property
     def butuh_kolaborator(self) -> bool:
-        return self.kolaborator != AksesKolaborator.TIDAK
+        # Tingkat terbuka tidak perlu membaca collaborator: keputusannya sudah "ya".
+        return not self.semua_pengguna and self.kolaborator != AksesKolaborator.TIDAK
 
     def mengizinkan(self, h: HubunganProyek) -> bool:
-        if h.privileged:
+        if h.privileged or self.semua_pengguna:
             return True
         if self.sales_pic and h.sales_pic and self._peran_cocok(h, PeranUser.SALES):
             return True
@@ -238,18 +241,14 @@ class Aturan:
 
 _ATURAN: dict[TingkatAkses, Aturan] = {
     TingkatAkses.BACA: Aturan(
-        "Baca: Sales PIC, SA ditugaskan, collaborator (viewer & contributor)",
-        sales_pic=True,
-        sa_ditugaskan=True,
-        kolaborator=AksesKolaborator.SEMUA,
+        "Baca: SEMUA pengguna terautentikasi (keputusan pemilik produk 2026-11-10: semua proyek "
+        "dapat dilihat siapa pun; hanya akses tulis yang dibatasi)",
+        semua_pengguna=True,
     ),
     TingkatAkses.STORY: Aturan(
-        "Baca Project Story + minta ringkasan AI: sama dengan BACA. Sales PIC proyek itu BOLEH "
-        "(keputusan pemilik produk 2026-11-10; Story memuat catatan rapat mentah dan versi polish "
-        "AI, dibuka sadar agar Sales melihat progres). Tingkat TULIS tidak berubah.",
-        sales_pic=True,
-        sa_ditugaskan=True,
-        kolaborator=AksesKolaborator.SEMUA,
+        "Baca Project Story + minta ringkasan AI: sama dengan BACA, terbuka untuk semua pengguna "
+        "terautentikasi (keputusan 2026-11-10). Tingkat TULIS tidak berubah.",
+        semua_pengguna=True,
     ),
     TingkatAkses.TULIS: Aturan(
         "Tulis activity log / map kalender / unggah dokumen: SA ditugaskan, contributor "

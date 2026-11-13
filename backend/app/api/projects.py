@@ -232,24 +232,8 @@ async def list_projects(
     """
     query = select(Project)
 
-    # === Scoping akses berbasis role (dipaksa server-side) ===
-    # Lead_SA & Admin: akses ke seluruh proyek.
-    # Sales & SA: hanya proyek terkait dirinya (sebagai sales_pic / assigned_sa)
-    #             ATAU proyek di mana ia terdaftar sebagai collaborator.
-    # Catatan: query param sales_pic=me / assigned_to=me hanya penyempit opsional,
-    # bukan satu-satunya penjaga akses (sebelumnya rawan bypass bila param tidak dikirim).
-    if current_user.role not in ("Lead_SA", "Admin"):
-        collab_subquery = select(ProjectCollaborator.id_project).where(
-            ProjectCollaborator.user_id == current_user.id
-        )
-        query = query.where(
-            or_(
-                Project.sales_pic == current_user.id,
-                Project.assigned_sa == current_user.id,
-                Project.id_project.in_(collab_subquery),
-            )
-        )
-
+    # Semua proyek dapat dilihat semua pengguna terautentikasi (keputusan 2026-11-10); hanya akses
+    # TULIS yang dibatasi. Query param sales_pic=me / assigned_to=me hanyalah penyempit opsional.
     # Penyempit opsional dari query param (hanya mempersempit, tidak memperluas akses)
     if sales_pic == "me":
         query = query.where(Project.sales_pic == current_user.id)
@@ -325,20 +309,7 @@ async def get_status_summary(
     """Hitung jumlah proyek per status, dengan filter berbasis role."""
     query = select(Project.status, func.count(Project.id_project))
 
-    # === Scoping akses berbasis role (sama seperti list_projects) ===
-    # Lead_SA & Admin: seluruh proyek. Sales & SA: proyek terkait + collaborator.
-    if current_user.role not in ("Lead_SA", "Admin"):
-        collab_subquery = select(ProjectCollaborator.id_project).where(
-            ProjectCollaborator.user_id == current_user.id
-        )
-        query = query.where(
-            or_(
-                Project.sales_pic == current_user.id,
-                Project.assigned_sa == current_user.id,
-                Project.id_project.in_(collab_subquery),
-            )
-        )
-
+    # Semua proyek dapat dilihat semua pengguna terautentikasi (sama seperti list_projects).
     # Penyempit opsional dari query param
     if sales_pic == "me":
         query = query.where(Project.sales_pic == current_user.id)

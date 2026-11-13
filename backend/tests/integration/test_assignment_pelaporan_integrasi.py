@@ -93,8 +93,13 @@ async def test_sa_tersedia_menghitung_proyek_aktif_tanpa_status_terminal(dunia, 
 
     assert resp.status_code == 200, resp.text
     beban = {u["email"]: u["active_project_count"] for u in resp.json()["data"]}
-    # Hanya user ber-role SA; Lead/Sales tidak ikut. Admin berrole SA ikut (admin = flag, ADR 0012).
-    assert beban == {dunia.sa.email: 2, dunia.sa2.email: 1, dunia.admin.email: 0}
+    # Kandidat = SA dan Lead_SA (ADR 0012); Sales/Product tidak ikut. Admin berrole SA ikut.
+    assert beban == {
+        dunia.sa.email: 2,
+        dunia.sa2.email: 1,
+        dunia.admin.email: 0,
+        dunia.lead.email: 0,
+    }
 
 
 # ----------------------------------------------------------------------------- utilisasi SA

@@ -68,6 +68,7 @@ class Dunia:
     admin: Pengguna
     sales: Pengguna
     sales_lain: Pengguna
+    produk: Pengguna
     sa: Pengguna
     sa2: Pengguna
     h: dict[str, dict[str, str]] = field(default_factory=dict)
@@ -88,6 +89,7 @@ async def bangun_dunia(db: AsyncSession) -> Dunia:
             "admin": "Admin",
             "sales": "Sales",
             "sales_lain": "Sales",
+            "produk": "Product",
             "sa": "SA",
             "sa2": "SA",
         }.items()

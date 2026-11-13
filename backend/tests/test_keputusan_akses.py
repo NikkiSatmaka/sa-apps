@@ -33,6 +33,7 @@ PESAN_403 = "Anda tidak memiliki akses ke proyek ini."
 LEAD = HubunganProyek(privileged=True, peran="Lead_SA")
 ADMIN = HubunganProyek(privileged=True, peran="Admin")
 SALES_PIC = HubunganProyek(sales_pic=True, peran="Sales")
+PRODUCT_PIC = HubunganProyek(sales_pic=True, peran="Product")
 SA_DITUGASKAN = HubunganProyek(sa_ditugaskan=True, peran="SA")
 KOLAB_VIEWER = HubunganProyek(kolaborator="viewer", peran="SA")
 KOLAB_CONTRIB = HubunganProyek(kolaborator="contributor", peran="SA")
@@ -304,3 +305,23 @@ async def test_ensure_pesan_khusus_menggantikan_pesan_generik_status_tetap_403()
         )
     assert exc.value.status_code == 403
     assert exc.value.detail == "Pesan kontrak lama."
+
+
+# --------------------------------------------------------------------------- Product setara Sales (#115)
+
+
+@pytest.mark.parametrize("tingkat", list(TingkatAkses))
+def test_product_pic_diperlakukan_sama_dengan_sales_pic_di_semua_tingkat(tingkat):
+    """ADR 0012: Product memakai tingkat izin yang sama dengan Sales (hanya beda tim)."""
+    assert izinkan(PRODUCT_PIC, tingkat) == izinkan(SALES_PIC, tingkat)
+
+
+@pytest.mark.parametrize("tingkat", [TingkatAkses.UBAH_STATUS, TingkatAkses.EDIT_KUESIONER])
+def test_tingkat_yang_mencocokkan_peran_mengizinkan_product_pic(tingkat):
+    """Dua tingkat ini mencocokkan id DAN peran; Product harus ikut dikenali sebagai Sales."""
+    assert izinkan(PRODUCT_PIC, tingkat) is True
+
+
+@pytest.mark.parametrize("tingkat", [TingkatAkses.UBAH_STATUS, TingkatAkses.EDIT_KUESIONER])
+def test_peran_sa_tetap_tidak_lolos_sebagai_pic_requester(tingkat):
+    assert izinkan(HubunganProyek(sales_pic=True, peran="SA"), tingkat) is False

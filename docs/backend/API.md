@@ -83,7 +83,7 @@ Referensi lengkap API backend Portal SA. Disusun dari router di `backend/app/api
 
 | Method & Path | Auth / Role | Request | Response | Purpose |
 |---|---|---|---|---|
-| `PATCH /projects/{project_id}/status` | `get_current_user` + `_check_project_access` (Sales: proyek sendiri, SA: proyek ditugaskan, Lead_SA/Admin: semua) | `StatusUpdateRequest` (`new_status`) | `StatusTransitionResponse` + audit log | Ubah status proyek dengan validasi state machine linear. `Lost` hanya Lead_SA/Admin. Mencatat `AuditLog`. |
+| `PATCH /projects/{project_id}/status` | `get_current_user` + `_check_project_access` (Sales: proyek sendiri, SA: proyek ditugaskan, Lead_SA/Admin: semua) | `StatusUpdateRequest` (`new_status`) | `StatusTransitionResponse` + audit log | Ubah status proyek dengan validasi state machine linear (`New` … `Closed-Win`). `Lost` hanya Lead_SA/Admin. `Handover Complete` ditolak 400 dan diarahkan ke `POST /handover`. Mencatat `AuditLog`. |
 
 ---
 
@@ -152,7 +152,7 @@ Referensi lengkap API backend Portal SA. Disusun dari router di `backend/app/api
 |---|---|---|---|---|
 | `GET /projects/{project_id}/handover-status` | SA ditugaskan/Lead_SA/Admin (Sales ditolak) | — | `{ready, missing_items, pmo_email, delivery_email, project_status, hld_status}` | Cek kesiapan handover. |
 | `POST /projects/{project_id}/handover-config` | Lead_SA/Admin | `HandoverConfigInput` (`pmo_email`, `delivery_email`) | config tersimpan | Set email PMO/Delivery Lead. |
-| `POST /projects/{project_id}/handover` | SA ditugaskan/Lead_SA/Admin | — | detail handover | Trigger handover: prasyarat `Closed-Win` + HLD `Final` + email PMO/Delivery + folder GDrive. Provision `Final_Deliverables`, notifikasi, status `Handover Complete`, audit log. GDrive gagal → `Handover Failed`. |
+| `POST /projects/{project_id}/handover` | SA ditugaskan/Lead_SA/Admin | — | detail handover | Trigger handover: prasyarat `Closed-Win` + HLD `Final` + email PMO/Delivery + folder GDrive. Provision `Final_Deliverables`, notifikasi (in-app + email bila punya akun; email langsung bila tidak, dicatat di audit `penerima_email_langsung`), status `Handover Complete`, audit log. GDrive gagal → 400, status tetap `Closed-Win`, SA/Lead_SA diberi notifikasi. Satu-satunya jalan ke `Handover Complete` (`PATCH /status` menolaknya, 400). |
 
 ---
 

@@ -2,11 +2,13 @@
 HandoverService — Modul untuk mengelola proses handover proyek ke PMO dan Delivery.
 
 Fitur utama:
-- Trigger handover otomatis saat HLD "Final" + status "Closed-Win"
+- Trigger handover MANUAL (POST /projects/{id}/handover) saat HLD "Final" + status "Closed-Win"
+  (keputusan pemilik produk 2026-11-10: tidak otomatis; satu-satunya jalan ke "Handover Complete")
 - Provisioning folder Final_Deliverables + permission PMO/Delivery
-- Kirim notifikasi handover (in-app + email)
+- Kirim notifikasi handover: in-app + email bila punya akun portal, email langsung bila tidak
 - Update status → "Handover Complete" + audit log
-- Handle error GDrive: retry 3x interval 5s, flag "Handover Failed"
+- Handle error GDrive: retry 3x interval 5s; bila tetap gagal status TIDAK berubah (tetap
+  "Closed-Win"), SA dan Lead_SA diberi tahu, dan handover dapat dicoba ulang
 - Handle konfigurasi PMO/Delivery belum ada
 
 Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7
@@ -63,7 +65,9 @@ class HandoverService:
     4. Update status proyek → "Handover Complete"
     5. Catat audit log
 
-    Jika GDrive gagal setelah 3x retry, tandai "Handover Failed" dan notif error.
+    Jika GDrive gagal setelah 3x retry, status proyek tidak berubah dan SA/Lead_SA diberi notifikasi
+    error. Tidak ada status "Handover Failed" yang disimpan; kegagalan terlihat lewat notifikasi dan
+    status yang tetap "Closed-Win".
 
     Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7
     """
@@ -178,8 +182,8 @@ class HandoverService:
         4. Update status → "Handover Complete"
         5. Catat audit log
 
-        Jika GDrive gagal (retry sudah di-handle oleh FolderProvisioner),
-        tandai "Handover Failed" dan kirim notif error.
+        Jika GDrive gagal (retry sudah di-handle oleh FolderProvisioner), status tetap
+        "Closed-Win" dan notifikasi error dikirim ke SA/Lead_SA.
 
         Args:
             project_id: ID proyek yang akan di-handover
@@ -263,7 +267,7 @@ class HandoverService:
             )
             logger.info(f"Folder Final_Deliverables berhasil dibuat: {final_deliverables_id}")
         except FolderProvisioningError as e:
-            # GDrive gagal setelah 3x retry — tandai Handover Failed
+            # GDrive gagal setelah 3x retry — status tidak berubah, SA/Lead_SA diberi tahu
             logger.error(f"Handover gagal (GDrive error): {e}")
 
             # Kirim notifikasi error ke SA dan Lead_SA
@@ -271,7 +275,7 @@ class HandoverService:
 
             raise HandoverError(
                 f"Provisioning folder gagal setelah 3x retry: {e}. "
-                f"Handover ditandai sebagai 'Handover Failed'. "
+                f"Status proyek tidak berubah. "
                 f"SA dan Lead_SA telah diberitahu."
             )
 
@@ -300,10 +304,24 @@ class HandoverService:
             "handover_at": now.isoformat(),
         }
 
-        # Cari user PMO dan Delivery (jika terdaftar di sistem)
-        # Jika tidak terdaftar, kirim notifikasi tetap (email only)
+        # Cari user PMO dan Delivery (jika terdaftar di sistem). Yang punya akun menerima in-app +
+        # email; yang tidak punya akun menerima email langsung (#76), dicatat di audit log.
         pmo_user = await self._find_user_by_email(pmo_email, db)
         delivery_user = await self._find_user_by_email(delivery_email, db)
+        subject_handover = (
+            f"[Portal SA] Handover Proyek: {project.customer_name} - {project.project_name}"
+        )
+        penerima_email_langsung: list[str] = []
+        for alamat, akun in ((pmo_email, pmo_user), (delivery_email, delivery_user)):
+            if akun is None:
+                penerima_email_langsung.append(alamat)
+                await notification_service.send_email_langsung(
+                    to=alamat,
+                    event_type=NotificationEventType.HANDOVER,
+                    reference_id=project_id,
+                    metadata=handover_metadata,
+                    subject=subject_handover,
+                )
 
         # Kirim notifikasi ke PMO Lead
         if pmo_user:
@@ -360,6 +378,7 @@ class HandoverService:
                 "pmo_lead_email": pmo_email,
                 "delivery_lead_email": delivery_email,
                 "final_deliverables_folder_id": final_deliverables_id,
+                "penerima_email_langsung": penerima_email_langsung,
                 "handover_at": now.isoformat(),
             },
             created_at=now,

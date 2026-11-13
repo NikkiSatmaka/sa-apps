@@ -261,6 +261,53 @@ async def test_send_notification_tanpa_gmail_hanya_inapp_tersimpan(api, db_sessi
     assert fake_gmail.percobaan == []
 
 
+async def test_email_langsung_dikirim_tanpa_baris_notifikasi_dan_dengan_retry(fake_gmail):
+    """#76: email ke alamat tanpa akun portal. Retry 3x seperti email biasa, tanpa NotificationLog."""
+    fake_gmail.fail_next(2)
+
+    dijadwalkan = await notification_service.send_email_langsung(
+        to="luar@contoh.test",
+        event_type=NotificationEventType.HANDOVER,
+        reference_id="PRJ-1",
+        metadata={"project_id": "PRJ-1"},
+        subject="[Portal SA] Handover",
+    )
+
+    assert dijadwalkan is True
+    await fake_gmail.tunggu_percobaan(3)
+    assert [s.berhasil for s in fake_gmail.percobaan] == [False, False, True]
+    assert {s.to for s in fake_gmail.percobaan} == {"luar@contoh.test"}
+    assert fake_gmail.percobaan[-1].subject == "[Portal SA] Handover"
+    assert fake_gmail.percobaan[-1].context["metadata"] == {"project_id": "PRJ-1"}
+
+
+async def test_email_langsung_gagal_terus_berhenti_setelah_tiga_percobaan_tanpa_raise(fake_gmail):
+    fake_gmail.fail_always()
+
+    await notification_service.send_email_langsung(
+        to="luar@contoh.test",
+        event_type=NotificationEventType.HANDOVER,
+        reference_id="PRJ-1",
+    )
+
+    await fake_gmail.tunggu_percobaan(3)
+    await asyncio.sleep(0.05)  # beri kesempatan percobaan ke-4 muncul bila batas retry bocor
+    assert len(fake_gmail.percobaan) == 3
+
+
+async def test_email_langsung_tanpa_gmail_tidak_dijadwalkan(fake_gmail):
+    fake_gmail.terkonfigurasi = False
+
+    dijadwalkan = await notification_service.send_email_langsung(
+        to="luar@contoh.test",
+        event_type=NotificationEventType.HANDOVER,
+        reference_id="PRJ-1",
+    )
+
+    assert dijadwalkan is False
+    assert fake_gmail.percobaan == []
+
+
 async def test_send_notification_dengan_gmail_inapp_dan_email_terkirim(api, db_session, fake_gmail):
     user = await buat_user(db_session, "SA")
 

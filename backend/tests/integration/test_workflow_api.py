@@ -23,8 +23,8 @@ from tests.integration.b6_support import (  # noqa: F401
 
 pytestmark = pytest.mark.usefixtures("komit_sesi_request")
 
-# Edge Closed-Win → Handover Complete lewat endpoint ini sengaja tidak di-parametrize: ia melewati
-# prasyarat handover (lihat temuan di laporan #59), jadi perilakunya tidak dikunci di sini.
+# `Handover Complete` TIDAK dapat dicapai lewat endpoint ini (issue #76): hanya `POST /handover`
+# yang memeriksa prasyarat (HLD Final, email PMO/Delivery, folder Drive). Lihat test khusus di bawah.
 FORWARD = [
     ("New", "Pending Assignment"),
     ("Pending Assignment", "Assigned"),
@@ -91,6 +91,24 @@ async def test_transisi_forward_diizinkan_untuk_pemilik_proyek_dan_privileged(
     data = resp.json()["data"]
     assert (data["old_status"], data["new_status"]) == (awal, akhir)
     assert await _status(db_session, proyek.id_project) == akhir
+
+
+@pytest.mark.parametrize("peran", ["Sales", "SA", "Lead_SA", "Admin"])
+async def test_patch_ke_handover_complete_ditolak_dan_diarahkan_ke_endpoint_handover(
+    api, db_session, fake_drive, fake_gmail, peran
+):
+    """#76: PATCH status tidak boleh melewati prasyarat handover. Status tetap, tanpa efek samping."""
+    dunia = await siapkan_dunia(api, db_session)
+    proyek = await buat_proyek(db_session, dunia, status="Closed-Win")
+
+    resp = await _ubah(api, proyek.id_project, "Handover Complete", dunia.header[peran])
+
+    assert resp.status_code == 400, resp.text
+    pesan = resp.json()["message"]
+    assert "Handover Complete" in pesan and "/handover" in pesan
+    assert await _status(db_session, proyek.id_project) == "Closed-Win"
+    assert await _audit(db_session, proyek.id_project) == []
+    assert fake_drive.panggilan == [] and fake_gmail.percobaan == []
 
 
 async def test_transisi_mencatat_audit_log_dengan_nilai_lama_dan_baru(api, db_session):

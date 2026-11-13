@@ -45,7 +45,9 @@ Portal ini menggabungkan manajemen proyek (request Sales ke SA) dan manajemen ut
 ### Flow 4: Post-Sales & PMO Handover
 1. **Closed-Win Trigger:** Saat proyek berstatus *PO Rilis / Win*, SA menerima notifikasi wajib membuat **HLD (High Level Document)**.
 2. **RAG Template Recommendation:** Fitur AI (RAG) merekomendasikan *template* / referensi dokumen dari proyek serupa sebelumnya.
-3. **Automated Handover:** Setelah HLD disubmit, sistem otomatis membagikan hak akses folder `03_Final_Deliverables` beserta notifikasi *handover* kepada **PMO Lead** dan **Delivery Lead** untuk penyusunan *Project Charter* dan LLD.
+3. **Handover (dipicu manual):** Setelah HLD berstatus *Final*, SA yang ditugaskan, Lead SA, atau Admin memicu *handover* dari portal. Sistem membuat folder `Final_Deliverables` (di dalam `Solutions`), membagikan aksesnya sebagai *Viewer* kepada **PMO Lead** dan **Delivery Lead** beserta notifikasi *handover* untuk penyusunan *Project Charter* dan LLD, lalu mengubah status proyek menjadi `Handover Complete`.
+
+   > **Catatan divergensi (keputusan 2026-11-10, issue #76):** (1) Handover **tidak otomatis** setelah HLD disubmit; ia dipicu manual dan selalu memeriksa prasyarat (status `Closed-Win`, HLD `Final`, email PMO/Delivery terisi, folder Drive ada). (2) `Handover Complete` **hanya** dapat dicapai lewat aksi handover itu, tidak lewat perubahan status biasa. (3) Nama folder di Drive adalah `Final_Deliverables` (bukan `03_Final_Deliverables`). (4) PMO/Delivery Lead tidak wajib punya akun portal: yang punya akun menerima notifikasi in-app dan email, yang tidak punya menerima **email langsung**. (5) Bila Drive gagal setelah 3 kali retry, status proyek tidak berubah, SA dan Lead SA diberi notifikasi, dan handover dapat dicoba ulang; tidak ada status "Handover Failed".
 
 ---
 
@@ -107,7 +109,7 @@ Portal ini menggabungkan manajemen proyek (request Sales ke SA) dan manajemen ut
 * **Permission Logic:**
   * *Sales* disembunyikan (*No Access*) dari folder `Solutions` sampai field `dq_number` terisi.
   * *SA/Lead SA* mendapatkan hak akses *Editor*.
-  * *PMO/Delivery Lead* ditambahkan akses *Viewer* otomatis saat status berubah menjadi *Closed-Win*.
+  * *PMO/Delivery Lead* ditambahkan akses *Viewer* ke folder `Final_Deliverables` saat handover dipicu (bukan saat status berubah menjadi *Closed-Win*; lihat catatan Flow 4).
 
 ### B. Google Calendar API
 * **Fungsi:** Webhook / API Fetch untuk menarik blok jadwal per hari tiap SA.

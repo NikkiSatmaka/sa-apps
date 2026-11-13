@@ -291,6 +291,23 @@ describe("Detail proyek — subtask per peran", () => {
   });
 });
 
+describe("Detail proyek — Tim SA", () => {
+  it.each(["Sales", "Product", "SA", "Lead_SA", "Admin"] as const)("%s melihat section Tim SA dengan SA utama", async (role) => {
+    setup(role);
+    expect(await screen.findByRole("heading", { name: "Tim SA" })).toBeInTheDocument();
+    expect(await screen.findByRole("listitem", { name: "SA utama: SA Demo" })).toBeInTheDocument();
+  });
+
+  it("hanya Lead_SA/Admin yang melihat kontrol kelola tim", async () => {
+    const { unmount } = setup("SA");
+    await screen.findByRole("listitem", { name: "SA utama: SA Demo" });
+    expect(screen.queryByRole("button", { name: "+ Tambah SA" })).not.toBeInTheDocument();
+    unmount();
+    setup("Lead_SA");
+    expect(await screen.findByRole("button", { name: "+ Tambah SA" })).toBeInTheDocument();
+  });
+});
+
 describe("Detail proyek — override BANT terpasang", () => {
   it("Lead_SA dapat meng-override dari halaman detail", async () => {
     let body: unknown;

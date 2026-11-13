@@ -67,7 +67,7 @@ flowchart TD
         D2["SA menerima notifikasi WAJIB membuat HLD"]
         D3["AI (RAG) merekomendasikan template/referensi<br/>dari proyek Closed-Win serupa"]
         D4["SA submit HLD (status Final)"]
-        D5["Sistem auto-share akses folder<br/>03_Final_Deliverables + notifikasi handover<br/>ke PMO Lead & Delivery Lead (Viewer)"]
+        D5["Handover dipicu manual: sistem membagikan folder<br/>Final_Deliverables + notifikasi/email handover<br/>ke PMO Lead & Delivery Lead (Viewer)"]
         D6["PMO & Delivery menyusun<br/>Project Charter & LLD"]
         D1 --> D2 --> D3 --> D4 --> D5 --> D6
     end

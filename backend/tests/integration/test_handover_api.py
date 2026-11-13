@@ -330,6 +330,7 @@ async def test_handover_sukses_mengirim_email_ke_penerima_terdaftar(
     """
     Hanya PMO yang didaftarkan: email dikirim di background task bersesi sendiri, dan dua task
     paralel akan berebut satu koneksi pada harness B2 (lihat `tahan_email` di fakes/gmail.py).
+    Delivery tidak punya akun: ia menerima email langsung (tanpa sesi DB, jadi tidak berebut).
     """
     dunia = await siapkan_dunia(api, db_session)
     pmo = bangun_user(role="SA", email=PMO, name="PMO")
@@ -341,9 +342,8 @@ async def test_handover_sukses_mengirim_email_ke_penerima_terdaftar(
     fake_gmail.lepaskan_email()
 
     assert resp.status_code == 200, resp.text
-    await fake_gmail.tunggu_percobaan(1)
-    [surat] = fake_gmail.terkirim
-    assert surat.to == PMO
+    await fake_gmail.tunggu_percobaan(2)
+    surat = next(s for s in fake_gmail.terkirim if s.to == PMO)
     assert "Handover" in surat.subject
     assert surat.context["reference_id"] == proyek.id_project
 
@@ -567,7 +567,9 @@ async def test_handover_drive_gagal_status_tetap_dan_sa_serta_lead_sa_diberitahu
 
     assert resp.status_code == 400
     assert "kuota Drive habis" in resp.json()["message"]
-    assert "Handover Failed" in resp.json()["message"]
+    # #76: tidak ada status "Handover Failed" yang disimpan; pesan menyatakan status tidak berubah.
+    assert "Status proyek tidak berubah" in resp.json()["message"]
+    assert "Handover Failed" not in resp.json()["message"]
     baris = await muat(db_session, Project, id_project=proyek.id_project)
     assert baris.status == "Closed-Win"
     assert (

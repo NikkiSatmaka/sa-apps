@@ -118,6 +118,26 @@ describe("Detail proyek — informasi", () => {
     expect(screen.getByRole("link", { name: /Riwayat Log/ })).toHaveAttribute("href", `/projects/${DETAIL_ID}/activity-logs`);
   });
 
+  it("menampilkan Dibuat oleh, Product PIC, dan Sales PIC", async () => {
+    setup("Lead_SA", {
+      created_by: { id: "c1", name: "Pembuat Demo", email: "c@example.com" },
+      product_pic: { id: "p1", name: "Product Demo", email: "p@example.com" },
+    });
+    await screen.findByRole("heading", { level: 1, name: "Migrasi Cloud ACME" });
+    expect(screen.getByText("Pembuat Demo")).toBeInTheDocument();
+    expect(screen.getByText("Product Demo")).toBeInTheDocument();
+    expect(screen.getByText("Sales Demo")).toBeInTheDocument();
+  });
+
+  it("proyek tanpa Sales: Sales PIC tampil placeholder tanpa error", async () => {
+    setup("Lead_SA", {
+      product_pic: { id: "p1", name: "Product Demo", email: "p@example.com" },
+      sales_pic: null,
+    });
+    await screen.findByRole("heading", { level: 1, name: "Migrasi Cloud ACME" });
+    expect(screen.getByText("Sales PIC:").nextElementSibling).toHaveTextContent("—");
+  });
+
   it("nilai kosong: placeholder, tanpa tag, tanpa target", async () => {
     setup("Lead_SA", {
       sales_pic: { id: null, name: null, email: null },

@@ -30,7 +30,8 @@ interface ProjectDetail {
   dq_number: string | null;
   target_submit: string | null;
   bant_detail: Record<string, unknown> | null;
-  sales_pic?: { id: string | null };
+  sales_pic?: { id: string | null } | null;
+  product_pic?: { id: string | null } | null;
   qualification?: QualificationView;
 }
 
@@ -153,7 +154,7 @@ export default function EditProjectPage() {
   const isLegacy = project.qualification?.legacy !== false;
   const editMode = isLegacy
     ? "none"
-    : answerEditMode(user, project.sales_pic?.id, project.status);
+    : answerEditMode(user, [project.product_pic?.id, project.sales_pic?.id], project.status);
   if (!isLegacy && answers === null && project.qualification && schema) {
     setAnswers(answersFromView(schema, project.qualification.answers));
   }

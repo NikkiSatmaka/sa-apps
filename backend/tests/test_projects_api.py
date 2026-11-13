@@ -40,7 +40,7 @@ def _mock_user():
     user.id = uuid.uuid4()
     user.email = "sales@company.com"
     user.name = "Test Sales"
-    user.role = "Sales"
+    user.role = "Product"  # Product: product_pic otomatis dirinya (tanpa lookup DB)
     return user
 
 
@@ -419,23 +419,25 @@ class TestProjectRecordCreation:
         body = response.json()
         assert body["data"]["created_at"] is not None
 
-    def test_project_memiliki_sales_pic(self, mock_auth_and_db):
-        """Proyek baru memiliki sales_pic yang sesuai user login."""
+    def test_project_mencatat_pembuat_dan_product_pic_tanpa_sales(self, mock_auth_and_db):
+        """Pembuat Product: created_by = product_pic = pembuat, sales_pic kosong (ADR 0014)."""
         mock_user, _ = mock_auth_and_db
         client = TestClient(app)
         response = client.post(
             "/api/v1/projects",
             data={
-                "project_name": "Proyek Sales PIC",
-                "customer_name": "PT Sales",
+                "project_name": "Proyek Product PIC",
+                "customer_name": "PT Product",
                 "target_submit": str(date.today() + timedelta(days=7)),
                 "estimasi_nilai": "100000",
                 "qualification_answers": QA,
             },
         )
         assert response.status_code == status.HTTP_201_CREATED
-        body = response.json()
-        assert body["data"]["sales_pic"] == str(mock_user.id)
+        data = response.json()["data"]
+        assert data["created_by"]["id"] == str(mock_user.id)
+        assert data["product_pic"]["id"] == str(mock_user.id)
+        assert data["sales_pic"] is None
 
 
 # =============================================================================
@@ -541,6 +543,8 @@ def _real_project(**overrides):
         status="New",
         target_submit=date.today() + timedelta(days=7),
         sales_pic=uuid.uuid4(),
+        product_pic=uuid.uuid4(),
+        created_by=uuid.uuid4(),
         bant_detail=None,
         estimasi_nilai=None,
     )
@@ -611,7 +615,10 @@ class TestFolderProvisioningStatusInResponse:
             result.scalars = MagicMock(return_value=scalars)
             return result
 
-        mock_session.execute = AsyncMock(return_value=_make_scalars_result([project]))
+        # Query pertama: daftar proyek; kedua: user orang-per-project (tidak ditemukan → nama None)
+        mock_session.execute = AsyncMock(
+            side_effect=[_make_scalars_result([project]), _make_scalars_result([])]
+        )
 
         async def override_get_db():
             yield mock_session

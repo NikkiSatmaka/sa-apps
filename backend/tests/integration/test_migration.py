@@ -85,11 +85,19 @@ def _isi_user_dan_proyek(url: str) -> None:
         "VALUES (:id, 'mig@portal-sa.local', 'Mig', 'Sales', 'g-mig')",
         {"id": USER_ID},
     )
+    # Dipakai pada revisi lama (sebelum 018) dan head: kolom orang baru hanya diisi bila ada.
+    ada_created_by = _sql(
+        url,
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = 'projects' AND column_name = 'created_by'",
+    )
+    kolom_orang = "created_by, product_pic, " if ada_created_by else ""
+    nilai_orang = ":u, :u, " if ada_created_by else ""
     _sql(
         url,
         "INSERT INTO projects "
-        "(id_project, project_name, customer_name, sales_pic, target_submit) "
-        "VALUES ('PRJ-MIG', 'Proyek Mig', 'PT Mig', :u, '2030-01-01')",
+        f"(id_project, project_name, customer_name, {kolom_orang}sales_pic, target_submit) "
+        f"VALUES ('PRJ-MIG', 'Proyek Mig', 'PT Mig', {nilai_orang}:u, '2030-01-01')",
         {"u": USER_ID},
     )
 
@@ -256,8 +264,9 @@ async def _proyek(db, id_project: str, user_id: uuid.UUID) -> None:
     await db.execute(
         text(
             "INSERT INTO projects "
-            "(id_project, project_name, customer_name, sales_pic, target_submit) "
-            "VALUES (:p, 'P', 'C', :u, '2030-01-01')"
+            "(id_project, project_name, customer_name, created_by, product_pic, sales_pic, "
+            "target_submit) "
+            "VALUES (:p, 'P', 'C', :u, :u, :u, '2030-01-01')"
         ),
         {"p": id_project, "u": user_id},
     )

@@ -153,12 +153,14 @@ export type AnswerEditMode = "rescore" | "correct" | "none";
  */
 export function answerEditMode(
   user: (Actor & { id?: string }) | null | undefined,
-  salesPicId: string | null | undefined,
+  picIds: string | null | undefined | ReadonlyArray<string | null | undefined>,
   status: string
 ): AnswerEditMode {
   const privileged = isPrivileged(user);
-  // PIC project dicatat di `sales_pic` (pembuat Sales atau Product) sampai product_pic ada (#117)
-  const isPic = isRequester(user) && !!user?.id && user.id === salesPicId;
+  // PIC project: Product PIC (selalu ada) atau Sales PIC (opsional), ADR 0014. Pembuat yang bukan
+  // PIC tidak mendapat hak sendiri.
+  const pics = Array.isArray(picIds) ? picIds : [picIds];
+  const isPic = isRequester(user) && !!user?.id && pics.includes(user.id);
   if (!privileged && !isPic) return "none";
   if (status === EDITABLE_STATUS) return "rescore";
   if (privileged && !LOCKED_STATUSES.includes(status)) return "correct";

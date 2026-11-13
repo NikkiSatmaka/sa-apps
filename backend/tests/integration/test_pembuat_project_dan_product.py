@@ -17,6 +17,7 @@ from tests.integration.kualifikasi_support import (  # noqa: F401
     ambil_proyek,
     api,
     buat_proyek,
+    id_product_demo,
     tanpa_tunggu,
 )
 from tests.integration.model_helpers import bangun_document, bangun_project, simpan
@@ -39,7 +40,13 @@ async def test_pembuat_yang_diizinkan_membuat_proyek_dan_tercatat_sebagai_pic(
     assert resp.status_code == 201, resp.text
     proyek = await ambil_proyek(db_session, resp.json()["data"]["id_project"])
     pembuat = (await api.client.get(f"{API}/auth/me", headers=headers)).json()["id"]
-    assert str(proyek.sales_pic) == pembuat  # sementara: pembuat = PIC (sampai product_pic ada)
+    product = await id_product_demo(api)
+    assert str(proyek.created_by) == pembuat
+    assert str(proyek.product_pic) == (pembuat if peran == "Product" else product)
+    # Sales selalu dirinya sendiri; pembuat lain tanpa Sales (opsional, ADR 0014).
+    assert (str(proyek.sales_pic) if proyek.sales_pic else None) == (
+        pembuat if peran == "Sales" else None
+    )
 
 
 async def test_sa_tidak_boleh_membuat_proyek_dan_tidak_ada_baris_tersimpan(api, db_session):

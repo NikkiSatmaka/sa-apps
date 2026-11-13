@@ -6,6 +6,7 @@ untuk melihat proyek (viewer) atau menambah activity log (contributor).
 
 import logging
 import uuid
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select, func
@@ -325,11 +326,15 @@ async def remove_collaborator(
     description="Cari user berdasarkan nama atau email. Digunakan untuk autocomplete saat menambah kolaborator.",
 )
 async def search_users(
-    q: str = Query(
-        ...,
+    q: Optional[str] = Query(
+        default=None,
         min_length=2,
         pattern=r"^[^\x00]*$",  # NUL tak bisa dikirim ke Postgres → 422, bukan 500
-        description="Kata kunci pencarian (nama atau email)",
+        description="Kata kunci pencarian (nama atau email); wajib bila `role` tidak diberikan",
+    ),
+    role: Optional[PeranUser] = Query(
+        default=None,
+        description="Saring per role fungsional (mis. Product untuk dropdown Product PIC)",
     ),
     limit: int = Query(default=10, ge=1, le=50),
     current_user: User = Depends(get_current_user),
@@ -339,20 +344,24 @@ async def search_users(
     Cari user berdasarkan nama atau email (case-insensitive).
     Mengembalikan max `limit` hasil.
     """
-    # `%`, `_`, dan `\` pada kata kunci adalah karakter harfiah, bukan wildcard ilike.
-    escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    search_pattern = f"%{escaped}%"
-
-    result = await db.execute(
-        select(User)
-        .where(
+    if q is None and role is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Isi kata kunci pencarian (q) atau saring dengan role.",
+        )
+    query = select(User).where(User.id != current_user.id)  # Exclude diri sendiri
+    if role is not None:
+        query = query.where(User.role == role)
+    if q is not None:
+        # `%`, `_`, dan `\` pada kata kunci adalah karakter harfiah, bukan wildcard ilike.
+        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        search_pattern = f"%{escaped}%"
+        query = query.where(
             (User.name.ilike(search_pattern, escape="\\"))
             | (User.email.ilike(search_pattern, escape="\\"))
         )
-        .where(User.id != current_user.id)  # Exclude diri sendiri
-        .order_by(User.name)
-        .limit(limit)
-    )
+
+    result = await db.execute(query.order_by(User.name).limit(limit))
     users = result.scalars().all()
 
     data = [

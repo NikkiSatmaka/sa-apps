@@ -206,6 +206,16 @@ describe("answerEditMode", () => {
     expect(answerEditMode(pengguna(role, "u1"), "u1", "Pending Assignment")).toBe("none");
   });
 
+  it("Product PIC (di antara beberapa PIC project) pada Need Clarification → rescore", () => {
+    expect(answerEditMode(pengguna("Product", "p1"), ["s1", "p1"], EDITABLE_STATUS)).toBe("rescore");
+    expect(answerEditMode(pengguna("Sales", "s1"), ["s1", null], EDITABLE_STATUS)).toBe("rescore");
+  });
+
+  it("pembuat yang bukan PIC (tidak ada di daftar PIC) → none", () => {
+    expect(answerEditMode(pengguna("Sales", "u9"), ["s1", "p1"], EDITABLE_STATUS)).toBe("none");
+    expect(answerEditMode(pengguna("Product", "u9"), [null, undefined], EDITABLE_STATUS)).toBe("none");
+  });
+
   it.each(["Sales", "Product"])("%s bukan PIC → none, termasuk saat userId/PIC tidak ada", (role) => {
     expect(answerEditMode(pengguna(role, "u2"), "u1", EDITABLE_STATUS)).toBe("none");
     expect(answerEditMode(pengguna(role, undefined), undefined, EDITABLE_STATUS)).toBe("none");

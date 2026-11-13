@@ -110,7 +110,7 @@ def test_id_audit_berformat_tanggal_dan_acak_enam_karakter():
 # (peran tak dikenal ditolak 403; Lead_SA/Admin lolos tanpa kepemilikan) lewat `ensure_project_access`.
 # UBAH_STATUS tidak membaca collaborator sehingga `db` tidak dipakai.
 async def test_akses_proyek_peran_tidak_dikenal_ditolak():
-    proyek = SimpleNamespace(sales_pic=uuid.uuid4(), assigned_sa=uuid.uuid4())
+    proyek = SimpleNamespace(sales_pic=uuid.uuid4(), product_pic=uuid.uuid4(), assigned_sa=uuid.uuid4())
     user = SimpleNamespace(role="Intern", is_admin=False, id=uuid.uuid4())
 
     with pytest.raises(HTTPException) as err:
@@ -121,7 +121,7 @@ async def test_akses_proyek_peran_tidak_dikenal_ditolak():
 
 @pytest.mark.parametrize(("peran", "is_admin"), [("Lead_SA", False), ("SA", True)])
 async def test_akses_proyek_privileged_lolos_tanpa_kepemilikan(peran, is_admin):
-    proyek = SimpleNamespace(sales_pic=uuid.uuid4(), assigned_sa=None)
+    proyek = SimpleNamespace(sales_pic=uuid.uuid4(), product_pic=uuid.uuid4(), assigned_sa=None)
     user = SimpleNamespace(role=peran, is_admin=is_admin, id=uuid.uuid4())
     await ensure_project_access(None, proyek, user, TingkatAkses.UBAH_STATUS)
 

@@ -139,7 +139,10 @@ async def get_solutions_documents(
 
     await ensure_project_access(db, project, current_user, TingkatAkses.BACA)
     # Sales hanya boleh melihat link Solutions bila PIC proyek ini (collaborator Sales tidak).
-    if adalah_requester_terbatas(current_user) and project.sales_pic != current_user.id:
+    if adalah_requester_terbatas(current_user) and current_user.id not in (
+        project.sales_pic,
+        project.product_pic,
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Anda tidak memiliki akses ke proyek ini.",

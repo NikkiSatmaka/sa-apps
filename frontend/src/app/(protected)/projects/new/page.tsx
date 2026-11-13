@@ -2,6 +2,9 @@
 
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import useSWR from "swr";
+import { fetcher } from "@/lib/fetcher";
+import { useAuthStore } from "@/store/auth";
 import { FileUpload, FileItem } from "@/components/FileUpload";
 import { QualificationForm } from "@/components/QualificationForm";
 import {
@@ -16,6 +19,13 @@ import {
   useQualificationSchema,
   validateAnswers,
 } from "@/lib/qualification";
+
+/** User kandidat Product/Sales PIC (GET /projects/users/search?role=...). */
+interface OrangOption {
+  id: string;
+  name: string;
+  email: string;
+}
 
 /**
  * Halaman Form Request SA
@@ -39,6 +49,8 @@ interface FormData {
   targetSubmit: string;
   estimatedValue: string;
   dqNumber: string;
+  productPic: string;
+  salesPic: string;
 }
 
 interface FormErrors {
@@ -47,6 +59,7 @@ interface FormErrors {
   targetSubmit?: string;
   estimatedValue?: string;
   dqNumber?: string;
+  productPic?: string;
   files?: string;
 }
 
@@ -84,6 +97,19 @@ function getTodayString(): string {
 
 export default function NewProjectPage() {
   const router = useRouter();
+  const currentUser = useAuthStore((state) => state.user);
+
+  // ADR 0014: pembuat Product otomatis jadi Product PIC; pembuat Sales otomatis jadi Sales PIC.
+  const perluPilihProduct = currentUser?.role !== "Product";
+  const bolehPilihSales = currentUser?.role !== "Sales";
+  const { data: daftarProduct } = useSWR<OrangOption[]>(
+    perluPilihProduct ? "/projects/users/search?role=Product&limit=50" : null,
+    fetcher
+  );
+  const { data: daftarSales } = useSWR<OrangOption[]>(
+    bolehPilihSales ? "/projects/users/search?role=Sales&limit=50" : null,
+    fetcher
+  );
 
   // Form state
   const [form, setForm] = useState<FormData>({
@@ -92,6 +118,8 @@ export default function NewProjectPage() {
     targetSubmit: "",
     estimatedValue: "",
     dqNumber: "",
+    productPic: "",
+    salesPic: "",
   });
   const [files, setFiles] = useState<FileItem[]>([]);
   const [errors, setErrors] = useState<FormErrors>({});
@@ -179,6 +207,11 @@ export default function NewProjectPage() {
       }
     }
 
+    // Product PIC: wajib bila pembuat bukan Product (ADR 0014)
+    if (perluPilihProduct && !form.productPic) {
+      newErrors.productPic = "Product PIC wajib dipilih";
+    }
+
     // Tipe Source document (MoM/RFP) wajib dipilih untuk setiap file valid
     if (validFiles.some((f) => !f.docType)) {
       newErrors.files = "Pilih tipe (MoM atau RFP) untuk setiap file";
@@ -186,7 +219,7 @@ export default function NewProjectPage() {
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  }, [form, validFiles]);
+  }, [form, validFiles, perluPilihProduct]);
 
   // ==================== Handlers ====================
 
@@ -195,7 +228,7 @@ export default function NewProjectPage() {
     (field: keyof FormData, value: string) => {
       setForm((prev) => ({ ...prev, [field]: value }));
       // Clear error saat user mulai mengetik
-      if (errors[field]) {
+      if (errors[field as keyof FormErrors]) {
         setErrors((prev) => ({ ...prev, [field]: undefined }));
       }
     },
@@ -218,6 +251,7 @@ export default function NewProjectPage() {
     target_submit: "targetSubmit",
     estimasi_nilai: "estimatedValue",
     dq_number: "dqNumber",
+    product_pic: "productPic",
   };
 
   // Kirim seluruh data (langkah 1 + 2) dalam satu permintaan
@@ -241,6 +275,10 @@ export default function NewProjectPage() {
       formData.append("customer_name", form.customerName.trim());
       formData.append("target_submit", form.targetSubmit);
       formData.append("estimasi_nilai", parseIDR(form.estimatedValue).toString());
+
+      // Orang per project: Product wajib (kecuali pembuat Product), Sales opsional
+      if (perluPilihProduct && form.productPic) formData.append("product_pic", form.productPic);
+      if (bolehPilihSales && form.salesPic) formData.append("sales_pic", form.salesPic);
 
       // DQ Number opsional
       if (form.dqNumber.trim()) {
@@ -292,7 +330,7 @@ export default function NewProjectPage() {
       setIsSubmitting(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form, answers, schema, validFiles, router, showToast]);
+  }, [form, answers, schema, validFiles, router, showToast, perluPilihProduct, bolehPilihSales]);
 
   // Scoring berjalan (ada file): arahkan ke detail proyek setelah 2 detik. Timer dibersihkan saat
   // unmount agar berpindah halaman lebih dulu tidak memicu navigasi paksa.
@@ -504,6 +542,65 @@ export default function NewProjectPage() {
               </p>
             )}
           </div>
+
+          {/* Product PIC (wajib bila pembuat bukan Product) */}
+          {perluPilihProduct && (
+            <div>
+              <label htmlFor="productPic" className="block text-sm font-medium text-neutral-700 mb-1">
+                Product PIC <span className="text-red-500">*</span>
+              </label>
+              <select
+                id="productPic"
+                value={form.productPic}
+                onChange={(e) => updateField("productPic", e.target.value)}
+                disabled={isSubmitting}
+                required
+                className={`
+                  w-full px-3 py-2.5 border rounded-lg text-sm bg-white
+                  focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500
+                  disabled:opacity-50 disabled:bg-neutral-100
+                  ${errors.productPic ? "border-red-300 bg-red-50" : "border-neutral-300"}
+                `}
+                aria-invalid={!!errors.productPic}
+                aria-describedby={errors.productPic ? "productPic-error" : undefined}
+              >
+                <option value="">Pilih Product…</option>
+                {(daftarProduct ?? []).map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.email})
+                  </option>
+                ))}
+              </select>
+              {errors.productPic && (
+                <p id="productPic-error" className="text-xs text-red-600 mt-1" role="alert">
+                  {errors.productPic}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Sales PIC (opsional; pembuat Sales otomatis dirinya sendiri) */}
+          {bolehPilihSales && (
+            <div>
+              <label htmlFor="salesPic" className="block text-sm font-medium text-neutral-700 mb-1">
+                Sales PIC <span className="text-neutral-400 text-xs font-normal">(opsional)</span>
+              </label>
+              <select
+                id="salesPic"
+                value={form.salesPic}
+                onChange={(e) => updateField("salesPic", e.target.value)}
+                disabled={isSubmitting}
+                className="w-full px-3 py-2.5 border border-neutral-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50 disabled:bg-neutral-100"
+              >
+                <option value="">Tanpa Sales</option>
+                {(daftarSales ?? []).map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.email})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* DQ Number (Opsional) */}
           <div>

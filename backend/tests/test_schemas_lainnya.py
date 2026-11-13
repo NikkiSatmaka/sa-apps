@@ -173,6 +173,10 @@ class TestProjectCreate:
             ProjectCreate(**_proj(target_submit="31-12-2025x"))
 
 
+def _orang() -> dict:
+    return {"id": uuid.uuid4(), "name": "Orang", "email": "orang@example.com"}
+
+
 class TestProjectResponse:
     def test_default_dan_hasil_upload(self):
         r = ProjectResponse(
@@ -181,14 +185,16 @@ class TestProjectResponse:
             customer_name="C",
             target_submit=date.today(),
             estimasi_nilai="5",
-            sales_pic=uuid.uuid4(),
+            created_by=_orang(),
+            product_pic=_orang(),
             created_at=SEKARANG,
             files=[FileUploadResult(filename="a.pdf", success=True, size_bytes=10)],
         )
         assert r.status == "New" and r.scoring_triggered is False and r.bant_score is None
+        assert r.sales_pic is None  # Sales opsional
         assert r.files[0].error is None
 
-    def test_sales_pic_harus_uuid(self):
+    def test_id_orang_harus_uuid(self):
         with pytest.raises(ValidationError):
             ProjectResponse(
                 id_project="P",
@@ -196,7 +202,8 @@ class TestProjectResponse:
                 customer_name="C",
                 target_submit=date.today(),
                 estimasi_nilai=1,
-                sales_pic="bukan-uuid",
+                created_by=_orang(),
+                product_pic={"id": "bukan-uuid"},
                 created_at=SEKARANG,
             )
 
@@ -208,7 +215,8 @@ class TestProjectResponse:
                 customer_name="C",
                 target_submit=date.today(),
                 estimasi_nilai=1,
-                sales_pic=uuid.uuid4(),
+                created_by=_orang(),
+                product_pic=_orang(),
                 created_at=SEKARANG,
                 sub_scores={"budget": "banyak"},
             )

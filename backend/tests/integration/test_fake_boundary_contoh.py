@@ -10,13 +10,15 @@ from sqlalchemy import select
 
 from app.models import Project, User
 from tests.integration.fakes.calendar import event_berjadwal
+from tests.integration.kualifikasi_support import id_product_demo
 from tests.test_projects_questionnaire_api import jawaban_kuat
 
 PROYEK = "/api/v1/projects"
 
 
-def _form() -> dict:
+def _form(product_pic: str | None = None) -> dict:
     return {
+        "product_pic": product_pic,
         "project_name": "Proyek Fake",
         "customer_name": "PT Fake",
         "target_submit": str(date.today() + timedelta(days=30)),
@@ -28,7 +30,7 @@ def _form() -> dict:
 async def _proyek_pending(api) -> tuple[str, dict, dict]:
     lead = await api.login_demo("Lead_SA")
     sales = await api.login_demo("Sales")
-    resp = await api.client.post(PROYEK, data=_form(), headers=sales)
+    resp = await api.client.post(PROYEK, data=_form(await id_product_demo(api)), headers=sales)
     assert resp.status_code == 201, resp.text
     return resp.json()["data"]["id_project"], lead, sales
 

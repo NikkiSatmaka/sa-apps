@@ -124,7 +124,7 @@ def dokumen_terlihat(user: User, project: Project, dokumen: Document) -> bool:
     if dokumen.folder_type != FOLDER_SOLUTIONS or not adalah_requester_terbatas(user):
         return True
     return (
-        project.sales_pic == user.id
+        user.id in (project.sales_pic, project.product_pic)
         and project.dq_number is not None
         and dokumen.status in STATUS_DOKUMEN_TERLIHAT_SALES
     )

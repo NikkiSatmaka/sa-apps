@@ -387,6 +387,9 @@ class SLATimer:
             days_elapsed: Jumlah hari elapsed
             db: Database session
         """
+        if project.sales_pic is None:  # tanpa Sales (ADR 0014): penerima baru ditentukan di #120
+            logger.info(f"Proyek {project.id_project} tanpa Sales PIC; reminder SLA dilewati.")
+            return
         notification = NotificationLog(
             id=_generate_id("NOTIF"),
             event_type="sla_reminder",
@@ -451,7 +454,7 @@ class SLATimer:
                     "project_name": project.project_name,
                     "customer_name": project.customer_name,
                     "days_elapsed": days_elapsed,
-                    "sales_pic_id": str(project.sales_pic),
+                    "sales_pic_id": str(project.sales_pic) if project.sales_pic else None,
                     "message": (
                         f"ESKALASI: DQ Number untuk proyek "
                         f"'{project.project_name}' ({project.customer_name}) "
@@ -468,32 +471,33 @@ class SLATimer:
                 escalation_notif.notification_metadata,
             )
 
-        # Notifikasi ke Sales bahwa folder akan di-lock
-        lock_notif = NotificationLog(
-            id=_generate_id("NOTIF"),
-            event_type="sla_escalation",
-            recipient_user_id=project.sales_pic,
-            channel="in-app",
-            status="sent",
-            reference_id=project.id_project,
-            notification_metadata={
-                "project_name": project.project_name,
-                "days_elapsed": days_elapsed,
-                "message": (
-                    f"Folder Solutions untuk proyek '{project.project_name}' "
-                    f"telah di-lock karena DQ Number belum diinput "
-                    f"selama {days_elapsed} hari. "
-                    f"Input DQ Number untuk membuka kembali akses."
-                ),
-            },
-        )
-        db.add(lock_notif)
-        await notification_service.dispatch_email_for_user(
-            NotificationEventType.SLA_ESCALATION,
-            project.sales_pic,
-            project.id_project,
-            lock_notif.notification_metadata,
-        )
+        # Notifikasi ke Sales bahwa folder akan di-lock (hanya bila project punya Sales)
+        if project.sales_pic is not None:
+            lock_notif = NotificationLog(
+                id=_generate_id("NOTIF"),
+                event_type="sla_escalation",
+                recipient_user_id=project.sales_pic,
+                channel="in-app",
+                status="sent",
+                reference_id=project.id_project,
+                notification_metadata={
+                    "project_name": project.project_name,
+                    "days_elapsed": days_elapsed,
+                    "message": (
+                        f"Folder Solutions untuk proyek '{project.project_name}' "
+                        f"telah di-lock karena DQ Number belum diinput "
+                        f"selama {days_elapsed} hari. "
+                        f"Input DQ Number untuk membuka kembali akses."
+                    ),
+                },
+            )
+            db.add(lock_notif)
+            await notification_service.dispatch_email_for_user(
+                NotificationEventType.SLA_ESCALATION,
+                project.sales_pic,
+                project.id_project,
+                lock_notif.notification_metadata,
+            )
 
         logger.info(
             f"Eskalasi SLA dikirim ke {len(managers)} manager(s) "

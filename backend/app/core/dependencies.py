@@ -369,7 +369,8 @@ async def hubungan_proyek(
         kolab = collab_result.scalar_one_or_none()
     return HubunganProyek(
         privileged=adalah_privileged(user),
-        sales_pic=project.sales_pic == user.id,
+        # Product PIC setara Sales PIC (ADR 0012/0014). `created_by` tidak memberi hak sendiri.
+        sales_pic=user.id in (project.sales_pic, project.product_pic),
         sa_ditugaskan=project.assigned_sa == user.id,
         kolaborator=(
             None if kolab is None else getattr(kolab, "role", None) or PeranKolaborator.VIEWER

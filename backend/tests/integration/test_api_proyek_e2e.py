@@ -12,13 +12,15 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 
 from app.models import Document, Project, User
+from tests.integration.kualifikasi_support import id_product_demo
 from tests.test_projects_questionnaire_api import jawaban_kuat, jawaban_lemah
 
 URL = "/api/v1/projects"
 
 
-def _form(jawaban: dict) -> dict:
+def _form(jawaban: dict, product_pic: str | None = None) -> dict:
     return {
+        "product_pic": product_pic,
         "project_name": "Proyek Integrasi",
         "customer_name": "PT Integrasi",
         "target_submit": str(date.today() + timedelta(days=30)),
@@ -31,7 +33,7 @@ async def test_demo_login_buat_proyek_lolos_gate_tersimpan_di_postgres(api, db_s
     await api.login_demo("Lead_SA")  # agar ada penerima notifikasi New Opportunity
     sales = await api.login_demo("Sales")
 
-    resp = await api.client.post(URL, data=_form(jawaban_kuat()), headers=sales)
+    resp = await api.client.post(URL, data=_form(jawaban_kuat(), await id_product_demo(api)), headers=sales)
 
     assert resp.status_code == 201, resp.text
     data = resp.json()["data"]
@@ -63,7 +65,7 @@ async def test_demo_login_buat_proyek_lolos_gate_tersimpan_di_postgres(api, db_s
 async def test_jawaban_lemah_need_clarification_tanpa_generate_requirement(api, db_session):
     sales = await api.login_demo("Sales")
 
-    resp = await api.client.post(URL, data=_form(jawaban_lemah()), headers=sales)
+    resp = await api.client.post(URL, data=_form(jawaban_lemah(), await id_product_demo(api)), headers=sales)
 
     assert resp.status_code == 201, resp.text
     data = resp.json()["data"]
@@ -96,7 +98,7 @@ async def test_constraint_proyek_ditegakkan_postgres_pada_proyek_hasil_api(
     api, db_session, kolom, nilai, constraint
 ):
     sales = await api.login_demo("Sales")
-    resp = await api.client.post(URL, data=_form(jawaban_kuat()), headers=sales)
+    resp = await api.client.post(URL, data=_form(jawaban_kuat(), await id_product_demo(api)), headers=sales)
     id_project = resp.json()["data"]["id_project"]
 
     with pytest.raises(IntegrityError) as err:

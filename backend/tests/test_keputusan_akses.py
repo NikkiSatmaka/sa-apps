@@ -126,9 +126,12 @@ def test_pertanyaan_khusus_pada_hubungan():
 # --------------------------------------------------------------------------- hubungan_proyek
 
 
-def _proyek(sales_pic=None, assigned_sa=None) -> SimpleNamespace:
+def _proyek(sales_pic=None, assigned_sa=None, product_pic=None) -> SimpleNamespace:
     return SimpleNamespace(
-        id_project="PRJ-1", sales_pic=sales_pic or uuid.uuid4(), assigned_sa=assigned_sa
+        id_project="PRJ-1",
+        sales_pic=sales_pic or uuid.uuid4(),
+        product_pic=product_pic or uuid.uuid4(),
+        assigned_sa=assigned_sa,
     )
 
 

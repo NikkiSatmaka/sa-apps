@@ -231,7 +231,8 @@ class TestProject:
             bangun_project(user.id, requirement_generation_status=nilai),
         )
 
-    @pytest.mark.parametrize("kolom", ["sales_pic", "assigned_sa", "deleted_by"])
+    @pytest.mark.parametrize("kolom", ["created_by", "product_pic", "sales_pic", "lead_sa", "assigned_sa", "deleted_by"]
+    )
     async def test_fk_user_tidak_ada_ditolak(self, db_session, kolom):
         user = bangun_user()
         await simpan(db_session, user)
@@ -256,7 +257,7 @@ class TestProject:
         assert "fk_projects_sales_pic" in str(err.value)
 
     @pytest.mark.parametrize(
-        "kolom", ["project_name", "customer_name", "sales_pic", "target_submit"]
+        "kolom", ["project_name", "customer_name", "created_by", "product_pic", "target_submit"]
     )
     async def test_kolom_wajib_tidak_boleh_null(self, db_session, kolom):
         from sqlalchemy.exc import IntegrityError
@@ -270,6 +271,15 @@ class TestProject:
                 db_session.add(p)
                 await db_session.flush()
         assert kolom in str(err.value)
+
+    async def test_sales_pic_dan_lead_sa_boleh_null(self, db_session):
+        user = bangun_user()
+        await simpan(db_session, user)
+        p = bangun_project(None, product_pic=user.id, created_by=user.id)
+        await simpan(db_session, p)
+        await db_session.refresh(p)
+        assert p.sales_pic is None
+        assert p.lead_sa is None
 
     async def test_id_project_unik(self, db_session):
         user = bangun_user()

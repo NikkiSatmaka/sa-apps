@@ -26,7 +26,7 @@ from tests._auth_support import SesiPalsu, buat_token, user_palsu
 
 
 def _proyek() -> SimpleNamespace:
-    return SimpleNamespace(id_project="PRJ-1", sales_pic=uuid.uuid4(), assigned_sa=None)
+    return SimpleNamespace(id_project="PRJ-1", sales_pic=uuid.uuid4(), product_pic=uuid.uuid4(), assigned_sa=None)
 
 
 def test_role_valid_adalah_empat_role_fungsional_tanpa_admin():
@@ -100,7 +100,7 @@ def test_gating_link_solutions_untuk_sales_tidak_berlaku_bagi_pemilik_flag_admin
 ):
     """Admin sebelumnya bukan Sales sehingga lolos gating; flag admin mempertahankan itu."""
     user = user_palsu("Sales", is_admin=is_admin)
-    proyek = SimpleNamespace(sales_pic=uuid.uuid4(), dq_number=None)
+    proyek = SimpleNamespace(sales_pic=uuid.uuid4(), product_pic=uuid.uuid4(), dq_number=None)
     dokumen = SimpleNamespace(folder_type=FOLDER_SOLUTIONS, status="Draft")
 
     assert dokumen_terlihat(user, proyek, dokumen) is terlihat

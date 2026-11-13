@@ -70,7 +70,7 @@ async def test_sales_pembuat_menjadi_created_by_dan_sales_pic_dengan_product_pil
 async def test_sales_pembuat_wajib_memilih_product(api, db_session):
     sales = await user_baru(db_session, "Sales")
 
-    resp = await buat_proyek(api, bearer(sales))
+    resp = await buat_proyek(api, bearer(sales), product_pic=None)
 
     assert "product_pic" in _galat_field(resp)
     assert await _jumlah_proyek(db_session) == 0
@@ -142,7 +142,7 @@ async def test_sales_pic_pilihan_harus_user_berrole_sales(api, db_session, peran
 async def test_lead_sa_dan_admin_pembuat_wajib_memilih_product(api, db_session, peran):
     pembuat = await user_baru(db_session, peran)
 
-    resp = await buat_proyek(api, bearer(pembuat))
+    resp = await buat_proyek(api, bearer(pembuat), product_pic=None)
 
     assert "product_pic" in _galat_field(resp)
     assert await _jumlah_proyek(db_session) == 0

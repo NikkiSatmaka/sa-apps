@@ -893,10 +893,11 @@ async def reassign_sa_to_project(
     sales_email: Optional[str] = None
     if dari_pending:
         project.status = "Assigned"
-        # FK `projects.sales_pic` (NOT NULL) menjamin Sales ada, berbeda dari assign yang defensif.
-        sales_email = (
-            await db.execute(select(User.email).where(User.id == project.sales_pic))
-        ).scalar_one()
+        # `sales_pic` opsional (ADR 0014): tanpa Sales, email kosong (sama seperti assign).
+        if project.sales_pic is not None:
+            sales_email = (
+                await db.execute(select(User.email).where(User.id == project.sales_pic))
+            ).scalar_one_or_none()
         project.folder_provisioning_status = "pending"
 
     # === 4. Insert notifikasi ke SA baru ===
@@ -938,13 +939,18 @@ async def reassign_sa_to_project(
             )
         except Exception as e:
             logger.warning(f"Gagal memulai SLA timer untuk proyek {project_id}: {e}")
-        background_tasks.add_task(
-            _trigger_folder_provisioner,
-            project_id,
-            sa_user.email,
-            current_user.email,
-            sales_email,
-        )
+        if sales_email is not None:
+            background_tasks.add_task(
+                _trigger_folder_provisioner,
+                project_id,
+                sa_user.email,
+                current_user.email,
+                sales_email,
+            )
+        else:  # tanpa Sales (ADR 0014); penerima akses Drive mengikuti orang di tiket #120
+            logger.warning(
+                f"Proyek {project_id} tanpa Sales PIC; folder provisioning tidak dijadwalkan."
+            )
     elif project.gdrive_folder_id:
         # Folder sudah ada: pindahkan akses Editor dari SA lama ke SA baru.
         background_tasks.add_task(

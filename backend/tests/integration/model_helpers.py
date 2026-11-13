@@ -47,7 +47,9 @@ def bangun_user(**o: Any) -> User:
     return User(**d)
 
 
-def bangun_project(sales_pic: uuid.UUID, **o: Any) -> Project:
+def bangun_project(sales_pic: uuid.UUID | None, **o: Any) -> Project:
+    """Proyek valid minimal. Bila tidak ditentukan, `product_pic` dan `created_by` memakai
+    `sales_pic` (user yang sama), sehingga test lama tetap punya orang yang valid."""
     d = {
         "id_project": f"PRJ-{uid()}",
         "project_name": "Proyek",
@@ -56,6 +58,8 @@ def bangun_project(sales_pic: uuid.UUID, **o: Any) -> Project:
         "target_submit": date(2030, 1, 1),
     }
     d.update(o)
+    d.setdefault("product_pic", d["sales_pic"])
+    d.setdefault("created_by", d["product_pic"])
     return Project(**d)
 
 

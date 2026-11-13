@@ -1,7 +1,8 @@
 """
 Model SQLAlchemy untuk tabel Projects.
 Menyimpan data proyek yang dikelola oleh Sales dan SA.
-Catatan: kolom sales_pic menyimpan requester (bisa Sales, SA, atau Lead_SA).
+Orang per project (ADR 0014): created_by (pembuat), product_pic (wajib), sales_pic (opsional),
+lead_sa (opsional; diisi saat assign di tiket Orang-2).
 """
 
 import uuid
@@ -62,11 +63,29 @@ class Project(Base):
         nullable=True,
         comment="Nomor DQ (Deal Qualification)",
     )
-    sales_pic: Mapped[uuid.UUID] = mapped_column(
+    created_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("users.id"),
+        ForeignKey("users.id", name="fk_projects_created_by"),
         nullable=False,
-        comment="FK ke user requester yang membuat request (Sales/SA/Lead_SA)",
+        comment="FK ke user pembuat project",
+    )
+    product_pic: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_projects_product_pic"),
+        nullable=False,
+        comment="FK ke user Product penanggung jawab",
+    )
+    sales_pic: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_projects_sales_pic"),
+        nullable=True,
+        comment="FK ke user Sales PIC (opsional; project boleh tanpa Sales)",
+    )
+    lead_sa: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", name="fk_projects_lead_sa"),
+        nullable=True,
+        comment="FK ke user Lead_SA penanggung jawab (wajib sejak Assigned; diisi di Orang-2)",
     )
     assigned_sa: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),

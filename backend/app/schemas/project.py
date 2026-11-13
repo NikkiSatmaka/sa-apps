@@ -76,6 +76,14 @@ class FileUploadResult(BaseModel):
     size_bytes: Optional[int] = Field(None, description="Ukuran file dalam bytes")
 
 
+class OrangProyek(BaseModel):
+    """Ringkasan satu orang pada project (id + nama + email)."""
+
+    id: UUID
+    name: Optional[str] = None
+    email: Optional[str] = None
+
+
 class ProjectResponse(BaseModel):
     """
     Schema response data proyek yang baru dibuat.
@@ -88,7 +96,11 @@ class ProjectResponse(BaseModel):
     target_submit: date
     estimasi_nilai: Decimal
     status: str = Field(default="New", description="Status awal proyek")
-    sales_pic: UUID = Field(..., description="ID requester yang membuat request (Sales/SA/Lead_SA)")
+    created_by: OrangProyek = Field(..., description="Pembuat project")
+    product_pic: OrangProyek = Field(..., description="Product penanggung jawab (selalu ada)")
+    sales_pic: Optional[OrangProyek] = Field(
+        None, description="Sales PIC (opsional; project boleh tanpa Sales)"
+    )
     created_at: datetime
     files: list[FileUploadResult] = Field(
         default_factory=list,

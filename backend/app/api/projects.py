@@ -24,13 +24,14 @@ from fastapi import (
     status,
 )
 from fastapi.responses import JSONResponse
-from sqlalchemy import asc, desc, func, select, update
+from sqlalchemy import asc, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import (
     TingkatAkses,
     boleh_membuat_proyek,
+    PeranUser,
     adalah_privileged,
     ensure_project_access,
     get_current_user,
@@ -198,6 +199,76 @@ async def _trigger_scoring_engine(
     await generate_pending_requirement(project_id)
 
 
+def _ringkas_orang(user: Optional[User], user_id: Optional[uuid.UUID]) -> Optional[dict]:
+    """Ringkasan orang pada project (id+nama+email); None bila tidak ada orangnya."""
+    if user_id is None:
+        return None
+    return {
+        "id": str(user_id),
+        "name": user.name if user else None,
+        "email": user.email if user else None,
+    }
+
+
+async def _muat_user(db: AsyncSession, ids) -> dict[uuid.UUID, User]:
+    """Muat beberapa user sekaligus (satu query), kunci = id."""
+    ids = {i for i in ids if i is not None}
+    if not ids:
+        return {}
+    hasil = await db.execute(select(User).where(User.id.in_(ids)))
+    return {u.id: u for u in hasil.scalars().all()}
+
+
+async def _pilih_user_berrole(
+    db: AsyncSession, field: str, nilai: Optional[str], role: PeranUser, errors: list[dict]
+) -> Optional[User]:
+    """Validasi pilihan user (UUID) harus ada dan berrole `role`; tambah error bila tidak."""
+    try:
+        user_id = uuid.UUID(nilai)  # type: ignore[arg-type]
+    except (ValueError, TypeError, AttributeError):
+        errors.append({"field": field, "reason": f"{field} harus berupa ID user yang valid."})
+        return None
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if user is None or user.role != role:
+        errors.append(
+            {"field": field, "reason": f"User yang dipilih untuk {field} harus berrole {role}."}
+        )
+        return None
+    return user
+
+
+async def _tentukan_orang(
+    db: AsyncSession,
+    pembuat: User,
+    product_pic: Optional[str],
+    sales_pic: Optional[str],
+    errors: list[dict],
+) -> tuple[Optional[User], Optional[User]]:
+    """Tentukan (Product PIC, Sales PIC) saat membuat project (ADR 0014), berdasarkan role pembuat.
+
+    - Product: dirinya `product_pic`; Sales opsional.
+    - Sales: dirinya `sales_pic`; wajib memilih Product (isian `sales_pic` diabaikan).
+    - Lead_SA / `is_admin` (role lain): wajib memilih Product; Sales opsional.
+    """
+    product_pic = (product_pic or "").strip() or None
+    sales_pic = (sales_pic or "").strip() or None
+    produk: Optional[User] = None
+    sales: Optional[User] = None
+
+    if pembuat.role == PeranUser.PRODUCT:
+        produk = pembuat
+    elif product_pic is None:
+        errors.append({"field": "product_pic", "reason": "Product PIC wajib dipilih."})
+    else:
+        produk = await _pilih_user_berrole(db, "product_pic", product_pic, PeranUser.PRODUCT, errors)
+
+    if pembuat.role == PeranUser.SALES:
+        sales = pembuat
+    elif sales_pic is not None:
+        sales = await _pilih_user_berrole(db, "sales_pic", sales_pic, PeranUser.SALES, errors)
+    return produk, sales
+
+
 @router.get(
     "",
     summary="Daftar proyek",
@@ -242,7 +313,10 @@ async def list_projects(
     # TULIS yang dibatasi. Query param sales_pic=me / assigned_to=me hanyalah penyempit opsional.
     # Penyempit opsional dari query param (hanya mempersempit, tidak memperluas akses)
     if sales_pic == "me":
-        query = query.where(Project.sales_pic == current_user.id)
+        # Product PIC setara Sales PIC (ADR 0012/0014); `involved=me` menggantikan ini di #109.
+        query = query.where(
+            or_(Project.sales_pic == current_user.id, Project.product_pic == current_user.id)
+        )
     elif assigned_to == "me":
         query = query.where(Project.assigned_sa == current_user.id)
 
@@ -270,6 +344,9 @@ async def list_projects(
     projects = result.scalars().all()
 
     # Format response
+    orang = await _muat_user(
+        db, {i for p in projects for i in (p.created_by, p.product_pic, p.sales_pic)}
+    )
     projects_data = []
     for p in projects:
         projects_data.append(
@@ -284,6 +361,9 @@ async def list_projects(
                 "estimasi_nilai": str(p.estimasi_nilai) if p.estimasi_nilai is not None else None,
                 "target_submit": p.target_submit.isoformat() if p.target_submit else None,
                 "assigned_sa": str(p.assigned_sa) if p.assigned_sa else None,
+                "created_by": _ringkas_orang(orang.get(p.created_by), p.created_by),
+                "product_pic": _ringkas_orang(orang.get(p.product_pic), p.product_pic),
+                "sales_pic": _ringkas_orang(orang.get(p.sales_pic), p.sales_pic),
                 "gdrive_folder_id": p.gdrive_folder_id,
                 "folder_provisioning_status": p.folder_provisioning_status,
                 "created_at": p.created_at.isoformat() if p.created_at else None,
@@ -318,7 +398,10 @@ async def get_status_summary(
     # Semua proyek dapat dilihat semua pengguna terautentikasi (sama seperti list_projects).
     # Penyempit opsional dari query param
     if sales_pic == "me":
-        query = query.where(Project.sales_pic == current_user.id)
+        # Product PIC setara Sales PIC (ADR 0012/0014); `involved=me` menggantikan ini di #109.
+        query = query.where(
+            or_(Project.sales_pic == current_user.id, Project.product_pic == current_user.id)
+        )
     elif assigned_to == "me":
         query = query.where(Project.assigned_sa == current_user.id)
 
@@ -358,15 +441,8 @@ async def get_project_detail(
     # Titik keputusan bersama (BACA): Admin/Lead_SA, Sales PIC, SA ditugaskan, kolaborator.
     await ensure_project_access(db, project, current_user, TingkatAkses.BACA)
 
-    # Fetch nama Sales PIC
-    sales_name = None
-    sales_email = None
-    if project.sales_pic:
-        sales_result = await db.execute(select(User).where(User.id == project.sales_pic))
-        sales_user = sales_result.scalar_one_or_none()
-        if sales_user:
-            sales_name = sales_user.name
-            sales_email = sales_user.email
+    # Nama created_by, Product PIC, dan Sales PIC (opsional)
+    orang = await _muat_user(db, (project.created_by, project.product_pic, project.sales_pic))
 
     # Fetch nama SA assigned
     sa_name = None
@@ -449,11 +525,9 @@ async def get_project_detail(
         if project.estimasi_nilai is not None
         else None,
         "target_submit": project.target_submit.isoformat() if project.target_submit else None,
-        "sales_pic": {
-            "id": str(project.sales_pic) if project.sales_pic else None,
-            "name": sales_name,
-            "email": sales_email,
-        },
+        "created_by": _ringkas_orang(orang.get(project.created_by), project.created_by),
+        "product_pic": _ringkas_orang(orang.get(project.product_pic), project.product_pic),
+        "sales_pic": _ringkas_orang(orang.get(project.sales_pic), project.sales_pic),
         "assigned_sa": {
             "id": str(project.assigned_sa) if project.assigned_sa else None,
             "name": sa_name,
@@ -777,6 +851,20 @@ async def create_project(
         default=None,
         description="Jawaban Kuesioner kualifikasi v1 (string JSON, wajib)",
     ),
+    product_pic: Optional[str] = Form(
+        default=None,
+        description=(
+            "ID user Product penanggung jawab. Wajib untuk pembuat Sales/Lead_SA/is_admin; "
+            "diabaikan untuk pembuat Product (dirinya sendiri)."
+        ),
+    ),
+    sales_pic: Optional[str] = Form(
+        default=None,
+        description=(
+            "ID user Sales PIC (opsional untuk pembuat Product/Lead_SA/is_admin; "
+            "pembuat Sales selalu dirinya sendiri)."
+        ),
+    ),
     files: list[UploadFile] = File(
         default=[],
         description="File attachment (PDF/DOCX, max 20MB/file, max 5 files)",
@@ -874,6 +962,11 @@ async def create_project(
     answers, answer_errors = parse_answers(qualification_answers)
     validation_errors.extend(answer_errors)
 
+    # Orang per project: Product PIC wajib, Sales PIC opsional (ADR 0014)
+    produk_user, sales_user = await _tentukan_orang(
+        db, current_user, product_pic, sales_pic, validation_errors
+    )
+
     # Validasi jumlah file
     if len(files) > MAX_FILES:
         validation_errors.append(
@@ -946,7 +1039,9 @@ async def create_project(
         requirement_generation_status=(
             "pending" if scored_now and initial_status == "Pending Assignment" else None
         ),
-        sales_pic=current_user.id,
+        created_by=current_user.id,
+        product_pic=produk_user.id,
+        sales_pic=sales_user.id if sales_user else None,
         qualification_answers=answers,
         qualification_schema_version=bant_rubric.QUESTIONNAIRE_SCHEMA_VERSION,
         bant_score=rubric_total,
@@ -1010,7 +1105,9 @@ async def create_project(
         target_submit=target_submit,
         estimasi_nilai=estimasi_decimal,
         status=initial_status,
-        sales_pic=current_user.id,
+        created_by=_ringkas_orang(current_user, current_user.id),
+        product_pic=_ringkas_orang(produk_user, produk_user.id),
+        sales_pic=_ringkas_orang(sales_user, sales_user.id) if sales_user else None,
         created_at=now,
         files=file_results,
         scoring_triggered=scoring_triggered,

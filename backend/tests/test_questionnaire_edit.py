@@ -52,6 +52,7 @@ def _project(status="Need Clarification", sales_pic=None, ai=None, answers=None)
     p = MagicMock()
     p.id_project = "PRJ-20250101-ABC123"
     p.sales_pic = sales_pic
+    p.product_pic = None  # MagicMock otomatis akan cocok dengan `in`; tegaskan tanpa Product PIC
     p.assigned_sa = None
     p.collaborators = []
     p.status = status

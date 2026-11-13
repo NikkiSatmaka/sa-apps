@@ -85,6 +85,7 @@ class Skenario:
             "SA": "demo-sa@portal-sa.local",
             "Lead_SA": "demo-lead@portal-sa.local",
             "Admin": "demo-admin@portal-sa.local",
+            "Product": "demo-product@portal-sa.local",
         }[role]
         return (await self.db.execute(select(User).where(User.email == email))).scalar_one()
 
@@ -102,6 +103,8 @@ class Skenario:
     ) -> str:
         """Sales membuat proyek; return id_project. Background task selesai saat respons kembali."""
         data = form_proyek(jawaban if jawaban is not None else jawaban_kuat(), tipe=tipe)
+        # Pembuat Sales wajib memilih Product (ADR 0014).
+        data["product_pic"] = str((await self.user("Product")).id)
         berkas = [("files", (nama, BytesIO(isi), PDF)) for nama, isi in (files or [])]
         resp = await self.req("POST", PROJECTS, "Sales", data=data, files=berkas or None)
         assert resp.status_code == 201, resp.text

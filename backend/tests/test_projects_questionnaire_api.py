@@ -24,7 +24,7 @@ URL = "/api/v1/projects"
 
 
 # --------------------------------------------------------------------------- helpers
-def _user(role="Sales"):
+def _user(role="Product"):  # Product: product_pic otomatis dirinya (tanpa lookup DB)
     u = MagicMock()
     u.id = uuid.uuid4()
     u.email = "sales@company.com"

@@ -263,6 +263,8 @@ async def skenario(db_session):
         id_project="PRJ-AUTHZ-1",
         project_name="Proyek Authz",
         customer_name="PT Authz",
+        created_by=a["sales_pic"].id,
+        product_pic=a["sales_pic"].id,
         sales_pic=a["sales_pic"].id,
         assigned_sa=a["sa"].id,
         target_submit=date.today() + timedelta(days=30),
@@ -271,6 +273,8 @@ async def skenario(db_session):
         id_project="PRJ-AUTHZ-2",
         project_name="Proyek Lain",
         customer_name="PT Lain",
+        created_by=a["sales_pic"].id,
+        product_pic=a["sales_pic"].id,
         sales_pic=a["sales_pic"].id,
         target_submit=date.today() + timedelta(days=30),
     )

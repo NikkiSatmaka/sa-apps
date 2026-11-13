@@ -118,6 +118,12 @@ async def ambil_proyek(db: AsyncSession, id_project: str) -> Project:
     return hasil.scalar_one()
 
 
+async def id_product_demo(api) -> str:
+    """ID user Product demo (dibuat lewat demo login bila belum ada)."""
+    headers = await api.login_demo("Product")
+    return (await api.client.get("/api/v1/auth/me", headers=headers)).json()["id"]
+
+
 async def buat_proyek(
     api,
     headers: dict[str, str],
@@ -127,7 +133,13 @@ async def buat_proyek(
     file_types: list[str] | None = None,
     **override: Any,
 ):
-    """POST /projects; kembalikan respons mentah."""
+    """POST /projects; kembalikan respons mentah.
+
+    Bila `product_pic` tidak diberikan, Product demo dipakai (pembuat Sales/Lead_SA/Admin wajib
+    memilih Product, ADR 0014; untuk pembuat Product isian itu diabaikan backend).
+    """
+    if "product_pic" not in override:
+        override["product_pic"] = await id_product_demo(api)
     data = form(jawaban_kuat() if answers is None else answers, **override)
     if file_types is not None:
         data["file_types"] = file_types

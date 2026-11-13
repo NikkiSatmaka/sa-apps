@@ -132,7 +132,10 @@ class TestRequireRole:
 
 def _proyek(sales_pic=None, assigned_sa=None) -> SimpleNamespace:
     return SimpleNamespace(
-        id_project="PRJ-1", sales_pic=sales_pic or uuid.uuid4(), assigned_sa=assigned_sa
+        id_project="PRJ-1",
+        sales_pic=sales_pic or uuid.uuid4(),
+        product_pic=uuid.uuid4(),
+        assigned_sa=assigned_sa,
     )
 
 

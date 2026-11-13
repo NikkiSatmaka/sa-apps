@@ -90,7 +90,7 @@ Dibaca via `pydantic-settings` di `core/config.py` (file `.env`, `case_sensitive
 | `JWT_ALGORITHM` | `HS256` | Algoritma signing. |
 | `JWT_EXPIRE_HOURS` / `JWT_REFRESH_EXPIRE_HOURS` | `24` / `168` | TTL access/refresh token. |
 | `ALLOWED_DOMAINS` | `""` | Whitelist domain email (kosong = izinkan semua). |
-| `ROLE_MAPPING` | `"{}"` | JSON mapping email/wildcard → role. Default role `SA`. |
+| `ROLE_MAPPING` | `"{}"` | JSON mapping email/wildcard → role. Default role `SA`. Nilai peran harus `Sales`, `SA`, `Lead_SA`, atau `Admin` (persis); peran lain membuat backend gagal start (fail-fast). |
 | `FRONTEND_URL` | `http://localhost:3000` | Untuk redirect pasca OAuth. |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | `""` | Kredensial Google OAuth. |
 | `GOOGLE_REDIRECT_URI` | `http://localhost:8000/api/v1/auth/callback` | Callback OAuth. |

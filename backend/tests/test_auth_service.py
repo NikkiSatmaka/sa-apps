@@ -146,6 +146,31 @@ class TestDetermineRole:
         _mapping(monkeypatch, mentah)
         assert svc._determine_role("a@b.com") == "SA"
 
+    @pytest.mark.parametrize(
+        "mapping",
+        [
+            {"a@b.com": "Superuser"},  # exact match
+            {"*@b.com": "Superuser"},  # wildcard domain
+            {"a@b.com": 1},  # bukan string
+        ],
+        ids=["exact", "wildcard", "bukan-string"],
+    )
+    def test_peran_tidak_valid_jatuh_ke_default_dengan_peringatan(
+        self, svc, monkeypatch, caplog, mapping
+    ):
+        """
+        #80, pertahanan berlapis: `Settings` sudah menolak mapping seperti ini saat startup, tapi
+        bila lolos (mis. nilai diubah setelah start) peran asing melanggar `chk_users_role` →
+        login 500. Jatuh ke default `SA` dan catat peringatan tanpa membocorkan nilai email user.
+        """
+        _mapping(monkeypatch, mapping)
+
+        with caplog.at_level("WARNING", logger="app.services.auth_service"):
+            assert svc._determine_role("a@b.com") == "SA"
+
+        assert any("ROLE_MAPPING" in r.getMessage() for r in caplog.records)
+        assert all(r.levelname == "WARNING" for r in caplog.records)
+
     def test_mapping_di_cache_per_instance(self, svc, monkeypatch):
         _mapping(monkeypatch, {"a@b.com": "Admin"})
         assert svc._determine_role("a@b.com") == "Admin"

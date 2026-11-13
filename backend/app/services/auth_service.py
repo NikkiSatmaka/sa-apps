@@ -4,6 +4,7 @@ Menangani OAuth flow, domain validation, JWT management, dan user provisioning.
 """
 
 import json
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -14,7 +15,7 @@ from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.core.config import VALID_ROLES, settings
 from app.models.user import User
 from app.schemas.auth import GoogleProfile, TokenPair
 
@@ -55,6 +56,11 @@ class TokenError(AuthServiceError):
 
     def __init__(self, detail: str):
         super().__init__(error="token_error", detail=detail)
+
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_ROLE = "SA"
 
 
 class AuthService:
@@ -153,6 +159,10 @@ class AuthService:
         Tentukan role user berdasarkan ROLE_MAPPING.
         Format mapping: {"email@domain.com": "Admin", "*@domain.com": "SA"}
         Default role: SA
+
+        Peran di mapping yang tidak ada di VALID_ROLES diabaikan (jatuh ke default) dengan
+        peringatan: `Settings` sudah menolaknya saat startup, ini pertahanan berlapis agar peran
+        asing tidak melanggar CHECK `chk_users_role` dan membuat login 500.
         """
         mapping = self.role_mapping
 
@@ -160,17 +170,31 @@ class AuthService:
         if email.lower() in {k.lower(): v for k, v in mapping.items()}:
             for key, role in mapping.items():
                 if key.lower() == email.lower():
-                    return role
+                    return self._peran_valid_atau_default(key, role)
 
         # Cek wildcard pattern (*@domain.com)
         domain = email.split("@")[1].lower()
         wildcard_key = f"*@{domain}"
         for key, role in mapping.items():
             if key.lower() == wildcard_key:
-                return role
+                return self._peran_valid_atau_default(key, role)
 
         # Default role
-        return "SA"
+        return DEFAULT_ROLE
+
+    @staticmethod
+    def _peran_valid_atau_default(kunci: str, peran: object) -> str:
+        if isinstance(peran, str) and peran in VALID_ROLES:
+            return peran
+        logger.warning(
+            "ROLE_MAPPING entri %r berisi peran tidak valid %r; memakai default %s. "
+            "Perbaiki ROLE_MAPPING (peran valid: %s).",
+            kunci,
+            peran,
+            DEFAULT_ROLE,
+            ", ".join(VALID_ROLES),
+        )
+        return DEFAULT_ROLE
 
     async def get_or_create_user(
         self, db: AsyncSession, profile: GoogleProfile

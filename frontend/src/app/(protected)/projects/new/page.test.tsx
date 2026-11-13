@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { api, errorEnvelope, http, HttpResponse, renderWithProviders, router, server, successEnvelope } from "@/test";
 import { makeOpportunitySchema } from "@/test/fixtures/opportunity";
 import { makeCreateProjectResponse } from "@/test/fixtures/projects";
+import type { Role } from "@/test";
 import NewProjectPage from "./page";
 
 const PDF = "application/pdf";
@@ -48,10 +49,30 @@ function captureFetchPost(response: unknown) {
 const created = (overrides: Record<string, unknown> = {}) =>
   HttpResponse.json(successEnvelope(makeCreateProjectResponse(overrides)), { status: 201 });
 
-function setup(opts: { fake?: boolean } = {}) {
+const PRODUCT_ID = "00000000-0000-4000-8000-0000000000a1";
+const SALES_ID = "00000000-0000-4000-8000-0000000000b1";
+
+/** Dropdown orang: GET /projects/users/search?role=Product|Sales (ADR 0014). */
+function useOrang() {
+  server.use(
+    http.get(api("/projects/users/search"), ({ request }) => {
+      const role = new URL(request.url).searchParams.get("role");
+      const daftar =
+        role === "Product"
+          ? [{ id: PRODUCT_ID, name: "Product Satu", email: "p1@example.com", role: "Product" }]
+          : role === "Sales"
+            ? [{ id: SALES_ID, name: "Sales Satu", email: "s1@example.com", role: "Sales" }]
+            : [];
+      return HttpResponse.json(successEnvelope(daftar));
+    }),
+  );
+}
+
+function setup(opts: { fake?: boolean; role?: Role } = {}) {
   if (opts.fake) vi.useFakeTimers({ shouldAdvanceTime: true });
+  useOrang();
   const user = userEvent.setup(opts.fake ? { advanceTimers: (ms) => vi.advanceTimersByTime(ms) } : undefined);
-  renderWithProviders(<NewProjectPage />, { role: "Sales" });
+  renderWithProviders(<NewProjectPage />, { role: opts.role ?? "Sales" });
   return user;
 }
 
@@ -61,6 +82,8 @@ async function isiLangkah1(user: ReturnType<typeof userEvent.setup>, o: { dq?: s
   fireEvent.change(screen.getByLabelText(/Target Submit/), { target: { value: "2099-12-31" } });
   await user.type(screen.getByLabelText(/Estimasi Nilai Proyek/), "1500000");
   if (o.dq) await user.type(screen.getByLabelText(/DQ Number/), o.dq);
+  const product = screen.queryByLabelText(/Product PIC/);
+  if (product) await user.selectOptions(product, await screen.findByRole("option", { name: /Product Satu/ }));
 }
 
 const lanjut = (user: ReturnType<typeof userEvent.setup>) =>
@@ -565,5 +588,82 @@ describe("NewProjectPage — pengiriman", () => {
     await user.click(screen.getByRole("button", { name: "Submit Request" }));
     expect(await screen.findByText("Gagal submit:")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Submit Request" })).toBeEnabled();
+  });
+});
+
+describe("NewProjectPage — Product dan Sales PIC (ADR 0014)", () => {
+  async function kirimHingga(user: ReturnType<typeof userEvent.setup>, pilih: () => Promise<void>) {
+    useSchema();
+    const captured = capturePost(() => created());
+    await isiLangkah1(user);
+    await pilih();
+    await lanjut(user);
+    await isiKuesioner(user);
+    await user.click(screen.getByRole("button", { name: "Submit Request" }));
+    await waitFor(() => expect(captured.form).toBeDefined());
+    return captured.form!;
+  }
+
+  it("Sales: wajib memilih Product, tidak ada dropdown Sales, product_pic terkirim", async () => {
+    const user = setup({ role: "Sales" });
+    expect(await screen.findByLabelText(/Product PIC/)).toBeRequired();
+    expect(screen.queryByLabelText(/Sales PIC/)).not.toBeInTheDocument();
+    const form = await kirimHingga(user, async () => {});
+    expect(form.get("product_pic")).toBe(PRODUCT_ID);
+    expect(form.get("sales_pic")).toBeNull();
+  });
+
+  it("Sales: tanpa memilih Product tetap di langkah 1 dengan pesan wajib", async () => {
+    const user = setup({ role: "Sales" });
+    await user.type(screen.getByLabelText(/Nama Proyek/), "Proyek");
+    await user.type(screen.getByLabelText(/Nama Customer/), "PT Contoh");
+    fireEvent.change(screen.getByLabelText(/Target Submit/), { target: { value: "2099-12-31" } });
+    await user.type(screen.getByLabelText(/Estimasi Nilai Proyek/), "1500000");
+    await lanjut(user);
+    expect(screen.getByText("Product PIC wajib dipilih")).toBeInTheDocument();
+    expect(screen.getByText(/Langkah 1 dari 2/)).toBeInTheDocument();
+  });
+
+  it("Product: tanpa dropdown Product; Sales opsional dan terkirim bila dipilih", async () => {
+    const user = setup({ role: "Product" });
+    expect(screen.queryByLabelText(/Product PIC/)).not.toBeInTheDocument();
+    const sales = await screen.findByLabelText(/Sales PIC/);
+    expect(sales).not.toBeRequired();
+    const form = await kirimHingga(user, async () => {
+      await user.selectOptions(sales, await screen.findByRole("option", { name: /Sales Satu/ }));
+    });
+    expect(form.get("sales_pic")).toBe(SALES_ID);
+    expect(form.get("product_pic")).toBeNull();
+  });
+
+  it("Product: tanpa memilih Sales, sales_pic tidak dikirim", async () => {
+    const user = setup({ role: "Product" });
+    const form = await kirimHingga(user, async () => {});
+    expect(form.get("sales_pic")).toBeNull();
+  });
+
+  it.each<Role>(["Lead_SA", "Admin"])("%s: Product wajib, Sales opsional", async (role) => {
+    const user = setup({ role });
+    expect(await screen.findByLabelText(/Product PIC/)).toBeRequired();
+    expect(screen.getByLabelText(/Sales PIC/)).not.toBeRequired();
+    const form = await kirimHingga(user, async () => {});
+    expect(form.get("product_pic")).toBe(PRODUCT_ID);
+    expect(form.get("sales_pic")).toBeNull();
+  });
+
+  it("memetakan error 422 product_pic dari backend ke field di langkah 1", async () => {
+    useSchema();
+    capturePost(() =>
+      HttpResponse.json(errorEnvelope("Validasi gagal", [{ field: "product_pic", reason: "Product PIC wajib dipilih." }]), {
+        status: 422,
+      }),
+    );
+    const user = setup({ role: "Sales" });
+    await isiLangkah1(user);
+    await lanjut(user);
+    await isiKuesioner(user);
+    await user.click(screen.getByRole("button", { name: "Submit Request" }));
+    expect(await screen.findByText("Product PIC wajib dipilih.")).toBeInTheDocument();
+    expect(screen.getByText(/Langkah 1 dari 2/)).toBeInTheDocument();
   });
 });

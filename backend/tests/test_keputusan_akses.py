@@ -24,7 +24,7 @@ from app.core.dependencies import (
     hubungan_proyek,
     izinkan,
 )
-from tests._auth_support import SesiPalsu, user_palsu
+from tests._auth_support import HasilPalsu, SesiPalsu, user_palsu
 
 PESAN_403 = "Anda tidak memiliki akses ke proyek ini."
 
@@ -81,6 +81,8 @@ MATRIKS = {
     TingkatAkses.KELOLA_REQUIREMENT: {"privileged", "sa_ditugaskan"},
     # Jawaban kuesioner: Sales PIC (berperan Sales), Lead_SA, Admin
     TingkatAkses.EDIT_KUESIONER: {"privileged", "sales_pic"},
+    # Atur tim SA (#119): hanya Lead_SA/Admin; SA utama/tambahan tidak
+    TingkatAkses.KELOLA_TIM_SA: {"privileged"},
 }
 
 KASUS = [
@@ -200,7 +202,10 @@ async def test_ensure_viewer_boleh_baca_tapi_ditolak_tulis():
     await ensure_project_access(SesiPalsu(kolab), _proyek(), user)
     await ensure_project_access(SesiPalsu(kolab), _proyek(), user, tingkat=TingkatAkses.STORY)
     with pytest.raises(HTTPException) as exc:
-        await ensure_project_access(SesiPalsu(kolab), _proyek(), user, tingkat=TingkatAkses.TULIS)
+        # Hasil kedua: cek SA tambahan (tidak ada baris).
+        await ensure_project_access(
+            SesiPalsu(kolab, None), _proyek(), user, tingkat=TingkatAkses.TULIS
+        )
     assert exc.value.status_code == 403
     assert exc.value.detail == PESAN_403
 
@@ -273,17 +278,23 @@ def test_tingkat_gabungan_id_dan_peran_menolak_ketidakcocokan(tingkat, hubungan)
         TingkatAkses.EDIT_KUESIONER,
     ],
 )
-async def test_tingkat_tanpa_collaborator_tidak_query_db(tingkat):
-    """Keputusannya tidak memakai collaborator → tidak ada query (jumlah query rute lama sama)."""
+async def test_tingkat_tanpa_collaborator_tidak_query_collaborator(tingkat):
+    """Keputusannya tidak memakai collaborator → tidak ada query collaborator. Privileged lolos
+    tanpa query apa pun; penolakan SA hanya boleh memicu cek SA tambahan (`project_assignments`)."""
+    dieksekusi: list[str] = []
 
-    class SesiTerlarang:
-        async def execute(self, _stmt):
-            raise AssertionError("tidak boleh query collaborator")
+    class SesiPencatat:
+        async def execute(self, stmt):
+            dieksekusi.append(str(stmt))
+            return HasilPalsu(None)
 
     user = user_palsu("Lead_SA")
-    await ensure_project_access(SesiTerlarang(), _proyek(), user, tingkat=tingkat)
+    await ensure_project_access(SesiPencatat(), _proyek(), user, tingkat=tingkat)
+    assert dieksekusi == []
     with pytest.raises(HTTPException):
-        await ensure_project_access(SesiTerlarang(), _proyek(), user_palsu("SA"), tingkat=tingkat)
+        await ensure_project_access(SesiPencatat(), _proyek(), user_palsu("SA"), tingkat=tingkat)
+    assert all("project_assignments" in q for q in dieksekusi)
+    assert not any("project_collaborators" in q for q in dieksekusi)
 
 
 @pytest.mark.parametrize("tingkat", [TingkatAkses.BACA, TingkatAkses.STORY])
@@ -328,3 +339,51 @@ def test_tingkat_yang_mencocokkan_peran_mengizinkan_product_pic(tingkat):
 @pytest.mark.parametrize("tingkat", [TingkatAkses.UBAH_STATUS, TingkatAkses.EDIT_KUESIONER])
 def test_peran_sa_tetap_tidak_lolos_sebagai_pic_requester(tingkat):
     assert izinkan(HubunganProyek(sales_pic=True, peran="SA"), tingkat) is False
+
+
+# --------------------------------------------------------------------------- SA tambahan (#119)
+
+
+async def test_sa_tambahan_dikenali_sebagai_sa_ditugaskan_lewat_tabel_penugasan():
+    user = user_palsu("SA")
+    # KELOLA tidak membaca collaborator: satu-satunya query adalah baris `project_assignments`.
+    await ensure_project_access(
+        SesiPalsu("baris"), _proyek(assigned_sa=uuid.uuid4()), user, TingkatAkses.KELOLA
+    )
+    # hubungan_proyek: collaborator tidak ada, lalu baris `project_assignments` ada.
+    h = await hubungan_proyek(SesiPalsu(None, "baris"), _proyek(assigned_sa=uuid.uuid4()), user)
+    assert h.sa_ditugaskan is True and h.privileged is False
+
+
+async def test_sa_utama_dan_privileged_tidak_memicu_query_penugasan():
+    class SesiTerlarang:
+        async def execute(self, _stmt):
+            raise AssertionError("tidak boleh query SA tambahan")
+
+    user = user_palsu("SA")
+    await ensure_project_access(
+        SesiTerlarang(), _proyek(assigned_sa=user.id), user, TingkatAkses.KELOLA
+    )
+    await ensure_project_access(
+        SesiTerlarang(), _proyek(), user_palsu("Lead_SA"), TingkatAkses.KELOLA
+    )
+
+
+async def test_user_bukan_sa_atau_lead_sa_tidak_pernah_query_penugasan():
+    class SesiTerlarang:
+        async def execute(self, _stmt):
+            raise AssertionError("tidak boleh query SA tambahan")
+
+    with pytest.raises(HTTPException):
+        await ensure_project_access(
+            SesiTerlarang(), _proyek(), user_palsu("Sales"), TingkatAkses.KELOLA
+        )
+
+
+async def test_sa_tambahan_tidak_mendapat_hak_khusus_sales_pic_atau_tim_sa():
+    user = user_palsu("SA")
+    for tingkat in (TingkatAkses.ISI_DQ, TingkatAkses.KELOLA_TIM_SA):
+        with pytest.raises(HTTPException):
+            await ensure_project_access(
+                SesiPalsu(None, "baris"), _proyek(assigned_sa=uuid.uuid4()), user, tingkat
+            )

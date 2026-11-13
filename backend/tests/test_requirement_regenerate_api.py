@@ -88,6 +88,8 @@ def _call(user, project, llm=None, existing=None, sources=None, race_lost=False)
                 return MagicMock(rowcount=0)
             project.requirement_generation_status = "pending"
             return MagicMock(rowcount=1)
+        if "project_assignments" in str(stmt):  # cek SA tambahan: tidak ada
+            return MagicMock(first=MagicMock(return_value=None))
         return _result(one=project)
 
     req_session.execute = AsyncMock(side_effect=_execute)

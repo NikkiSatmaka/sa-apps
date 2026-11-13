@@ -86,6 +86,15 @@ class HasilPalsu:
     def scalar_one_or_none(self) -> Any:
         return self._nilai
 
+    def first(self) -> Any:
+        """Baris pertama (untuk query `select(...).first()`): None bila hasil kosong."""
+        return None if self._nilai is None else (self._nilai,)
+
+
+def hasil_tanpa_penugasan() -> Any:
+    """Hasil `execute()` untuk query SA tambahan (`project_assignments`) yang kosong."""
+    return HasilPalsu(None)
+
 
 class SesiPalsu:
     """

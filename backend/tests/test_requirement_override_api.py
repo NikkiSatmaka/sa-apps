@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.main import app
+from tests._auth_support import hasil_tanpa_penugasan
 from tests.test_doc_ready import _make_project, _make_user, _result_scalar
 from tests.test_requirement_documents_api import KONTEN, PRJ, _requirement
 
@@ -28,12 +29,15 @@ def _cleanup():
     app.dependency_overrides.clear()
 
 
-def _setup(user, project, doc, collaborator=False):
-    """Urutan execute: project, requirement doc."""
+def _setup(user, project, doc, collaborator=False, cek_penugasan=False):
+    """Urutan execute: project, [cek SA tambahan bila SA ditolak], requirement doc."""
     project.assigned_sa = getattr(project, "assigned_sa", None)
     session = AsyncMock()
     session.add = MagicMock()
-    session.execute = AsyncMock(side_effect=[_result_scalar(project), _result_scalar(doc)])
+    hasil = [_result_scalar(project)]
+    if cek_penugasan:
+        hasil.append(hasil_tanpa_penugasan())
+    session.execute = AsyncMock(side_effect=[*hasil, _result_scalar(doc)])
     app.dependency_overrides[get_current_user] = lambda: user
 
     async def _db():
@@ -132,7 +136,7 @@ def test_sales_ditolak_403_dan_tidak_mengubah(method):
 @pytest.mark.parametrize("method", ["post", "put", "delete"])
 def test_sa_tidak_ditugaskan_ditolak(method):
     doc = _doc()
-    session = _setup(_make_user("SA"), _project(assigned_sa=uuid.uuid4()), doc)
+    session = _setup(_make_user("SA"), _project(assigned_sa=uuid.uuid4()), doc, cek_penugasan=True)
     url = BASE if method == "post" else f"{BASE}/a1b2c3d4"
     kwargs = {} if method == "delete" else {"json": {"kategori": "Teknis", "butir": "x"}}
     resp = getattr(TestClient(app), method)(url, **kwargs)

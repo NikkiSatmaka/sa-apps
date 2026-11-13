@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.dependencies import (
     adalah_privileged,
+    adalah_sa_ditugaskan,
     HubunganProyek,
     TingkatAkses,
     ensure_project_access,
@@ -338,7 +339,15 @@ async def list_project_documents(
             "total": len(documents_data),
             # Status generate Requirement (#34): UI menampilkan pending/gagal + tombol coba lagi.
             "requirement_generation_status": project.requirement_generation_status,
-            "can_regenerate_requirement": can_manage_requirement(project, current_user),
+            "can_regenerate_requirement": can_manage_requirement(
+                project,
+                current_user,
+                sa_ditugaskan=(
+                    None
+                    if adalah_privileged(current_user)  # privileged lolos tanpa penugasan
+                    else await adalah_sa_ditugaskan(db, project, current_user)
+                ),
+            ),
         },
         message=f"Ditemukan {len(documents_data)} dokumen untuk proyek '{project_id}'.",
     )

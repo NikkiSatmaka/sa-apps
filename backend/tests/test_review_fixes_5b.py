@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.main import app
+from tests._auth_support import hasil_tanpa_penugasan
 from tests.test_doc_ready import _make_project, _make_user, _result_scalar
 
 PRJ = "PRJ-20250101-XYZ789"
@@ -45,7 +46,9 @@ def _list(user, project):
     docs.scalars.return_value.all.return_value = []
     session = AsyncMock()
     session.execute = AsyncMock(
-        side_effect=[_result_scalar(project), docs]  # BACA terbuka: tanpa query collaborator
+        # BACA terbuka: tanpa query collaborator. Hasil ketiga: cek SA tambahan untuk bendera
+        # `can_regenerate_requirement` (hanya terpakai SA yang bukan SA utama).
+        side_effect=[_result_scalar(project), docs, hasil_tanpa_penugasan()]
     )
 
     async def _db():

@@ -11,7 +11,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from app.models import AuditLog, ProjectAssignment, Subtask
+from app.models import ProjectAssignment, Subtask
 from tests.integration.conftest import patch_session_factory
 from tests.integration.model_helpers import bangun_subtask, bangun_user, simpan
 from tests.integration.support_assignment import (
@@ -389,9 +389,7 @@ async def test_ganti_sa_utama_ke_diri_sendiri_409_role_salah_400_user_tak_ada_40
 
     sama = await api.client.put(url, json={"user_id": str(dunia.sa.id)}, headers=dunia.h["lead"])
     role = await api.client.put(url, json={"user_id": str(dunia.sales.id)}, headers=dunia.h["lead"])
-    hilang = await api.client.put(
-        url, json={"user_id": str(uuid.uuid4())}, headers=dunia.h["lead"]
-    )
+    hilang = await api.client.put(url, json={"user_id": str(uuid.uuid4())}, headers=dunia.h["lead"])
 
     assert (sama.status_code, role.status_code, hilang.status_code) == (409, 400, 404)
     await dunia.db.refresh(proyek)

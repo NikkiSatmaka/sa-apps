@@ -23,7 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import (
+    PERAN_DAPAT_DITUGASKAN,
+    PeranUser,
     adalah_privileged,
+    adalah_sa_ditugaskan,
     TingkatAkses,
     ensure_project_access,
     get_current_user,
@@ -261,12 +264,24 @@ async def assign_subtask(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"User dengan ID '{body.assigned_sa}' tidak ditemukan.",
             )
-        if sa_user.role != "SA":
+        if sa_user.role not in PERAN_DAPAT_DITUGASKAN:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    f"User '{sa_user.name}' memiliki role '{sa_user.role}', bukan 'SA'. "
-                    f"Hanya user dengan role SA yang bisa ditugaskan ke subtask."
+                    f"User '{sa_user.name}' memiliki role '{sa_user.role}', bukan 'SA' atau "
+                    f"'Lead_SA'. Hanya SA atau Lead_SA yang bisa ditugaskan ke subtask."
+                ),
+            )
+        # Assignee: SA project (utama/tambahan) atau Lead_SA mana pun (ADR 0014).
+        project = await _verify_project_exists(subtask.id_project, db)
+        if sa_user.role != PeranUser.LEAD_SA and not await adalah_sa_ditugaskan(
+            db, project, sa_user
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"User '{sa_user.name}' bukan anggota tim SA proyek ini. Tambahkan ke tim SA "
+                    f"lebih dulu, atau pilih SA utama/tambahan atau Lead_SA."
                 ),
             )
         assigned_sa_name = sa_user.name

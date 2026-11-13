@@ -3,7 +3,7 @@ Dependencies untuk FastAPI dependency injection.
 Berisi auth middleware (JWT validation) dan dependencies lainnya.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 
 from fastapi import Depends, HTTPException, Request, status
@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.project import Project
+from app.models.project_assignment import ProjectAssignment
 from app.models.project_collaborator import ProjectCollaborator
 from app.models.user import User
 
@@ -207,11 +208,18 @@ class TingkatAkses(StrEnum):
     HANDOVER = "handover"
     KELOLA_REQUIREMENT = "kelola_requirement"
     EDIT_KUESIONER = "edit_kuesioner"
+    KELOLA_TIM_SA = "kelola_tim_sa"
 
     @property
     def butuh_kolaborator(self) -> bool:
         """Apakah keputusan tingkat ini memakai data collaborator (perlu query ke DB)?"""
         return _ATURAN[self].butuh_kolaborator
+
+    @property
+    def butuh_penugasan(self) -> bool:
+        """Apakah keputusan tingkat ini memakai penugasan SA tambahan (perlu query ke DB)?"""
+        aturan = _ATURAN[self]
+        return not aturan.semua_pengguna and aturan.sa_ditugaskan
 
 
 @dataclass(frozen=True)
@@ -340,6 +348,10 @@ _ATURAN: dict[TingkatAkses, Aturan] = {
         sa_ditugaskan=True,
         cocokkan_peran=True,
     ),
+    TingkatAkses.KELOLA_TIM_SA: Aturan(
+        "Atur tim SA (tambah/lepas SA tambahan, ganti SA utama): hanya Lead_SA/Admin; SA utama "
+        "dan SA tambahan tidak (ADR 0014)"
+    ),
     TingkatAkses.EDIT_KUESIONER: Aturan(
         "Ubah jawaban Kuesioner kualifikasi: Sales PIC berperan Sales",
         sales_pic=True,
@@ -353,11 +365,34 @@ def izinkan(hubungan: HubunganProyek, tingkat: TingkatAkses = TingkatAkses.BACA)
     return _ATURAN[tingkat].mengizinkan(hubungan)
 
 
+async def adalah_sa_ditugaskan(db: AsyncSession, project: Project, user: User) -> bool:
+    """SA ditugaskan = SA utama (`assigned_sa`) atau SA tambahan (`ProjectAssignments`); hak
+    keduanya setara (ADR 0014)."""
+    if project.assigned_sa is not None and project.assigned_sa == user.id:
+        return True
+    if user.role not in PERAN_DAPAT_DITUGASKAN:
+        return False  # hanya SA/Lead_SA yang bisa masuk tim SA: hemat satu query
+    ada = await db.execute(
+        select(ProjectAssignment.id).where(
+            ProjectAssignment.id_project == project.id_project,
+            ProjectAssignment.user_id == user.id,
+        )
+    )
+    return ada.first() is not None
+
+
 async def hubungan_proyek(
-    db: AsyncSession, project: Project, user: User, *, baca_kolaborator: bool = True
+    db: AsyncSession,
+    project: Project,
+    user: User,
+    *,
+    baca_kolaborator: bool = True,
+    baca_penugasan: bool = True,
 ) -> HubunganProyek:
-    """Baca hubungan `user` ke `project` (satu query collaborator, kecuali `baca_kolaborator`
-    dimatikan untuk tingkat yang keputusannya tidak memakai collaborator)."""
+    """Baca hubungan `user` ke `project` (satu query collaborator dan satu query SA tambahan,
+    kecuali `baca_kolaborator`/`baca_penugasan` dimatikan untuk tingkat yang keputusannya tidak
+    memakainya)."""
+    privileged = adalah_privileged(user)
     kolab = None
     if baca_kolaborator:
         collab_result = await db.execute(
@@ -368,10 +403,14 @@ async def hubungan_proyek(
         )
         kolab = collab_result.scalar_one_or_none()
     return HubunganProyek(
-        privileged=adalah_privileged(user),
+        privileged=privileged,
         # Product PIC setara Sales PIC (ADR 0012/0014). `created_by` tidak memberi hak sendiri.
         sales_pic=user.id in (project.sales_pic, project.product_pic),
-        sa_ditugaskan=project.assigned_sa == user.id,
+        sa_ditugaskan=(
+            await adalah_sa_ditugaskan(db, project, user)
+            if baca_penugasan and not privileged
+            else project.assigned_sa == user.id
+        ),
         kolaborator=(
             None if kolab is None else getattr(kolab, "role", None) or PeranKolaborator.VIEWER
         ),
@@ -402,7 +441,19 @@ async def ensure_project_access(
     Return None saat sukses. Test penjaga rute (`tests/test_penjaga_akses_rute.py`)
     menelusuri simbol ini; jangan ganti namanya tanpa memperbarui penjaga.
     """
-    hubungan = await hubungan_proyek(db, project, user, baca_kolaborator=tingkat.butuh_kolaborator)
+    hubungan = await hubungan_proyek(
+        db, project, user, baca_kolaborator=tingkat.butuh_kolaborator, baca_penugasan=False
+    )
+    # SA tambahan dicek malas: hanya bila keputusan awal menolak dan tingkatnya memberi hak
+    # kepada SA ditugaskan. Jalur yang sudah diizinkan (SA utama, privileged, dst.) tidak
+    # menambah query.
+    if (
+        not izinkan(hubungan, tingkat)
+        and tingkat.butuh_penugasan
+        and not hubungan.sa_ditugaskan
+        and await adalah_sa_ditugaskan(db, project, user)
+    ):
+        hubungan = replace(hubungan, sa_ditugaskan=True)
     if not izinkan(hubungan, tingkat):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

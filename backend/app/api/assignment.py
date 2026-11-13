@@ -11,7 +11,7 @@ from typing import Optional
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -19,6 +19,7 @@ from app.core.dependencies import PERAN_DAPAT_DITUGASKAN, adalah_privileged, get
 from app.models.activity_log import ActivityLog
 from app.models.notification_log import NotificationLog
 from app.models.project import Project
+from app.models.project_assignment import ProjectAssignment
 from app.models.subtask import Subtask
 from app.models.user import User
 from app.schemas.assignment import (
@@ -881,6 +882,13 @@ async def reassign_sa_to_project(
     project.assigned_sa = body.sa_id
     project.assigned_at = now
     project.updated_at = now
+    # SA utama tidak diulang di SA tambahan (ADR 0014): bila SA baru sebelumnya SA tambahan,
+    # ia naik menjadi utama dan keluar dari `project_assignments`.
+    await db.execute(
+        delete(ProjectAssignment).where(
+            ProjectAssignment.id_project == project_id, ProjectAssignment.user_id == body.sa_id
+        )
+    )
 
     # Email SA lama (untuk mencabut akses Drive). FK `projects.assigned_sa` menjamin user ada.
     sa_lama_email: Optional[str] = None

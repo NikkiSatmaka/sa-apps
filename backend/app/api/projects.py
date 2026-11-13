@@ -37,6 +37,7 @@ from app.core.dependencies import (
     get_current_user,
 )
 from app.models.project import Project
+from app.models.project_assignment import ProjectAssignment
 from app.models.project_collaborator import ProjectCollaborator
 from app.models.sla_tracking import SLATracking
 from app.models.source_document import DOC_TYPES, SourceDocument
@@ -57,6 +58,16 @@ from app.services.dq_akses import hentikan_timer_bila_pertama, terapkan_dq
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects", tags=["Projects"])
+
+
+def _sa_ditugaskan_ke(user_id: uuid.UUID):
+    """Kriteria "SA ditugaskan": SA utama atau SA tambahan (`ProjectAssignments`; ADR 0014)."""
+    return or_(
+        Project.assigned_sa == user_id,
+        Project.id_project.in_(
+            select(ProjectAssignment.id_project).where(ProjectAssignment.user_id == user_id)
+        ),
+    )
 
 # Konstanta file upload
 MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024  # 20MB
@@ -318,7 +329,7 @@ async def list_projects(
             or_(Project.sales_pic == current_user.id, Project.product_pic == current_user.id)
         )
     elif assigned_to == "me":
-        query = query.where(Project.assigned_sa == current_user.id)
+        query = query.where(_sa_ditugaskan_ke(current_user.id))
 
     # Filter status
     if status_filter:
@@ -403,7 +414,7 @@ async def get_status_summary(
             or_(Project.sales_pic == current_user.id, Project.product_pic == current_user.id)
         )
     elif assigned_to == "me":
-        query = query.where(Project.assigned_sa == current_user.id)
+        query = query.where(_sa_ditugaskan_ke(current_user.id))
 
     result = await db.execute(
         query.group_by(Project.status).order_by(func.count(Project.id_project).desc())

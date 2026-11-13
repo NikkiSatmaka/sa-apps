@@ -24,7 +24,9 @@ class ProjectAssignment(Base):
     )
     id_project: Mapped[str] = mapped_column(
         String(50),
-        ForeignKey("projects.id_project", ondelete="CASCADE", name="fk_project_assignments_id_project"),
+        ForeignKey(
+            "projects.id_project", ondelete="CASCADE", name="fk_project_assignments_id_project"
+        ),
         nullable=False,
         comment="FK ke proyek",
     )

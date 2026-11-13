@@ -394,17 +394,25 @@ async def generate_pending_requirement(project_id: str, replace: bool = False) -
             logger.error("[Requirement] %s: gagal menandai failed: %s", project_id, inner)
 
 
-def can_manage_requirement(project: Project, user: Any) -> bool:
+def can_manage_requirement(project: Project, user: Any, sa_ditugaskan: bool | None = None) -> bool:
     """
     Hak mengelola Requirement (edit butir, generate ulang, pertahankan versi): Lead_SA,
-    Admin, atau SA yang ditugaskan. Sales (termasuk PIC), SA lain, dan collaborator read-only.
+    Admin, atau SA yang ditugaskan (utama atau tambahan). Sales (termasuk PIC), SA lain, dan
+    collaborator read-only.
+
+    `sa_ditugaskan` diisi pemanggil yang sudah menghitung penugasan lewat DB
+    (`adalah_sa_ditugaskan`); bila None, hanya SA utama yang dikenali.
     """
     # Aturan tunggal di titik keputusan bersama (TingkatAkses.KELOLA_REQUIREMENT); fungsi ini
     # hanya untuk bendera UI, penegakan rute lewat ensure_project_access.
     return izinkan(
         HubunganProyek(
             privileged=adalah_privileged(user),
-            sa_ditugaskan=project.assigned_sa is not None and project.assigned_sa == user.id,
+            sa_ditugaskan=(
+                sa_ditugaskan
+                if sa_ditugaskan is not None
+                else project.assigned_sa is not None and project.assigned_sa == user.id
+            ),
             peran=user.role,
         ),
         TingkatAkses.KELOLA_REQUIREMENT,

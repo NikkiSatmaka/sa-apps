@@ -51,7 +51,18 @@ async def skenario(db_session, skenario_akses):
     [pytest.param(*r, id=r[0]) for r in RUTE_MIGRASI],
 )
 async def test_sa_tambahan_mendapat_hasil_sama_dengan_sa_utama_di_matriks_rute(
-    api, db_session, skenario, fake_llm, fake_drive, fake_gmail, nama, method, path, body, berhak, ok
+    api,
+    db_session,
+    skenario,
+    fake_llm,
+    fake_drive,
+    fake_gmail,
+    nama,
+    method,
+    path,
+    body,
+    berhak,
+    ok,
 ):
     resp = await api.client.request(
         method, _url(path, skenario), json=body, headers=skenario.header("sa_tambahan")
@@ -66,7 +77,9 @@ async def test_sa_tambahan_mendapat_hasil_sama_dengan_sa_utama_di_matriks_rute(
 # --------------------------------------------------------------------------- aksi khusus Lead_SA
 
 
-@pytest.mark.parametrize("nama,method,path,body,target", [pytest.param(*r, id=r[0]) for r in RUTE_ROLE_GATE])
+@pytest.mark.parametrize(
+    "nama,method,path,body,target", [pytest.param(*r, id=r[0]) for r in RUTE_ROLE_GATE]
+)
 async def test_sa_tambahan_ditolak_pada_semua_aksi_khusus_lead_sa_tanpa_efek_samping(
     api, db_session, skenario, fake_llm, fake_drive, fake_gmail, nama, method, path, body, target
 ):
@@ -154,7 +167,9 @@ async def test_sa_tambahan_menulis_activity_log_dan_dokumen_dan_memajukan_status
     )
     pelaku = skenario.aktor["sa_tambahan"].id
     assert (
-        await db_session.execute(select(ActivityLog.sa_id).where(ActivityLog.id_project == ID_PROYEK))
+        await db_session.execute(
+            select(ActivityLog.sa_id).where(ActivityLog.id_project == ID_PROYEK)
+        )
     ).scalar_one() == pelaku
     assert (
         await db_session.execute(
@@ -187,7 +202,9 @@ async def test_sa_tambahan_tidak_boleh_mengisi_dq_number(api, db_session, skenar
     assert resp.status_code == 403, resp.text
     proyek = (
         await db_session.execute(
-            select(Project).where(Project.id_project == ID_PROYEK).execution_options(populate_existing=True)
+            select(Project)
+            .where(Project.id_project == ID_PROYEK)
+            .execution_options(populate_existing=True)
         )
     ).scalar_one()
     assert proyek.dq_number is None
@@ -195,9 +212,7 @@ async def test_sa_tambahan_tidak_boleh_mengisi_dq_number(api, db_session, skenar
     assert sla.stopped_at is None
 
 
-async def test_sa_tambahan_menandai_dapat_regenerate_requirement_di_daftar_dokumen(
-    api, skenario
-):
+async def test_sa_tambahan_menandai_dapat_regenerate_requirement_di_daftar_dokumen(api, skenario):
     sa = await api.client.get(
         f"{API}/projects/{ID_PROYEK}/documents", headers=skenario.header("sa")
     )

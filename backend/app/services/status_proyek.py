@@ -4,7 +4,7 @@ Aturan status proyek yang dipakai lintas endpoint (issue #122, ADR 0013, spec §
 - `majukan_ke_in_progress`: `Assigned` → `In Progress` otomatis dari activity log atau subtask
   `in_progress` pertama. Hanya berlaku dari `Assigned`, jadi terjadi sekali saja per siklus.
 - `pastikan_proyek_bisa_ditulis`: guard read-only terpusat. `Closed` dan `Lost` menolak semua
-  aksi tulis turunan proyek (subtask, activity log, dokumen, dan komentar saat #125 ada).
+  aksi tulis turunan proyek (subtask, activity log, dokumen, dan komentar project).
   Endpoint baru yang menulis data turunan proyek WAJIB memanggil guard ini.
 """
 

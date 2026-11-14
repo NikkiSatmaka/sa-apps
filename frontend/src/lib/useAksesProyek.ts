@@ -34,7 +34,7 @@ interface TimSA {
  */
 export function useAksesProyek(projectId: string) {
   const user = useAuthStore((s) => s.user);
-  const { data: proyek } = useSWR<ProyekHubungan>(`/projects/${projectId}`, fetcher);
+  const { data: proyek, error: proyekError } = useSWR<ProyekHubungan>(`/projects/${projectId}`, fetcher);
   const perluTim = !!user && !isPrivileged(user) && user.role === "SA";
   const { data: tim, error: timError } = useSWR<TimSA>(perluTim ? `/projects/${projectId}/tim-sa` : null, fetcher);
 
@@ -47,5 +47,8 @@ export function useAksesProyek(projectId: string) {
     kolaborator: proyek?.collaborators,
   };
 
-  return { bisa: (tingkat: TingkatAkses) => izinkan(tingkat, hubungan) };
+  // Hubungan belum bisa dinilai: detail proyek (atau tim SA yang dibutuhkan) belum tiba dan belum gagal.
+  const memuat = (!proyek && !proyekError) || (perluTim && !tim && !timError);
+
+  return { bisa: (tingkat: TingkatAkses) => izinkan(tingkat, hubungan), memuat };
 }

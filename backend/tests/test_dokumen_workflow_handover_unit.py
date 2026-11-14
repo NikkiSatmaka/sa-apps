@@ -216,20 +216,32 @@ async def test_notifikasi_hld_user_sa_hilang_dilewati(monkeypatch):
         id_project="PRJ-1", project_name="P", customer_name="C", assigned_sa=uuid.uuid4()
     )
 
-    await workflow._notify_mandatory_hld(proyek, _db(None))
+    # query 1: id SA tambahan (kosong); query 2: user penerima (tidak ditemukan)
+    await workflow._notify_mandatory_hld(proyek, _db(None, None))
 
     kirim.assert_not_awaited()
 
 
-async def test_notifikasi_hld_proyek_tanpa_sa_tidak_menyentuh_db(monkeypatch):
+async def test_notifikasi_hld_proyek_tanpa_sa_utama_dan_tambahan_tidak_mengirim(monkeypatch):
     kirim = AsyncMock()
     monkeypatch.setattr(workflow.notification_service, "send_notification", kirim)
-    db = _db()
+    db = _db(None)  # satu-satunya query: id SA tambahan (kosong), user tidak dicari
 
     await workflow._notify_mandatory_hld(SimpleNamespace(id_project="P", assigned_sa=None), db)
 
     kirim.assert_not_awaited()
-    db.execute.assert_not_awaited()
+    assert db.execute.await_count == 1
+
+
+async def test_notifikasi_hld_gagal_menentukan_penerima_tidak_melempar(monkeypatch):
+    kirim = AsyncMock()
+    monkeypatch.setattr(workflow.notification_service, "send_notification", kirim)
+    db = MagicMock()
+    db.execute = AsyncMock(side_effect=RuntimeError("DB putus"))
+
+    await workflow._notify_mandatory_hld(SimpleNamespace(id_project="P", assigned_sa=None), db)
+
+    kirim.assert_not_awaited()
 
 
 # ------------------------------ handover_service defensif

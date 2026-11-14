@@ -47,6 +47,15 @@ describe("Daftar proyek — daftar penuh untuk semua peran (#109, ADR 0011)", ()
     expect(screen.getByRole("checkbox", { name: "Hanya proyek saya" })).not.toBeChecked();
   });
 
+  it("sakelar proyek memakai checkbox 18px dengan label target 44px", async () => {
+    serve();
+    setup("SA");
+    const checkbox = await screen.findByRole("checkbox", { name: "Hanya proyek saya" });
+
+    expect(checkbox).toHaveClass("h-[18px]", "w-[18px]", "min-h-[18px]", "min-w-[18px]");
+    expect(checkbox.closest("label")).toHaveClass("min-h-[44px]");
+  });
+
   it.each(SEMUA_PERAN)("%s: sakelar menyempitkan lewat involved=me dan bisa dimatikan lagi", async (role) => {
     const urls: URL[] = [];
     server.use(

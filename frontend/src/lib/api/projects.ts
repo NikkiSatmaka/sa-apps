@@ -6,12 +6,8 @@
  * - getBANTResult: Ambil hasil scoring BANT
  */
 
-import { ApiError, apiRequest } from "../fetcher";
+import { apiCall, apiRequest } from "../fetcher";
 import { toPayload, type QualificationAnswers, type QualificationSchema } from "../qualification";
-
-// Base URL API backend
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 
 /** Tipe response BANT Result dari backend */
 export interface BANTResult {
@@ -65,14 +61,6 @@ export function extractFieldErrors(err: unknown): FieldError[] {
 }
 
 /**
- * Helper untuk mendapatkan auth token
- */
-function getAuthToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("access_token");
-}
-
-/**
  * Submit proyek baru dengan file attachment
  * Menggunakan multipart/form-data karena ada file upload
  *
@@ -82,30 +70,12 @@ function getAuthToken(): string | null {
 export async function createProject(
   data: FormData
 ): Promise<CreateProjectResponse> {
-  const token = getAuthToken();
-
-  const headers: HeadersInit = {};
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-  // Jangan set Content-Type — browser akan set boundary untuk multipart/form-data
-
-  const response = await fetch(`${API_BASE_URL}/projects`, {
+  // FormData: apiCall tidak men-set Content-Type (boundary dari browser)
+  const json = await apiCall("/projects", {
     method: "POST",
-    headers,
     body: data,
+    pesanGagal: "Gagal membuat proyek",
   });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
-    throw new ApiError(
-      errorData?.message || `Gagal membuat proyek (status ${response.status})`,
-      response.status,
-      errorData
-    );
-  }
-
-  const json = await response.json();
   return json.data ?? json;
 }
 
@@ -118,33 +88,12 @@ export async function createProject(
 export async function getBANTResult(
   projectId: string
 ): Promise<BANTResult | null> {
-  const token = getAuthToken();
-
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(
-    `${API_BASE_URL}/projects/${projectId}/bant-result`,
-    { headers }
-  );
-
-  if (!response.ok) {
-    // 404 berarti belum ada hasil
-    if (response.status === 404) return null;
-
-    const errorData = await response.json().catch(() => null);
-    throw new ApiError(
-      errorData?.message || `Gagal mengambil hasil BANT (status ${response.status})`,
-      response.status,
-      errorData
-    );
-  }
-
-  const json = await response.json();
+  // 404 berarti belum ada hasil
+  const json = await apiCall(`/projects/${projectId}/bant-result`, {
+    pesanGagal: "Gagal mengambil hasil BANT",
+    terimaStatus: [404],
+  });
+  if (json === null) return null;
   return json.data ?? json;
 }
 

@@ -467,6 +467,26 @@ describe("NewProjectPage — pengiriman", () => {
     expect(screen.getByRole("button", { name: "Lihat Proyek" })).toBeInTheDocument();
   });
 
+  it.each([
+    ["Awaiting Assignment", 65],
+    ["Need Clarification", 30],
+  ])("scoring tidak berjalan dan tanpa sub-skor (%s): setelah 2 detik diarahkan ke detail proyek yang baru dibuat (#83)", async (status, bant) => {
+    useSchema();
+    capturePost(() => created({ status, bant_score: bant, sub_scores: null, scoring_triggered: false }));
+    const user = setup({ fake: true });
+    await isiLangkah1(user);
+    await lanjut(user);
+    await isiKuesioner(user);
+    await user.click(screen.getByRole("button", { name: "Submit Request" }));
+    await screen.findByRole("heading", { name: "Request SA terkirim" });
+    expect(router.push).not.toHaveBeenCalled();
+
+    await act(() => vi.advanceTimersByTimeAsync(2500));
+
+    expect(router.push).toHaveBeenCalledTimes(1);
+    expect(router.push).toHaveBeenCalledWith("/projects/11111111-1111-4111-8111-111111111111");
+  });
+
   it("dengan file (scoring berjalan): selama jeda sebelum redirect, form sudah tidak bisa dikirim ulang (#83)", async () => {
     useSchema();
     capturePost(() => created({ scoring_triggered: true, bant_score: null, sub_scores: null, status: "Intake", qualification_state: "Scoring" }));
@@ -666,5 +686,28 @@ describe("NewProjectPage — Product dan Sales PIC (ADR 0014)", () => {
     await user.click(screen.getByRole("button", { name: "Submit Request" }));
     expect(await screen.findByText("Product PIC wajib dipilih.")).toBeInTheDocument();
     expect(screen.getByText(/Langkah 1 dari 2/)).toBeInTheDocument();
+  });
+});
+
+describe("NewProjectPage — gating peran pembuat project (#83)", () => {
+  it("SA: melihat pesan akses, tanpa form dan tanpa request daftar orang", async () => {
+    let requestOrang = 0;
+    server.use(
+      http.get(api("/projects/users/search"), () => {
+        requestOrang++;
+        return HttpResponse.json(successEnvelope([]));
+      }),
+    );
+    renderWithProviders(<NewProjectPage />, { role: "SA" });
+
+    expect(await screen.findByText("Halaman ini hanya untuk Sales, Product, Lead_SA, atau Admin.")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Nama Proyek/)).not.toBeInTheDocument();
+    expect(requestOrang).toBe(0);
+  });
+
+  it.each(["Sales", "Product", "Lead_SA", "Admin"] as Role[])("%s: form tampil", async (role) => {
+    setup({ role });
+    expect(await screen.findByLabelText(/Nama Proyek/)).toBeInTheDocument();
+    expect(screen.queryByText(/Halaman ini hanya untuk/)).not.toBeInTheDocument();
   });
 });

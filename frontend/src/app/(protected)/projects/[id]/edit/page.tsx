@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { useSWRConfig } from "swr";
 import { fetcher, apiRequest } from "@/lib/fetcher";
+import { useAksesProyek } from "@/lib/useAksesProyek";
 import { useAuthStore } from "@/store/auth";
 import { QualificationForm } from "@/components/QualificationForm";
 import { extractFieldErrors, updateQualificationAnswers } from "@/lib/api/projects";
@@ -45,6 +46,8 @@ export default function EditProjectPage() {
     `/projects/${projectId}`,
     fetcher
   );
+
+  const { bisa, memuat: memuatAkses } = useAksesProyek(projectId);
 
   const [form, setForm] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
@@ -150,6 +153,19 @@ export default function EditProjectPage() {
         <p className="text-sm text-red-700">Gagal memuat data proyek.</p>
       </div>
     );
+  }
+
+  // Hak ubah metadata (tingkat `ubah_proyek`, lib/akses.ts). Backend tetap penentu akhir (403).
+  if (memuatAkses) {
+    return (
+      <div className="max-w-2xl mx-auto space-y-4 animate-pulse">
+        <div className="h-8 bg-neutral-200 rounded w-1/3" />
+        <div className="h-48 bg-neutral-100 rounded" />
+      </div>
+    );
+  }
+  if (!bisa("ubah_proyek")) {
+    return <p className="text-neutral-600">Anda tidak berhak mengubah data proyek ini.</p>;
   }
 
   const isLegacy = project.qualification?.legacy !== false;

@@ -15,19 +15,19 @@ Data yang dibuat:
 """
 
 import asyncio
-import uuid
-from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
 import hashlib
+import uuid
+from datetime import date, datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
-from app.models.user import User
-from app.models.project import Project
-from app.models.document import Document
 from app.models.activity_log import ActivityLog
+from app.models.document import Document
+from app.models.project import Project
+from app.models.user import User
 from app.schemas.qualification_definition import QUESTIONNAIRE_SCHEMA_VERSION
 
 
@@ -37,7 +37,7 @@ def deterministic_uuid(seed_string: str) -> uuid.UUID:
 
 
 def qualification_answers_for_demo(
-    mrr: int | None, pic_name: str, pic_position: str, pic_email: str, need: str, target: date
+    mrr: int | None, pic_name: str, pic_position: str, pic_email: str, need: str
 ) -> dict:
     """Jawaban demo mengikuti nama field dan pilihan skema kualifikasi aktif."""
     return {
@@ -150,7 +150,10 @@ async def get_or_create_project(
                 existing.qualification_answers = jawaban
                 existing.qualification_schema_version = versi
                 await db.flush()
-                print(f"  [~] Kualifikasi proyek diperbarui: {project_data['project_name']}")
+                print(
+                    f"  [~] Kualifikasi proyek diperbarui: "
+                    f"{project_data['project_name']}"
+                )
             else:
                 print(f"  [ok] Proyek sudah ada: {project_data['project_name']}")
         # Pembaruan legacy tetap berlaku hanya untuk payload tanpa jawaban kuesioner.
@@ -177,7 +180,9 @@ async def get_or_create_project(
         bant_score=project_data.get("bant_score"),
         qualification_answers=project_data.get("qualification_answers"),
         qualification_schema_version=(
-            QUESTIONNAIRE_SCHEMA_VERSION if project_data.get("qualification_answers") is not None else None
+            QUESTIONNAIRE_SCHEMA_VERSION
+            if project_data.get("qualification_answers") is not None
+            else None
         ),
         bant_detail=None,
         use_case_tags=project_data.get("use_case_tags"),
@@ -402,7 +407,6 @@ async def seed_all():
                     detail["pic_position"],
                     detail["pic_email"],
                     detail["need_description"],
-                    proj_data["target_submit"],
                 )
                 await get_or_create_project(
                     db,

@@ -255,8 +255,8 @@ async def add_collaborator(
     summary="Hapus kolaborator dari proyek",
     description=(
         "Menghapus kolaborator dari proyek. Hanya Lead_SA, Admin, SA yang ditugaskan, atau "
-        "Sales PIC proyek yang bisa menghapus; yang menambahkan kolaborator (added_by) tidak "
-        "otomatis berhak."
+        "Sales PIC proyek yang bisa menghapus. User yang menambahkan kolaborator (added_by) "
+        "tidak otomatis berhak menghapus."
     ),
 )
 async def remove_collaborator(

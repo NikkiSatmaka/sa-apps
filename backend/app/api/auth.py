@@ -92,6 +92,7 @@ DEMO_USERS = {
         "email": "demo-sa@portal-sa.local",
         "name": "Demo SA",
         "google_id": "demo-google-id-sa",
+        "is_admin": True,
     },
     "Lead_SA": {
         "email": "demo-lead@portal-sa.local",

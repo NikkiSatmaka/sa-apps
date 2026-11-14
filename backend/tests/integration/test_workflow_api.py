@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy import select
 
-from app.models import AuditLog, Project
+from app.models import AuditLog, Project, ProjectAssignment
 from app.services.notification_service import notification_service
 from tests.integration.b6_support import (  # noqa: F401
     API,
@@ -307,6 +307,65 @@ async def test_won_mengirim_satu_notifikasi_wajib_hld_ke_sa(api, db_session):
     assert meta["new_status"] == "Won"
     assert "HLD" in meta["message"]
     assert meta["project_name"] == proyek.project_name
+
+
+async def test_won_mengirim_notifikasi_hld_ke_sa_utama_dan_semua_sa_tambahan(api, db_session):
+    dunia = await siapkan_dunia(api, db_session)
+    proyek = await buat_proyek(db_session, dunia, status="Submitted")
+    tambahan_1, _ = await user_baru(db_session, "SA")
+    tambahan_2, _ = await user_baru(db_session, "Lead_SA")
+    for orang in (tambahan_1, tambahan_2):
+        db_session.add(
+            ProjectAssignment(
+                id_project=proyek.id_project,
+                user_id=orang.id,
+                added_by=dunia.user["Lead_SA"].id,
+            )
+        )
+    await db_session.commit()
+
+    resp = await _ubah(api, proyek.id_project, "Won", dunia.header["Lead_SA"])
+
+    assert resp.status_code == 200, resp.text
+    notif = await notifikasi(db_session, reference_id=proyek.id_project)
+    assert {n.recipient_user_id for n in notif} == {
+        dunia.user["SA"].id,
+        tambahan_1.id,
+        tambahan_2.id,
+    }
+    assert len(notif) == 3
+    assert all(n.notification_metadata["mandatory_hld"] is True for n in notif)
+    assert all(n.notification_metadata["new_status"] == "Won" for n in notif)
+
+
+async def test_won_tidak_mengirim_notifikasi_hld_ke_sales_product_atau_lead_sa_lain(
+    api, db_session
+):
+    dunia = await siapkan_dunia(api, db_session)
+    proyek = await buat_proyek(db_session, dunia, status="Submitted")
+
+    await _ubah(api, proyek.id_project, "Won", dunia.header["Sales"])
+
+    notif = await notifikasi(db_session, reference_id=proyek.id_project)
+    assert [n.recipient_user_id for n in notif] == [dunia.user["SA"].id]
+
+
+async def test_won_hanya_sa_tambahan_tanpa_sa_utama_tetap_mendapat_notifikasi(api, db_session):
+    dunia = await siapkan_dunia(api, db_session)
+    proyek = await buat_proyek(db_session, dunia, status="Submitted", sa=False)
+    tambahan, _ = await user_baru(db_session, "SA")
+    db_session.add(
+        ProjectAssignment(
+            id_project=proyek.id_project, user_id=tambahan.id, added_by=dunia.user["Lead_SA"].id
+        )
+    )
+    await db_session.commit()
+
+    resp = await _ubah(api, proyek.id_project, "Won", dunia.header["Lead_SA"])
+
+    assert resp.status_code == 200, resp.text
+    notif = await notifikasi(db_session, reference_id=proyek.id_project)
+    assert [n.recipient_user_id for n in notif] == [tambahan.id]
 
 
 async def test_notifikasi_hld_tidak_terkirim_lagi_pada_transisi_berikutnya_yang_ditolak(

@@ -42,6 +42,13 @@ def _scalar(value):
     return r
 
 
+def _daftar(nilai):
+    """Hasil `db.execute` untuk query yang dibaca lewat `.scalars().all()`."""
+    r = MagicMock()
+    r.scalars.return_value.all.return_value = list(nilai)
+    return r
+
+
 def _setup(current_user, results):
     session = AsyncMock()
     session.execute.side_effect = results
@@ -78,7 +85,7 @@ class TestWonNotifikasiHLD:
         sa = _user("SA")
         project = _project("Submitted", sa.id)
         lead = _user("Lead_SA")
-        _setup(lead, [_scalar(project), _scalar(sa)])
+        _setup(lead, [_scalar(project), _daftar([]), _daftar([sa])])
 
         with _patch_status_response() as notify:
             resp = client.patch(
@@ -112,7 +119,7 @@ class TestWonNotifikasiHLD:
     def test_tanpa_sa_transisi_tetap_berhasil_tanpa_notifikasi(self, client):
         project = _project("Submitted", None)
         lead = _user("Lead_SA")
-        _setup(lead, [_scalar(project)])
+        _setup(lead, [_scalar(project), _daftar([])])
 
         with _patch_status_response() as notify:
             resp = client.patch(
@@ -127,7 +134,7 @@ class TestWonNotifikasiHLD:
         sa = _user("SA")
         project = _project("Submitted", sa.id)
         lead = _user("Lead_SA")
-        _setup(lead, [_scalar(project), _scalar(sa)])
+        _setup(lead, [_scalar(project), _daftar([]), _daftar([sa])])
 
         with _patch_status_response() as notify:
             notify.side_effect = RuntimeError("boom")
@@ -137,3 +144,74 @@ class TestWonNotifikasiHLD:
             )
 
         assert resp.status_code == 200
+
+    def test_won_kirim_ke_sa_utama_dan_semua_sa_tambahan_sekali_per_orang(self, client):
+        utama, tambahan_1, tambahan_2 = _user("SA"), _user("SA"), _user("Lead_SA")
+        project = _project("Submitted", utama.id)
+        lead = _user("Lead_SA")
+        # Urutan query: proyek, id SA tambahan (utama ikut muncul = duplikat), lalu user penerima.
+        _setup(
+            lead,
+            [
+                _scalar(project),
+                _daftar([tambahan_1.id, tambahan_2.id, utama.id]),
+                _daftar([tambahan_2, utama, tambahan_1]),
+            ],
+        )
+
+        with _patch_status_response() as notify:
+            resp = client.patch(
+                f"/api/v1/projects/{project.id_project}/status",
+                json={"new_status": "Won"},
+            )
+
+        assert resp.status_code == 200
+        penerima = [c.args[0].recipient_user_id for c in notify.call_args_list]
+        assert penerima == [utama.id, tambahan_1.id, tambahan_2.id]  # urut: utama dulu, tanpa ganda
+        assert all(c.args[0].metadata["mandatory_hld"] is True for c in notify.call_args_list)
+
+    def test_won_hanya_sa_tambahan_tanpa_sa_utama_tetap_terkirim(self, client):
+        tambahan = _user("SA")
+        project = _project("Submitted", None)
+        lead = _user("Lead_SA")
+        _setup(lead, [_scalar(project), _daftar([tambahan.id]), _daftar([tambahan])])
+
+        with _patch_status_response() as notify:
+            resp = client.patch(
+                f"/api/v1/projects/{project.id_project}/status",
+                json={"new_status": "Won"},
+            )
+
+        assert resp.status_code == 200
+        assert [c.args[0].recipient_user_id for c in notify.call_args_list] == [tambahan.id]
+
+    def test_satu_penerima_gagal_tidak_menghalangi_penerima_lain(self, client):
+        utama, tambahan = _user("SA"), _user("SA")
+        project = _project("Submitted", utama.id)
+        lead = _user("Lead_SA")
+        _setup(lead, [_scalar(project), _daftar([tambahan.id]), _daftar([utama, tambahan])])
+
+        with _patch_status_response() as notify:
+            notify.side_effect = [RuntimeError("boom"), None]
+            resp = client.patch(
+                f"/api/v1/projects/{project.id_project}/status",
+                json={"new_status": "Won"},
+            )
+
+        assert resp.status_code == 200
+        assert notify.await_count == 2  # penerima kedua tetap dicoba
+
+    def test_penerima_pada_user_yang_tidak_ditemukan_dilewati(self, client):
+        sa = _user("SA")
+        project = _project("Submitted", sa.id)
+        lead = _user("Lead_SA")
+        _setup(lead, [_scalar(project), _daftar([]), _daftar([])])
+
+        with _patch_status_response() as notify:
+            resp = client.patch(
+                f"/api/v1/projects/{project.id_project}/status",
+                json={"new_status": "Won"},
+            )
+
+        assert resp.status_code == 200
+        notify.assert_not_called()

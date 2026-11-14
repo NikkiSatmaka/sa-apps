@@ -1,5 +1,8 @@
 import { screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
+import useSWR from "swr";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fetcher } from "@/lib/fetcher";
 import { api, errorEnvelope, http, HttpResponse, renderWithProviders, server, successEnvelope, type Role } from "@/test";
 import { users } from "@/test/fixtures/users";
 import { makeSATambahan, makeTimSA } from "@/test/fixtures/project-detail";
@@ -132,6 +135,51 @@ describe("HandoverAction — dialog kesiapan dan submit", () => {
     await user.click(kirim);
     expect(dipanggil).toBe(0);
     expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it("revalidasi kesiapan oleh pelanggan lain tidak menahan submit yang sudah siap (regresi race)", async () => {
+    // Halaman detail juga berlangganan key handover-status; bila langganannya mulai saat dialog
+    // sudah siap, revalidasi itu dulu menonaktifkan tombol sehingga klik hilang tanpa jejak.
+    let panggilan = 0;
+    const tahan = new Promise<void>(() => {});
+    let dipost = 0;
+    server.use(
+      http.get(api(`/projects/${PID}/handover-status`), async () => {
+        panggilan += 1;
+        if (panggilan > 1) await tahan; // revalidasi berikutnya tidak pernah selesai
+        return HttpResponse.json(successEnvelope(kesiapan()));
+      }),
+      http.post(api(`/projects/${PID}/handover`), () => {
+        dipost += 1;
+        return HttpResponse.json(successEnvelope({ new_status: "Handed Over" }));
+      }),
+    );
+    function PelangganLain() {
+      useSWR(`/projects/${PID}/handover-status`, fetcher);
+      return null;
+    }
+    function Wadah({ onDone }: { onDone: () => void }) {
+      const [ikut, setIkut] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setIkut(true)}>pasang pelanggan</button>
+          {ikut && <PelangganLain />}
+          <HandoverAction project={proyek()} onDone={onDone} />
+        </>
+      );
+    }
+    const onDone = vi.fn();
+    const { user } = renderWithProviders(<Wadah onDone={onDone} />, { role: "Lead_SA" });
+    await user.click(await screen.findByRole("button", { name: "Handover" }));
+    const dialog = await screen.findByRole("dialog", { name: "Handover Proyek" });
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Konfirmasi Handover" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "pasang pelanggan" }));
+    await waitFor(() => expect(panggilan).toBe(2));
+    const kirim = within(dialog).getByRole("button", { name: "Konfirmasi Handover" });
+    expect(kirim).toBeEnabled();
+    await user.click(kirim);
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(dipost).toBe(1);
   });
 
   it("selama kesiapan belum dimuat submit dinonaktifkan", async () => {

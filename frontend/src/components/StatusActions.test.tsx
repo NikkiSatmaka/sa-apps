@@ -140,7 +140,7 @@ describe("StatusActions — tombol per peran dan status", () => {
 describe("StatusActions — catatan status", () => {
   it("Lost menampilkan alasan dan penanda read-only", async () => {
     setup("Sales", proyek("Lost", { previous_status: "Submitted", lost_reason: "Customer batal" }));
-    expect(await screen.findByText(/Alasan Lost:/)).toHaveTextContent("Customer batal");
+    expect(await screen.findByText(/Customer batal/)).toHaveTextContent("Alasan Lost: Customer batal");
     expect(screen.getByText(/read-only/i)).toBeInTheDocument();
   });
 

@@ -392,3 +392,27 @@ async def test_input_dq_membuka_gating_solutions_untuk_sales_secara_menyeluruh(
 
     assert sebelum.json()["data"]["documents"] == []
     assert [d["id_doc"] for d in sesudah.json()["data"]["documents"]] == [dokumen.id_doc]
+
+
+# --------------------------------------------------------------------------- PATCH /projects/{id} (#96)
+
+
+@pytest.mark.parametrize(
+    "dq_tidak_valid",
+    ["ab", "x" * 21, "DQ 2025 001", "DQ_2025_001", "DQ-2025-001\n", "DQ-2025-€01"],
+)
+async def test_patch_proyek_dq_format_tidak_valid_422_dan_tidak_tersimpan(
+    api, db_session, dq_tidak_valid
+):
+    """#96: PATCH /projects/{id} memakai validasi format yang sama dengan /dq-number (bukan 500)."""
+    dunia = await siapkan_dunia(api, db_session)
+    proyek = await buat_proyek(db_session, dunia, status="Assigned")
+
+    resp = await api.client.patch(
+        f"{API}/projects/{proyek.id_project}",
+        json={"dq_number": dq_tidak_valid},
+        headers=dunia.header["Lead_SA"],
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert await _dq_tersimpan(db_session, proyek.id_project) is None

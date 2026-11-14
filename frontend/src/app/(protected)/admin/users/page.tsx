@@ -7,7 +7,7 @@ import { fetcher, apiRequest } from "@/lib/fetcher";
 import { LoadError } from "@/components/LoadError";
 import { useAuthStore } from "@/store/auth";
 import { useToastStore } from "@/store/toast";
-import { isAdmin, ROLES } from "@/lib/roles";
+import { isAdmin, labelPeran, ROLES } from "@/lib/roles";
 
 /**
  * Halaman Pengguna (Admin) — daftar user dan ubah peran.
@@ -37,7 +37,7 @@ function UserRoleManager() {
         method: "PATCH",
         body: { role: newRole },
       });
-      showToast("success", `Role ${editingUser.name} diubah ke ${newRole}.`);
+      showToast("success", `Role ${editingUser.name} diubah ke ${labelPeran({ role: newRole })}.`);
       setEditingUser(null);
       setNewRole("");
       mutate();
@@ -72,7 +72,7 @@ function UserRoleManager() {
     <div className="rounded-lg border border-neutral-200 bg-white p-5">
       <h2 className="text-sm font-semibold text-neutral-900 mb-1">User & Role Management</h2>
       <p className="text-xs text-neutral-500 mb-4">
-        Atur role setiap user (Sales, Product, SA, atau Lead SA). Admin adalah flag tambahan yang menempel pada satu role.
+        Atur role setiap user (Sales, Product Manager, SA, atau Lead SA). Admin adalah flag tambahan yang menempel pada satu role.
       </p>
 
       {isLoading ? (
@@ -107,7 +107,7 @@ function UserRoleManager() {
                       : u.role === "SA" ? "bg-green-100 text-green-700"
                       : "bg-neutral-100 text-neutral-700"
                     }`}>
-                      {u.role}
+                      {labelPeran({ role: u.role, is_admin: false })}
                     </span>
                     {u.is_admin && (
                       <span className="ml-1.5 px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
@@ -149,7 +149,7 @@ function UserRoleManager() {
                 focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               {ROLES.map((r) => (
-                <option key={r} value={r}>{r}</option>
+                <option key={r} value={r}>{r === "Product" ? "Product Manager" : r}</option>
               ))}
             </select>
             <div className="flex gap-3">

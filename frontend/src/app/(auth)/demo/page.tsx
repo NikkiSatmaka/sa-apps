@@ -31,7 +31,7 @@ const DEMO_ROLES = [
   },
   {
     role: "Product",
-    label: "Login sebagai Product",
+    label: "Login sebagai Product Manager",
     color: "bg-cyan-600 hover:bg-cyan-700 focus:ring-cyan-500",
   },
   {

@@ -89,6 +89,8 @@ describe("bisaMembuatProyek (Sales, Product, Lead_SA, atau is_admin; SA tidak)",
 
 describe("labelPeran", () => {
   it.each([
+    [aktor("Product", false), "Product Manager"],
+    [aktor("Product", true), "Product Manager · Admin"],
     [aktor("SA", false), "SA"],
     [aktor("SA", true), "SA · Admin"],
     [aktor("Lead_SA", true), "Lead_SA · Admin"],

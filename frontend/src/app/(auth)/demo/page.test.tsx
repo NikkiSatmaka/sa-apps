@@ -8,7 +8,7 @@ import DemoPage from "./page";
 
 const roles: [Role, string][] = [
   ["Sales", "Login sebagai Sales"],
-  ["Product", "Login sebagai Product"],
+  ["Product", "Login sebagai Product Manager"],
   ["SA", "Login sebagai SA"],
   ["Lead_SA", "Login sebagai Lead SA"],
   ["Admin", "Login sebagai Admin"],

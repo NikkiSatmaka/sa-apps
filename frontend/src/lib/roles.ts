@@ -45,5 +45,6 @@ export function bisaMembuatProyek(actor: Maybe<Actor>): boolean {
 /** Label peran untuk tampilan: role fungsional, diikuti "· Admin" bila punya flag admin. */
 export function labelPeran(actor: Maybe<Actor>): string {
   if (!actor?.role) return "—";
-  return isAdmin(actor) ? `${actor.role} · Admin` : actor.role;
+  const nama = actor.role === "Product" ? "Product Manager" : actor.role;
+  return isAdmin(actor) ? `${nama} · Admin` : nama;
 }

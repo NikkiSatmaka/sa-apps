@@ -30,7 +30,7 @@ interface PeopleSectionProps {
 type Field = "product_pic" | "sales_pic" | "lead_sa";
 
 const FIELDS: { field: Field; label: string; role: string; boleKosong?: boolean }[] = [
-  { field: "product_pic", label: "Product PIC", role: "Product" },
+  { field: "product_pic", label: "Product Manager PIC", role: "Product" },
   { field: "sales_pic", label: "Sales PIC", role: "Sales", boleKosong: true },
   { field: "lead_sa", label: "Lead SA", role: "Lead_SA" },
 ];

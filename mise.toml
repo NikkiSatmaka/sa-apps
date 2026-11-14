@@ -38,3 +38,21 @@ run = "git config core.hooksPath .githooks"
 description = "Build & push image backend/frontend (versi ditanya per komponen; config dari .env)"
 usage = 'arg "[component]" help="backend atau frontend; kosong = keduanya"'
 run = "./scripts/publish.sh ${usage_component:-}"
+
+# Task untuk agen dan contributor: output ringkas, tanpa menyentuh stack Compose bersama.
+[tasks.new-worktree]
+description = "Buat worktree dari origin/main di .worktrees/<slug> (branch <type>/<slug>, --no-track, env + dependensi siap)"
+usage = '''
+arg "<type>" help="feat | fix | refactor | docs | chore"
+arg "<slug>" help="slug kebab-case; nama folder worktree"
+flag "--no-install" help="lewati uv sync dan pnpm install"
+'''
+run = "./scripts/new-worktree.sh ${usage_type} ${usage_slug} ${usage_no_install:+--no-install}"
+
+[tasks.verify-backend]
+description = "Verifikasi backend ringkas: unit (default), --integration (Postgres sementara), atau --full (gerbang cakupan gabungan)"
+run = "./scripts/verify-backend.sh"
+
+[tasks.verify-frontend]
+description = "Verifikasi frontend ringkas: tsc + test (default) atau --full (cakupan + build)"
+run = "./scripts/verify-frontend.sh"

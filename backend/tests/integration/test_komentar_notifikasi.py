@@ -177,3 +177,29 @@ async def test_kegagalan_satu_penerima_tidak_menghalangi_penerima_lain(dunia, ap
     assert resp.status_code == 201
     assert len(panggilan) == len(SEMUA_TERKAIT - {"sales"})
     assert len(await _penerima(dunia.db, id_project)) == len(panggilan) - 1
+
+
+async def test_tanpa_orang_lain_di_proyek_tidak_ada_notifikasi(dunia, api):
+    """Satu-satunya orang terkait adalah penulis (PIC Sales sekaligus pembuat)."""
+    proyek = await dunia.buat_proyek(status="In Progress")
+
+    resp = await api.client.post(
+        KOMENTAR.format(proyek.id_project), json={"body": "Catatan"}, headers=dunia.h["sales"]
+    )
+
+    assert resp.status_code == 201
+    assert await _penerima(dunia.db, proyek.id_project) == []
+
+
+async def test_gagal_menentukan_penerima_tidak_menggagalkan_komentar(dunia, api, monkeypatch):
+    from app.services import komentar
+
+    monkeypatch.setattr(komentar, "penerima_komentar", AsyncMock(side_effect=RuntimeError("boom")))
+    id_project = await _proyek(dunia)
+
+    resp = await api.client.post(
+        KOMENTAR.format(id_project), json={"body": "Halo"}, headers=dunia.h["sales"]
+    )
+
+    assert resp.status_code == 201
+    assert await _penerima(dunia.db, id_project) == []

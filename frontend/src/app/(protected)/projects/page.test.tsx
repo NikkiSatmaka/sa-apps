@@ -26,41 +26,50 @@ function setup(role: Role) {
   return renderWithProviders(<ProjectsPage />, { role });
 }
 
-describe("Daftar proyek — endpoint & urutan per peran", () => {
-  it("Sales: hanya proyek yang di-submit, urut terbaru", async () => {
-    const urls = serve();
-    setup("Sales");
-    await screen.findByText("Alfa Cloud");
-    expect(urls[0].searchParams.get("sales_pic")).toBe("me");
-    expect(urls[0].searchParams.get("sort")).toBe("-updated_at");
-    expect(screen.getByText("Daftar proyek yang Anda submit")).toBeInTheDocument();
-  });
+const SEMUA_PERAN = ["Sales", "Product", "SA", "Lead_SA", "Admin"] as const;
 
-  it("Product: hanya proyek yang di-submit (sama dengan Sales), urut terbaru", async () => {
-    const urls = serve();
-    setup("Product");
-    await screen.findByText("Alfa Cloud");
-    expect(urls[0].searchParams.get("sales_pic")).toBe("me");
-    expect(screen.getByText("Daftar proyek yang Anda submit")).toBeInTheDocument();
-  });
-
-  it("SA: hanya proyek yang ditugaskan, urut terbaru", async () => {
-    const urls = serve();
-    setup("SA");
-    await screen.findByText("Alfa Cloud");
-    expect(urls[0].searchParams.get("assigned_to")).toBe("me");
-    expect(urls[0].searchParams.get("sort")).toBe("-updated_at");
-    expect(screen.getByText("Proyek yang ditugaskan kepada Anda")).toBeInTheDocument();
-  });
-
-  it.each(["Lead_SA", "Admin"] as const)("%s: semua proyek, urut terbaru", async (role) => {
+describe("Daftar proyek — daftar penuh untuk semua peran (#109, ADR 0011)", () => {
+  it.each(SEMUA_PERAN)("%s: meminta daftar penuh tanpa penyempit, urut terbaru", async (role) => {
     const urls = serve();
     setup(role);
     await screen.findByText("Alfa Cloud");
+    expect(urls[0].searchParams.has("involved")).toBe(false);
     expect(urls[0].searchParams.has("sales_pic")).toBe(false);
     expect(urls[0].searchParams.has("assigned_to")).toBe(false);
     expect(urls[0].searchParams.get("sort")).toBe("-updated_at");
     expect(screen.getByText("Semua proyek")).toBeInTheDocument();
+  });
+
+  it.each(SEMUA_PERAN)("%s: sakelar 'Hanya proyek saya' ada dan default mati", async (role) => {
+    serve();
+    setup(role);
+    await screen.findByText("Alfa Cloud");
+    expect(screen.getByRole("checkbox", { name: "Hanya proyek saya" })).not.toBeChecked();
+  });
+
+  it.each(SEMUA_PERAN)("%s: sakelar menyempitkan lewat involved=me dan bisa dimatikan lagi", async (role) => {
+    const urls: URL[] = [];
+    server.use(
+      http.get(api("/projects"), ({ request }) => {
+        const url = new URL(request.url);
+        urls.push(url);
+        const sempit = url.searchParams.get("involved") === "me";
+        return HttpResponse.json(successEnvelope(sempit ? [proyek[0]] : proyek));
+      }),
+    );
+    const { user } = setup(role);
+    await screen.findByText("Menampilkan 3 dari 3 proyek");
+
+    await user.click(screen.getByRole("checkbox", { name: "Hanya proyek saya" }));
+    expect(await screen.findByText("Menampilkan 1 dari 1 proyek")).toBeInTheDocument();
+    expect(urls.at(-1)!.searchParams.get("involved")).toBe("me");
+    expect(urls.at(-1)!.searchParams.get("sort")).toBe("-updated_at");
+    expect(screen.queryByText("Beta Security")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: "Hanya proyek saya" }));
+    expect(await screen.findByText("Menampilkan 3 dari 3 proyek")).toBeInTheDocument();
+    expect(urls.at(-1)!.searchParams.has("involved")).toBe(false);
+    expect(screen.getByRole("checkbox", { name: "Hanya proyek saya" })).not.toBeChecked();
   });
 
   it("tanpa user tidak memanggil API", async () => {
@@ -126,6 +135,30 @@ describe("Daftar proyek — memuat, kosong, error", () => {
     expect(screen.getByText(petunjuk)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reset Filter" })).not.toBeInTheDocument();
     expect(screen.getByText("Menampilkan 0 dari 0 proyek")).toBeInTheDocument();
+  });
+
+  it.each(SEMUA_PERAN)("%s: keadaan kosong saat sakelar aktif memakai 'Tidak ada proyek milik Anda'", async (role) => {
+    server.use(
+      http.get(api("/projects"), ({ request }) =>
+        HttpResponse.json(
+          successEnvelope(new URL(request.url).searchParams.get("involved") === "me" ? [] : proyek),
+        ),
+      ),
+    );
+    const { user } = setup(role);
+    await screen.findByText("Alfa Cloud");
+    await user.click(screen.getByRole("checkbox", { name: "Hanya proyek saya" }));
+
+    expect(await screen.findByRole("heading", { name: "Tidak ada proyek milik Anda" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Belum ada proyek" })).not.toBeInTheDocument();
+    expect(screen.getByText("Matikan sakelar 'Hanya proyek saya' untuk melihat semua proyek.")).toBeInTheDocument();
+  });
+
+  it("keadaan kosong tanpa sakelar tetap 'Belum ada proyek'", async () => {
+    serve([]);
+    setup("Lead_SA");
+    expect(await screen.findByRole("heading", { name: "Belum ada proyek" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Tidak ada proyek milik Anda" })).not.toBeInTheDocument();
   });
 
   it("error server: pesan error (bukan 'Belum ada proyek'), coba lagi memuat ulang daftar", async () => {

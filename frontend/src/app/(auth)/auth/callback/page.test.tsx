@@ -99,6 +99,24 @@ describe("halaman /auth/callback — error & tanpa data", () => {
 });
 
 describe("halaman /auth/callback — jalur fallback ?code=", () => {
+  it("menukar handoff dengan POST, memasang access token di memory, tanpa localStorage", async () => {
+    localStorage.clear();
+    let exchangeCalled = false;
+    server.use(
+      http.post(api("/auth/callback/exchange"), () => {
+        exchangeCalled = true;
+        return HttpResponse.json({ user: backendUser("SA"), access_token: "memory-access", expires_in: 900 });
+      },
+      ),
+    );
+    setSearchParams({ code: "handoff-once" });
+    renderWithProviders(<AuthCallbackPage />);
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/"));
+    expect(exchangeCalled).toBe(true);
+    expect(localStorage.getItem("access_token")).toBeNull();
+    expect(useAuthStore.getState().isAuthenticated).toBe(true);
+  });
+
   it("code valid: menukar ke backend, menyimpan token, mengisi store, menuju /", async () => {
     setSearchParams({ code: "kode-ok" });
     renderWithProviders(<AuthCallbackPage />);

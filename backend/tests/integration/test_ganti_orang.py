@@ -305,7 +305,8 @@ async def test_assign_dengan_lead_sa_dipilih(dunia, api, monkeypatch):
     assert (await ambil_proyek(dunia.db, proyek.id_project)).lead_sa == lead2.id
 
 
-async def test_assign_admin_tanpa_pilihan_mengisi_lead_sa_dengan_admin(dunia, api, monkeypatch):
+async def test_assign_admin_non_lead_sa_tanpa_lead_sa_id_ditolak_400(dunia, api, monkeypatch):
+    # Admin = SA dengan flag `is_admin` (ADR 0012): tidak boleh diam-diam menjadi `lead_sa`.
     rekam_background(monkeypatch)
     proyek = await _proyek(dunia)
 
@@ -315,8 +316,24 @@ async def test_assign_admin_tanpa_pilihan_mengisi_lead_sa_dengan_admin(dunia, ap
         headers=dunia.h["admin"],
     )
 
+    assert resp.status_code == 400, resp.text
+    p = await ambil_proyek(dunia.db, proyek.id_project)
+    assert (p.status, p.lead_sa, p.assigned_sa) == ("Pending Assignment", None, None)
+
+
+async def test_assign_admin_non_lead_sa_dengan_lead_sa_id_diterima(dunia, api, monkeypatch):
+    rekam_background(monkeypatch)
+    proyek = await _proyek(dunia)
+
+    resp = await api.client.post(
+        ASSIGN.format(proyek.id_project),
+        json={"sa_id": str(dunia.sa.id), "lead_sa_id": str(dunia.lead.id)},
+        headers=dunia.h["admin"],
+    )
+
     assert resp.status_code == 200, resp.text
-    assert (await ambil_proyek(dunia.db, proyek.id_project)).lead_sa == dunia.admin.id
+    p = await ambil_proyek(dunia.db, proyek.id_project)
+    assert (p.status, p.lead_sa) == ("Assigned", dunia.lead.id)
 
 
 async def test_assign_lead_sa_pilihan_bukan_lead_sa_ditolak_dan_tidak_mengubah(
@@ -365,3 +382,71 @@ async def test_reassign_tidak_menimpa_lead_sa_yang_sudah_ada(dunia, api, monkeyp
 
     assert resp.status_code == 200, resp.text
     assert (await ambil_proyek(dunia.db, proyek.id_project)).lead_sa == lead2.id
+
+
+async def test_reassign_dari_pending_oleh_admin_non_lead_sa_tanpa_lead_sa_id_ditolak_400(
+    dunia, api, monkeypatch
+):
+    rekam_background(monkeypatch)
+    proyek = await _proyek(dunia)
+
+    resp = await api.client.post(
+        REASSIGN.format(proyek.id_project),
+        json={"sa_id": str(dunia.sa2.id)},
+        headers=dunia.h["admin"],
+    )
+
+    assert resp.status_code == 400, resp.text
+    p = await ambil_proyek(dunia.db, proyek.id_project)
+    assert (p.status, p.lead_sa, p.assigned_sa) == ("Pending Assignment", None, None)
+
+
+async def test_reassign_dari_pending_oleh_admin_dengan_lead_sa_id_diterima(dunia, api, monkeypatch):
+    rekam_background(monkeypatch)
+    proyek = await _proyek(dunia)
+
+    resp = await api.client.post(
+        REASSIGN.format(proyek.id_project),
+        json={"sa_id": str(dunia.sa2.id), "lead_sa_id": str(dunia.lead.id)},
+        headers=dunia.h["admin"],
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert (await ambil_proyek(dunia.db, proyek.id_project)).lead_sa == dunia.lead.id
+
+
+async def test_reassign_admin_tanpa_lead_sa_id_boleh_bila_lead_sa_sudah_ada(
+    dunia, api, monkeypatch
+):
+    rekam_background(monkeypatch)
+    proyek = await _proyek(
+        dunia, status="Assigned", assigned_sa=dunia.sa.id, lead_sa=dunia.lead.id, assigned_at=None
+    )
+
+    resp = await api.client.post(
+        REASSIGN.format(proyek.id_project),
+        json={"sa_id": str(dunia.sa2.id)},
+        headers=dunia.h["admin"],
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert (await ambil_proyek(dunia.db, proyek.id_project)).lead_sa == dunia.lead.id
+
+
+async def test_reassign_admin_non_lead_sa_pada_assigned_tanpa_lead_sa_tidak_diam_diam_jadi_lead(
+    dunia, api, monkeypatch
+):
+    # Data lama: Assigned tanpa lead_sa. Reassign oleh admin tetap diizinkan (bukan alur assign
+    # awal), tetapi admin tidak boleh diam-diam menjadi lead_sa.
+    rekam_background(monkeypatch)
+    proyek = await _proyek(dunia, status="Assigned", assigned_sa=dunia.sa.id, assigned_at=None)
+
+    resp = await api.client.post(
+        REASSIGN.format(proyek.id_project),
+        json={"sa_id": str(dunia.sa2.id)},
+        headers=dunia.h["admin"],
+    )
+
+    assert resp.status_code == 200, resp.text
+    p = await ambil_proyek(dunia.db, proyek.id_project)
+    assert (p.assigned_sa, p.lead_sa) == (dunia.sa2.id, None)

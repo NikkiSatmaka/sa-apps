@@ -287,9 +287,11 @@ async def test_assign_hak_akses_per_peran(dunia, api, monkeypatch, peran, diizin
     proyek = await dunia.buat_proyek()
     rekam_background(monkeypatch)
 
-    resp = await api.client.post(
-        ASSIGN.format(proyek.id_project), json={"sa_id": str(dunia.sa.id)}, headers=dunia.h[peran]
-    )
+    # Admin non-Lead_SA wajib memilih Lead SA (#135); peran lain tidak terpengaruh.
+    body = {"sa_id": str(dunia.sa.id)}
+    if peran == "admin":
+        body["lead_sa_id"] = str(dunia.lead.id)
+    resp = await api.client.post(ASSIGN.format(proyek.id_project), json=body, headers=dunia.h[peran])
 
     p = await ambil_proyek(dunia.db, proyek.id_project)
     if diizinkan:

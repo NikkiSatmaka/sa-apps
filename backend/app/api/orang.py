@@ -65,8 +65,17 @@ async def _validasi_user(
 async def tentukan_lead_sa(
     db: AsyncSession, lead_sa_id: Optional[uuid.UUID], pengassign: User
 ) -> uuid.UUID:
-    """`lead_sa` saat assign: yang dipilih (harus berrole Lead_SA), atau pengassign sendiri."""
+    """
+    `lead_sa` saat assign: yang dipilih (harus berrole Lead_SA), atau pengassign sendiri bila ia
+    Lead_SA. Admin (`is_admin`) yang bukan Lead_SA wajib memilih: `lead_sa` wajib sejak
+    `Assigned` (ADR 0014) dan tidak boleh diam-diam menjadi admin.
+    """
     if lead_sa_id is None:
+        if pengassign.role != PeranUser.LEAD_SA:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Lead SA wajib dipilih (lead_sa_id) bila yang meng-assign bukan Lead_SA.",
+            )
         return pengassign.id
     lead = (await db.execute(select(User).where(User.id == lead_sa_id))).scalar_one_or_none()
     if lead is None or lead.role != PeranUser.LEAD_SA:

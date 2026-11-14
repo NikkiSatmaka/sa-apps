@@ -1,10 +1,13 @@
 import { screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { HttpResponse, api, errorEnvelope, gagalLaluBerhasil, http, renderWithProviders, server, successEnvelope } from "@/test";
+import { users } from "@/test/fixtures/users";
 import { makeAvailableSA } from "@/test/fixtures/operations";
 import { ReassignModal } from "./ReassignModal";
 
-function setup(props: { currentSAName?: string | null } = {}) {
+function setup(
+  props: { currentSAName?: string | null; currentLeadSa?: { id: string; name: string } | null; role?: "Lead_SA" | "Admin" } = {}
+) {
   const onClose = vi.fn();
   const onSuccess = vi.fn();
   const utils = renderWithProviders(
@@ -13,10 +16,11 @@ function setup(props: { currentSAName?: string | null } = {}) {
       projectName="Migrasi Cloud"
       customerName="PT Contoh"
       currentSAName={props.currentSAName}
+      currentLeadSa={props.currentLeadSa}
       onClose={onClose}
       onSuccess={onSuccess}
     />,
-    { role: "Lead_SA" }
+    { role: props.role ?? "Lead_SA" }
   );
   return { onClose, onSuccess, ...utils };
 }
@@ -90,7 +94,7 @@ describe("ReassignModal", () => {
     await user.click(await screen.findByRole("button", { name: /Eka Putri/ }));
     await user.click(screen.getByRole("button", { name: "Konfirmasi Reassign" }));
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
-    expect(body).toEqual({ sa_id: "sa-2", project: "p-1" });
+    expect(body).toEqual({ sa_id: "sa-2", lead_sa_id: users.Lead_SA.id, project: "p-1" });
   });
 
   it("menampilkan status 'Mereassign...' selama request", async () => {
@@ -132,5 +136,65 @@ describe("ReassignModal", () => {
     await user.click(screen.getByRole("button", { name: "Batal" }));
     await user.click(document.querySelector('[aria-hidden="true"]') as HTMLElement);
     expect(onClose).toHaveBeenCalledTimes(3);
+  });
+
+  describe("Lead SA (#135)", () => {
+    const LEAD_SAYA = makeAvailableSA({ id: users.Lead_SA.id, name: "Lead SA Demo", email: "lead@example.com", role: "Lead_SA" });
+    const LEAD_LAIN = makeAvailableSA({ id: "lead-2", name: "Lead Kedua", email: "lead2@example.com", role: "Lead_SA" });
+    const SA_BARU = makeAvailableSA({ id: "sa-2", name: "Eka Putri", email: "eka@example.com", active_project_count: 4 });
+
+    function sediakanKandidatDanTangkap() {
+      const diterima: { body?: Record<string, unknown> } = {};
+      server.use(
+        http.get(api("/sa/available"), () => HttpResponse.json(successEnvelope([LEAD_SAYA, LEAD_LAIN, SA_BARU]))),
+        http.post(api("/projects/:id/reassign"), async ({ request }) => {
+          diterima.body = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(successEnvelope({ id_project: "p-1", assigned_sa: "sa-2", assigned_sa_name: "Eka Putri", status: "Assigned" }));
+        })
+      );
+      return diterima;
+    }
+
+    it("proyek sudah punya lead_sa: dropdown menampilkan lead_sa saat ini (terkunci) dan lead_sa_id TIDAK dikirim", async () => {
+      const diterima = sediakanKandidatDanTangkap();
+      const { user, onSuccess } = setup({ currentLeadSa: { id: "lead-2", name: "Lead Kedua" } });
+      const dropdown = await screen.findByLabelText("Lead SA");
+      expect(dropdown).toHaveValue("lead-2");
+      expect(dropdown).toBeDisabled();
+
+      await user.click(screen.getByRole("button", { name: /Eka Putri/ }));
+      await user.click(screen.getByRole("button", { name: "Konfirmasi Reassign" }));
+
+      await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+      expect(diterima.body).toEqual({ sa_id: "sa-2" });
+    });
+
+    it("proyek belum punya lead_sa dan pengassign Lead_SA: default dirinya, lead_sa_id terkirim", async () => {
+      const diterima = sediakanKandidatDanTangkap();
+      const { user, onSuccess } = setup({ currentLeadSa: null });
+      expect(await screen.findByLabelText("Lead SA")).toHaveValue(users.Lead_SA.id);
+
+      await user.click(screen.getByRole("button", { name: /Eka Putri/ }));
+      await user.click(screen.getByRole("button", { name: "Konfirmasi Reassign" }));
+
+      await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+      expect(diterima.body).toEqual({ sa_id: "sa-2", lead_sa_id: users.Lead_SA.id });
+    });
+
+    it("proyek belum punya lead_sa dan pengassign Admin non-Lead_SA: wajib memilih Lead SA", async () => {
+      const diterima = sediakanKandidatDanTangkap();
+      const { user, onSuccess } = setup({ currentLeadSa: null, role: "Admin" });
+      const dropdown = await screen.findByLabelText("Lead SA");
+      expect(dropdown).toHaveValue("");
+
+      await user.click(screen.getByRole("button", { name: /Eka Putri/ }));
+      expect(screen.getByRole("button", { name: "Konfirmasi Reassign" })).toBeDisabled();
+
+      await user.selectOptions(dropdown, "lead-2");
+      await user.click(screen.getByRole("button", { name: "Konfirmasi Reassign" }));
+
+      await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+      expect(diterima.body).toEqual({ sa_id: "sa-2", lead_sa_id: "lead-2" });
+    });
   });
 });

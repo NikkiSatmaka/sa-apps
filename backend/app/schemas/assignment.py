@@ -20,7 +20,8 @@ class AssignRequest(BaseModel):
     lead_sa_id: Optional[uuid.UUID] = Field(
         default=None,
         description=(
-            "UUID Lead_SA proyek (opsional). Bila kosong, yang meng-assign menjadi `lead_sa`."
+            "UUID Lead_SA proyek. Bila kosong, yang meng-assign (harus Lead_SA) menjadi "
+            "`lead_sa`; admin non-Lead_SA wajib mengisinya (400 bila kosong)."
         ),
     )
 
@@ -31,6 +32,7 @@ class SAAvailability(BaseModel):
     id: uuid.UUID = Field(..., description="UUID SA")
     name: str = Field(..., description="Nama lengkap SA")
     email: str = Field(..., description="Email SA")
+    role: str = Field(..., description="Peran kandidat: 'SA' atau 'Lead_SA'")
     active_project_count: int = Field(
         ...,
         description="Jumlah proyek aktif yang sedang ditangani SA",

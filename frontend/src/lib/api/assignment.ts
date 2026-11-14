@@ -37,6 +37,8 @@ export interface AvailableSA {
   email: string;
   avatar_url: string | null;
   active_project_count: number;
+  /** Peran kandidat ("SA" atau "Lead_SA"); dipakai menyaring dropdown Lead SA. */
+  role: "SA" | "Lead_SA";
 }
 
 /** Response setelah assignment berhasil */
@@ -77,15 +79,17 @@ export async function getAvailableSA(): Promise<AvailableSA[]> {
  *
  * @param projectId - ID proyek yang akan di-assign
  * @param saId - ID SA yang ditugaskan
+ * @param leadSaId - ID Lead SA proyek (wajib bila yang meng-assign bukan Lead_SA)
  * @returns Data assignment yang berhasil
  */
 export async function assignProject(
   projectId: string,
-  saId: string
+  saId: string,
+  leadSaId?: string
 ): Promise<AssignmentResponse> {
   return apiRequest<AssignmentResponse>(`/projects/${projectId}/assign`, {
     method: "POST",
-    body: { sa_id: saId },
+    body: leadSaId ? { sa_id: saId, lead_sa_id: leadSaId } : { sa_id: saId },
   });
 }
 
@@ -95,15 +99,17 @@ export async function assignProject(
  *
  * @param projectId - ID proyek yang akan di-reassign
  * @param saId - ID SA baru
+ * @param leadSaId - hanya dikirim bila proyek belum punya lead_sa (yang sudah ada tidak ditimpa)
  * @returns Data reassignment yang berhasil
  */
 export async function reassignProject(
   projectId: string,
-  saId: string
+  saId: string,
+  leadSaId?: string
 ): Promise<{ id_project: string; assigned_sa: string; assigned_sa_name: string; status: string }> {
   return apiRequest(`/projects/${projectId}/reassign`, {
     method: "POST",
-    body: { sa_id: saId },
+    body: leadSaId ? { sa_id: saId, lead_sa_id: leadSaId } : { sa_id: saId },
   });
 }
 

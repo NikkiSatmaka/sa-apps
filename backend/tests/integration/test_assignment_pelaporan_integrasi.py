@@ -94,6 +94,10 @@ async def test_sa_tersedia_menghitung_proyek_aktif_tanpa_status_terminal(dunia, 
     assert resp.status_code == 200, resp.text
     beban = {u["email"]: u["active_project_count"] for u in resp.json()["data"]}
     # Kandidat = SA dan Lead_SA (ADR 0012); Sales/Product tidak ikut. Admin berrole SA ikut.
+    # `role` tersedia agar UI bisa menyaring Lead_SA untuk dropdown "Lead SA" (#135).
+    peran = {u["email"]: u["role"] for u in resp.json()["data"]}
+    assert peran[dunia.lead.email] == "Lead_SA"
+    assert peran[dunia.sa.email] == "SA"
     assert beban == {
         dunia.sa.email: 2,
         dunia.sa2.email: 1,

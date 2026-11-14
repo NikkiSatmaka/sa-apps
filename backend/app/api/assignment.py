@@ -16,7 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.orang import tentukan_lead_sa
 from app.core.database import get_db
-from app.core.dependencies import PERAN_DAPAT_DITUGASKAN, adalah_privileged, get_current_user
+from app.core.dependencies import (
+    PERAN_DAPAT_DITUGASKAN,
+    PeranUser,
+    adalah_privileged,
+    get_current_user,
+)
 from app.models.activity_log import ActivityLog
 from app.models.notification_log import NotificationLog
 from app.models.project import Project
@@ -297,6 +302,7 @@ async def get_available_sa(
             id=sa.id,
             name=sa.name,
             email=sa.email,
+            role=str(sa.role),
             active_project_count=active_counts.get(sa.id, 0),
         ).model_dump(mode="json")
         for sa in sa_users
@@ -881,8 +887,14 @@ async def reassign_sa_to_project(
         )
 
     # `lead_sa` wajib sejak Assigned (ADR 0014): isi bila kosong; yang sudah ada tidak ditimpa
-    # (penggantian lewat PATCH /projects/{id}/people).
-    if project.lead_sa is None:
+    # (penggantian lewat PATCH /projects/{id}/people). Admin non-Lead_SA wajib memilih pada alur
+    # assign awal (dari Pending Assignment); pada proyek lama yang sudah Assigned/Ready tanpa
+    # lead_sa, reassign tetap diizinkan dan admin tidak diam-diam menjadi lead_sa.
+    if project.lead_sa is None and (
+        body.lead_sa_id is not None
+        or project.status == "Pending Assignment"
+        or current_user.role == PeranUser.LEAD_SA
+    ):
         project.lead_sa = await tentukan_lead_sa(db, body.lead_sa_id, current_user)
 
     # === 3. Update proyek ===

@@ -108,7 +108,7 @@ describe("Manajemen Pengguna Admin", () => {
     expect(within(baris("lead@example.com")).getByText("Lead_SA")).toHaveClass("bg-blue-100");
     expect(within(baris("lead@example.com")).queryByText("Admin")).not.toBeInTheDocument();
     expect(within(baris("sales@example.com")).getByText("Sales")).toHaveClass("bg-neutral-100");
-    expect(within(baris("product@example.com")).getByText("Product")).toHaveClass("bg-neutral-100");
+    expect(within(baris("product@example.com")).getByText("Product Manager")).toHaveClass("bg-neutral-100");
     expect(within(table).getAllByRole("button", { name: "Ubah Role" })).toHaveLength(5);
     // Aksi flag: cabut untuk admin, jadikan admin untuk yang lain
     expect(within(baris("admin@example.com")).getByRole("button", { name: "Cabut Admin" })).toBeInTheDocument();
@@ -137,7 +137,7 @@ describe("Manajemen Pengguna Admin", () => {
     expect(select).toHaveValue("Sales");
     expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual([
       "Sales",
-      "Product",
+      "Product Manager",
       "SA",
       "Lead_SA",
     ]);

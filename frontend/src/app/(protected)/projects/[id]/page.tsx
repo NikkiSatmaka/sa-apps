@@ -244,7 +244,7 @@ export default function ProjectDetailPage() {
             <h2 className="text-sm font-semibold text-neutral-700 mb-3">Informasi Proyek</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <InfoRow label="Dibuat oleh" value={project.created_by?.name || "—"} />
-              <InfoRow label="Product PIC" value={project.product_pic?.name || "—"} />
+              <InfoRow label="Product Manager PIC" value={project.product_pic?.name || "—"} />
               <InfoRow label="Sales PIC" value={project.sales_pic?.name || "—"} />
               <InfoRow label="Lead SA" value={project.lead_sa?.name || "Belum ada"} />
               <InfoRow label="SA Ditugaskan" value={project.assigned_sa?.name || "Belum di-assign"} />

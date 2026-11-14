@@ -71,10 +71,10 @@ describe("PeopleSection — penggantian", () => {
     await user.click(screen.getByRole("button", { name: "Ganti orang" }));
 
     expect(await screen.findByRole("option", { name: "Produk Dua" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Product PIC")).toHaveValue("p1");
+    expect(screen.getByLabelText("Product Manager PIC")).toHaveValue("p1");
     expect(screen.getByLabelText("Sales PIC")).toHaveValue("s1");
     expect(screen.getByLabelText("Lead SA")).toHaveValue("l1");
-    expect(screen.getByLabelText("Product PIC").querySelector('option[value=""]')).toBeNull();
+    expect(screen.getByLabelText("Product Manager PIC").querySelector('option[value=""]')).toBeNull();
     expect(screen.getByRole("option", { name: "Tanpa Sales" })).toBeInTheDocument();
   });
 
@@ -84,12 +84,12 @@ describe("PeopleSection — penggantian", () => {
     await user.click(screen.getByRole("button", { name: "Ganti orang" }));
     await screen.findByRole("option", { name: "Produk Dua" });
 
-    await user.selectOptions(screen.getByLabelText("Product PIC"), "p2");
+    await user.selectOptions(screen.getByLabelText("Product Manager PIC"), "p2");
     await user.click(screen.getByRole("button", { name: "Simpan" }));
 
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
     expect(diterima.body).toEqual({ product_pic: "p2" });
-    expect(screen.queryByLabelText("Product PIC")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Product Manager PIC")).not.toBeInTheDocument();
   });
 
   it("memilih Tanpa Sales mengirim sales_pic null", async () => {
@@ -144,13 +144,13 @@ describe("PeopleSection — penggantian", () => {
     const { user, onChanged } = setup("Lead_SA");
     await user.click(screen.getByRole("button", { name: "Ganti orang" }));
     await screen.findByRole("option", { name: "Produk Dua" });
-    await user.selectOptions(screen.getByLabelText("Product PIC"), "p2");
+    await user.selectOptions(screen.getByLabelText("Product Manager PIC"), "p2");
 
     await user.click(screen.getByRole("button", { name: "Simpan" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Hanya Lead_SA atau Admin.");
     expect(onChanged).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("Product PIC")).toBeInTheDocument();
+    expect(screen.getByLabelText("Product Manager PIC")).toBeInTheDocument();
   });
 
   it("Batal menutup form tanpa mengirim apa pun", async () => {
@@ -159,7 +159,7 @@ describe("PeopleSection — penggantian", () => {
     await user.click(screen.getByRole("button", { name: "Ganti orang" }));
     await user.click(screen.getByRole("button", { name: "Batal" }));
 
-    expect(screen.queryByLabelText("Product PIC")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Product Manager PIC")).not.toBeInTheDocument();
     expect(diterima.body).toBeUndefined();
   });
 });

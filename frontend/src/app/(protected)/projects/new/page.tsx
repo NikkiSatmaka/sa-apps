@@ -212,7 +212,7 @@ export default function NewProjectPage() {
 
     // Product PIC: wajib bila pembuat bukan Product (ADR 0014)
     if (perluPilihProduct && !form.productPic) {
-      newErrors.productPic = "Product PIC wajib dipilih";
+      newErrors.productPic = "Product Manager PIC wajib dipilih";
     }
 
     // Tipe Source document (MoM/RFP) wajib dipilih untuk setiap file valid
@@ -556,7 +556,7 @@ export default function NewProjectPage() {
           {perluPilihProduct && (
             <div>
               <label htmlFor="productPic" className="block text-sm font-medium text-neutral-700 mb-1">
-                Product PIC <span className="text-red-500">*</span>
+                Product Manager PIC <span className="text-red-500">*</span>
               </label>
               <select
                 id="productPic"
@@ -573,7 +573,7 @@ export default function NewProjectPage() {
                 aria-invalid={!!errors.productPic}
                 aria-describedby={errors.productPic ? "productPic-error" : undefined}
               >
-                <option value="">Pilih Product…</option>
+                <option value="">Pilih Product Manager…</option>
                 {(daftarProduct ?? []).map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.name} ({u.email})

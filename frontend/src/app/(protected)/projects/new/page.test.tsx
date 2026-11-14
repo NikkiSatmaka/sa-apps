@@ -82,7 +82,7 @@ async function isiLangkah1(user: ReturnType<typeof userEvent.setup>, o: { dq?: s
   fireEvent.change(screen.getByLabelText(/Target Submit/), { target: { value: "2099-12-31" } });
   await user.type(screen.getByLabelText(/Estimasi Nilai Proyek/), "1500000");
   if (o.dq) await user.type(screen.getByLabelText(/DQ Number/), o.dq);
-  const product = screen.queryByLabelText(/Product PIC/);
+  const product = screen.queryByLabelText(/Product Manager PIC/);
   if (product) await user.selectOptions(product, await screen.findByRole("option", { name: /Product Satu/ }));
 }
 
@@ -628,7 +628,7 @@ describe("NewProjectPage — Product dan Sales PIC (ADR 0014)", () => {
 
   it("Sales: wajib memilih Product, tidak ada dropdown Sales, product_pic terkirim", async () => {
     const user = setup({ role: "Sales" });
-    expect(await screen.findByLabelText(/Product PIC/)).toBeRequired();
+    expect(await screen.findByLabelText(/Product Manager PIC/)).toBeRequired();
     expect(screen.queryByLabelText(/Sales PIC/)).not.toBeInTheDocument();
     const form = await kirimHingga(user, async () => {});
     expect(form.get("product_pic")).toBe(PRODUCT_ID);
@@ -642,13 +642,13 @@ describe("NewProjectPage — Product dan Sales PIC (ADR 0014)", () => {
     fireEvent.change(screen.getByLabelText(/Target Submit/), { target: { value: "2099-12-31" } });
     await user.type(screen.getByLabelText(/Estimasi Nilai Proyek/), "1500000");
     await lanjut(user);
-    expect(screen.getByText("Product PIC wajib dipilih")).toBeInTheDocument();
+    expect(screen.getByText("Product Manager PIC wajib dipilih")).toBeInTheDocument();
     expect(screen.getByText(/Langkah 1 dari 2/)).toBeInTheDocument();
   });
 
   it("Product: tanpa dropdown Product; Sales opsional dan terkirim bila dipilih", async () => {
     const user = setup({ role: "Product" });
-    expect(screen.queryByLabelText(/Product PIC/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Product Manager PIC/)).not.toBeInTheDocument();
     const sales = await screen.findByLabelText(/Sales PIC/);
     expect(sales).not.toBeRequired();
     const form = await kirimHingga(user, async () => {
@@ -666,7 +666,7 @@ describe("NewProjectPage — Product dan Sales PIC (ADR 0014)", () => {
 
   it.each<Role>(["Lead_SA", "Admin"])("%s: Product wajib, Sales opsional", async (role) => {
     const user = setup({ role });
-    expect(await screen.findByLabelText(/Product PIC/)).toBeRequired();
+    expect(await screen.findByLabelText(/Product Manager PIC/)).toBeRequired();
     expect(screen.getByLabelText(/Sales PIC/)).not.toBeRequired();
     const form = await kirimHingga(user, async () => {});
     expect(form.get("product_pic")).toBe(PRODUCT_ID);
@@ -675,7 +675,7 @@ describe("NewProjectPage — Product dan Sales PIC (ADR 0014)", () => {
 
   it("memetakan error 422 product_pic dari backend ke field di langkah 1", async () => {
     capturePost(() =>
-      HttpResponse.json(errorEnvelope("Validasi gagal", [{ field: "product_pic", reason: "Product PIC wajib dipilih." }]), {
+      HttpResponse.json(errorEnvelope("Validasi gagal", [{ field: "product_pic", reason: "Product Manager PIC wajib dipilih." }]), {
         status: 422,
       }),
     );
@@ -684,7 +684,7 @@ describe("NewProjectPage — Product dan Sales PIC (ADR 0014)", () => {
     await lanjut(user);
     await isiKuesioner(user);
     await user.click(screen.getByRole("button", { name: "Submit Request" }));
-    expect(await screen.findByText("Product PIC wajib dipilih.")).toBeInTheDocument();
+    expect(await screen.findByText("Product Manager PIC wajib dipilih.")).toBeInTheDocument();
     expect(screen.getByText(/Langkah 1 dari 2/)).toBeInTheDocument();
   });
 });

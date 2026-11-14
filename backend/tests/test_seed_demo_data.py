@@ -24,11 +24,11 @@ def test_seed_menyediakan_dua_user_untuk_setiap_persona_fungsional():
     assert all(user["role"] == "Lead_SA" for user in DEMO_USERS if user.get("is_admin", False))
 
 
-def test_persona_admin_demo_memakai_role_lead_sa():
+def test_demo_login_tidak_menampilkan_persona_admin():
     from app.api.auth import DEMO_USERS as AUTH_DEMO_USERS
 
-    assert AUTH_DEMO_USERS["Admin"]["role"] == "Lead_SA"
-    assert AUTH_DEMO_USERS["Admin"]["is_admin"] is True
+    assert set(AUTH_DEMO_USERS) == {"Sales", "Product", "SA", "Lead_SA"}
+    assert not AUTH_DEMO_USERS["SA"].get("is_admin", False)
 
 
 @pytest.mark.asyncio

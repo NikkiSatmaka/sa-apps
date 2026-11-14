@@ -16,6 +16,7 @@ Data yang dibuat:
 
 import asyncio
 import hashlib
+import random
 import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -29,6 +30,9 @@ from app.models.document import Document
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.qualification_definition import QUESTIONNAIRE_SCHEMA_VERSION
+
+DEMO_ASSIGNMENT_SEED = 169
+DEMO_ASSIGNMENT_VERSION = 1
 
 
 def deterministic_uuid(seed_string: str) -> uuid.UUID:
@@ -55,6 +59,38 @@ def qualification_answers_for_demo(
         "persyaratan_khusus": None,
         "target_go_live": "≤ 6 bulan",
         "kompetitor": None,
+    }
+
+
+def demo_project_assignment_plan(
+    projects_data: list[dict],
+    sales_ids: list[uuid.UUID],
+    sa_ids: list[uuid.UUID],
+    product_ids: list[uuid.UUID],
+) -> dict[str, dict[str, uuid.UUID | None]]:
+    """Susun owner pseudo-random yang seimbang dan stabil untuk fixture demo."""
+    # Ubah version bila algoritme/pola assignment fixture sengaja diganti.
+    rng = random.Random((DEMO_ASSIGNMENT_VERSION << 32) | DEMO_ASSIGNMENT_SEED)
+
+    def pilih_berimbang(owners: list[uuid.UUID], jumlah: int) -> list[uuid.UUID]:
+        if not owners and jumlah:
+            raise ValueError("Daftar user owner demo tidak boleh kosong.")
+        urutan = [owners[index % len(owners)] for index in range(jumlah)]
+        rng.shuffle(urutan)
+        return urutan
+
+    eligible_sa = [project for project in projects_data if project.get("sa") is not None]
+    sales_assignment = pilih_berimbang(sales_ids, len(projects_data))
+    sa_assignment = iter(pilih_berimbang(sa_ids, len(eligible_sa)))
+    product_assignment = pilih_berimbang(product_ids, len(projects_data))
+
+    return {
+        project["id_project"]: {
+            "sales_id": sales_assignment[index],
+            "sa_id": next(sa_assignment) if project.get("sa") is not None else None,
+            "product_id": product_assignment[index],
+        }
+        for index, project in enumerate(projects_data)
     }
 
 
@@ -438,9 +474,19 @@ async def seed_all():
                 },
             ]
 
-            for index, proj_data in enumerate(projects_data):
-                sa = proj_data.pop("sa")
-                sales = proj_data.pop("sales")
+            assignment_plan = demo_project_assignment_plan(
+                projects_data,
+                [sales1.id, sales2.id],
+                [sa1.id, sa2.id],
+                [product1.id, product2.id],
+            )
+
+            for proj_data in projects_data:
+                assignment = assignment_plan[proj_data["id_project"]]
+                sa = assignment["sa_id"]
+                sales = assignment["sales_id"]
+                proj_data.pop("sa")
+                proj_data.pop("sales")
                 detail = proj_data.pop("bant_detail")
                 proj_data["qualification_answers"] = qualification_answers_for_demo(
                     detail["budget_mrr"],
@@ -454,7 +500,7 @@ async def seed_all():
                     proj_data,
                     sales_id=sales,
                     sa_id=sa,
-                    product_id=(product1 if index % 2 == 0 else product2).id,
+                    product_id=assignment["product_id"],
                 )
 
             # == 3. Buat Documents ==

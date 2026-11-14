@@ -72,14 +72,14 @@ async def test_seed_all_memakai_akun_sales_dan_sa_berbeda_pada_project(monkeypat
     product1 = ids["demo-product@portal-sa.local"]
     product2 = ids["demo-product2@portal-sa.local"]
     assert mapping_first_seed == [
-        ("PRJ-DEMO-001", sales1, sa2, product2),
-        ("PRJ-DEMO-002", sales2, sa1, product1),
-        ("PRJ-DEMO-003", sales1, None, product2),
+        ("PRJ-DEMO-001", sales1, sa1, product1),
+        ("PRJ-DEMO-002", sales1, sa1, product2),
+        ("PRJ-DEMO-003", sales2, None, product1),
         ("PRJ-DEMO-004", sales2, None, product1),
-        ("PRJ-DEMO-005", sales1, sa2, product2),
-        ("PRJ-DEMO-006", sales2, sa1, product1),
-        ("PRJ-DEMO-007", sales1, sa2, product2),
-        ("PRJ-DEMO-008", sales2, sa1, product1),
+        ("PRJ-DEMO-005", sales2, sa2, product2),
+        ("PRJ-DEMO-006", sales1, sa1, product2),
+        ("PRJ-DEMO-007", sales2, sa2, product2),
+        ("PRJ-DEMO-008", sales1, sa2, product1),
     ]
     assert mapping_second_seed == mapping_first_seed
 

@@ -218,6 +218,19 @@ describe("CalendarSync — sync Google Calendar", () => {
 });
 
 describe("CalendarSync — callback OAuth lewat URL hash", () => {
+  it("menukar gcal_code lewat POST; token Google tidak perlu ada di redirect", async () => {
+    server.use(
+      http.post(api("/auth/calendar/exchange"), () =>
+        HttpResponse.json({ access_token: "ya29.exchange" }),
+      ),
+    );
+    stubLocation("http://localhost/activity-logs/calendar?x=1#gcal_code=once-code");
+    setup();
+    expect(await toast()).toHaveTextContent("Google Calendar terhubung. Klik Sync Calendar untuk memuat event.");
+    expect(localStorage.getItem("google_calendar_token")).toBe("ya29.exchange");
+    expect(window.location.hash).toBe("");
+  });
+
   it("#gcal_token disimpan ke localStorage, hash dibersihkan, toast sukses", async () => {
     stubLocation("http://localhost/activity-logs/calendar?x=1#gcal_token=ya29.abc%2Fdef");
     const replace = vi.spyOn(window.history, "replaceState");

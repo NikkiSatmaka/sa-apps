@@ -6,14 +6,18 @@ Catatan: Subtask adalah konsep work item, berbeda dengan ActivityCategory
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
+    Numeric,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -56,6 +60,21 @@ class Subtask(Base):
         default="open",
         comment="Status subtask: open, in_progress, atau done",
     )
+    description: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Uraian pekerjaan (opsional)",
+    )
+    due_date: Mapped[Optional[date]] = mapped_column(
+        Date,
+        nullable=True,
+        comment="Batas waktu subtask (opsional)",
+    )
+    estimate_hours: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(7, 2),
+        nullable=True,
+        comment="Estimasi jam pengerjaan, >= 0 (opsional)",
+    )
 
     # Timestamp (timezone-aware)
     created_at: Mapped[datetime] = mapped_column(
@@ -77,6 +96,10 @@ class Subtask(Base):
         CheckConstraint(
             "status IN ('open', 'in_progress', 'done')",
             name="chk_subtasks_status",
+        ),
+        CheckConstraint(
+            "estimate_hours IS NULL OR estimate_hours >= 0",
+            name="chk_subtasks_estimate_hours",
         ),
         UniqueConstraint(
             "id_project", "title",

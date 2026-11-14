@@ -5,11 +5,13 @@ status, assign/reassign/lepas penugasan, dan hapus, dengan hak akses per peran
 """
 
 import uuid
+from datetime import date
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
 
-from app.models import ProjectAssignment, Subtask
+from app.models import Project, ProjectAssignment, Subtask
 from tests.integration.conftest import patch_session_factory
 from tests.integration.model_helpers import bangun_kolaborator, bangun_subtask, bangun_user
 from tests.integration.support_assignment import (
@@ -307,3 +309,263 @@ async def test_hapus_subtask_tidak_ada_404(dunia, api):
     resp = await api.client.delete(SUBTASK.format("SUB-TIDAK-ADA"), headers=dunia.h["lead"])
 
     assert resp.status_code == 404
+
+
+# ----------------------------------------------------------------------------- subtask kaya (#124)
+
+LALU = "2000-01-01"  # selalu sudah lewat
+DEPAN = "2999-12-31"  # selalu belum tiba
+
+
+async def _kolom_kaya(db, id_subtask):
+    st = await _status_tersimpan(db, id_subtask)
+    return st.description, st.due_date, st.estimate_hours
+
+
+async def test_buat_subtask_dengan_description_due_date_dan_estimate_hours(dunia, api):
+    proyek = await dunia.buat_proyek()
+
+    resp = await api.client.post(
+        SUBTASK_PROYEK.format(proyek.id_project),
+        json={
+            "title": "Susun HLD",
+            "description": "Draf HLD v1",
+            "due_date": DEPAN,
+            "estimate_hours": "12.5",
+        },
+        headers=dunia.h["lead"],
+    )
+
+    assert resp.status_code == 201, resp.text
+    data = resp.json()["data"]
+    assert data["description"] == "Draf HLD v1"
+    assert data["due_date"] == DEPAN
+    assert Decimal(data["estimate_hours"]) == Decimal("12.5")
+    assert data["terlambat"] is False
+    [tersimpan] = await daftar_subtask(dunia.db, proyek.id_project)
+    assert (tersimpan.description, tersimpan.due_date) == ("Draf HLD v1", date(2999, 12, 31))
+    assert tersimpan.estimate_hours == Decimal("12.50")
+
+
+async def test_buat_subtask_tanpa_field_baru_menghasilkan_null_dan_tidak_terlambat(dunia, api):
+    proyek = await dunia.buat_proyek()
+
+    resp = await api.client.post(
+        SUBTASK_PROYEK.format(proyek.id_project), json={"title": "Polos"}, headers=dunia.h["lead"]
+    )
+
+    assert resp.status_code == 201, resp.text
+    data = resp.json()["data"]
+    assert (data["description"], data["due_date"], data["estimate_hours"]) == (None, None, None)
+    assert data["terlambat"] is False
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"estimate_hours": "-1"},
+        {"estimate_hours": "-0.01"},
+        {"estimate_hours": "abc"},
+        {"estimate_hours": "1.234"},
+        {"estimate_hours": "100000"},
+        {"due_date": "bukan-tanggal"},
+        {"description": "x" * 2001},
+    ],
+)
+async def test_buat_subtask_field_baru_tidak_valid_422_dan_tidak_tersimpan(dunia, api, body):
+    proyek = await dunia.buat_proyek()
+
+    resp = await api.client.post(
+        SUBTASK_PROYEK.format(proyek.id_project),
+        json={"title": "Salah", **body},
+        headers=dunia.h["lead"],
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert await daftar_subtask(dunia.db, proyek.id_project) == []
+
+
+@pytest.mark.parametrize("jam", ["0", "0.00", "99999.99"])
+async def test_buat_subtask_estimate_hours_batas_valid_diterima(dunia, api, jam):
+    proyek = await dunia.buat_proyek()
+
+    resp = await api.client.post(
+        SUBTASK_PROYEK.format(proyek.id_project),
+        json={"title": "Batas", "estimate_hours": jam},
+        headers=dunia.h["lead"],
+    )
+
+    assert resp.status_code == 201, resp.text
+
+
+@pytest.mark.parametrize("peran", ["sa", "lead", "admin"])
+async def test_ubah_field_subtask_oleh_pemilik_atau_privileged(dunia, api, peran):
+    _, sid = await _siapkan(dunia)
+
+    resp = await api.client.patch(
+        SUBTASK.format(sid),
+        json={"description": "Uraian", "due_date": DEPAN, "estimate_hours": "4"},
+        headers=dunia.h[peran],
+    )
+
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert (data["description"], data["due_date"]) == ("Uraian", DEPAN)
+    assert Decimal(data["estimate_hours"]) == Decimal("4")
+    assert await _kolom_kaya(dunia.db, sid) == ("Uraian", date(2999, 12, 31), Decimal("4.00"))
+
+
+@pytest.mark.parametrize("peran", ["sa2", "sales"])
+async def test_non_pemilik_tidak_boleh_mengubah_field_subtask(dunia, api, peran):
+    _, sid = await _siapkan(dunia)
+
+    resp = await api.client.patch(
+        SUBTASK.format(sid), json={"description": "Retas"}, headers=dunia.h[peran]
+    )
+
+    assert resp.status_code == 403
+    assert await _kolom_kaya(dunia.db, sid) == (None, None, None)
+
+
+async def test_sa_pemilik_yang_sudah_dilepas_dari_proyek_tidak_boleh_mengubah_field(dunia, api):
+    id_project, sid = await _siapkan(dunia)
+    await dunia.db.execute(
+        ProjectAssignment.__table__.delete().where(ProjectAssignment.id_project == id_project)
+    )
+    proyek = await dunia.db.get(Project, id_project)
+    proyek.assigned_sa = None
+    await dunia.db.commit()
+
+    resp = await api.client.patch(
+        SUBTASK.format(sid), json={"description": "Retas"}, headers=dunia.h["sa"]
+    )
+
+    assert resp.status_code == 403
+    assert await _kolom_kaya(dunia.db, sid) == (None, None, None)
+
+
+async def test_ubah_sebagian_field_tidak_menyentuh_field_lain(dunia, api):
+    _, sid = await _siapkan(
+        dunia, description="Lama", due_date=date(2999, 1, 1), estimate_hours=Decimal("8")
+    )
+
+    resp = await api.client.patch(
+        SUBTASK.format(sid), json={"estimate_hours": "9.5"}, headers=dunia.h["lead"]
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert await _kolom_kaya(dunia.db, sid) == ("Lama", date(2999, 1, 1), Decimal("9.50"))
+
+
+async def test_ubah_field_dengan_null_mengosongkan_field_due_date_boleh_kosong(dunia, api):
+    _, sid = await _siapkan(
+        dunia, description="Lama", due_date=date(2999, 1, 1), estimate_hours=Decimal("8")
+    )
+
+    resp = await api.client.patch(
+        SUBTASK.format(sid),
+        json={"description": None, "due_date": None, "estimate_hours": None},
+        headers=dunia.h["lead"],
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert await _kolom_kaya(dunia.db, sid) == (None, None, None)
+
+
+async def test_description_kosong_atau_spasi_disimpan_sebagai_null(dunia, api):
+    _, sid = await _siapkan(dunia, description="Lama")
+
+    resp = await api.client.patch(
+        SUBTASK.format(sid), json={"description": "   "}, headers=dunia.h["lead"]
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert (await _kolom_kaya(dunia.db, sid))[0] is None
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"estimate_hours": "-1"},
+        {"estimate_hours": "-0.5"},
+        {"due_date": "31-12-2030"},
+        {"description": "x" * 2001},
+        {},
+    ],
+)
+async def test_ubah_field_tidak_valid_422_dan_tidak_mengubah_data(dunia, api, body):
+    _, sid = await _siapkan(dunia, estimate_hours=Decimal("8"))
+
+    resp = await api.client.patch(SUBTASK.format(sid), json=body, headers=dunia.h["lead"])
+
+    assert resp.status_code == 422, resp.text
+    assert await _kolom_kaya(dunia.db, sid) == (None, None, Decimal("8.00"))
+
+
+async def test_ubah_field_tidak_ada_404_dan_tanpa_login(dunia, api):
+    _, sid = await _siapkan(dunia)
+
+    tidak_ada = await api.client.patch(
+        SUBTASK.format("SUB-TIDAK-ADA"), json={"description": "X"}, headers=dunia.h["lead"]
+    )
+    tanpa_login = await api.client.patch(SUBTASK.format(sid), json={"description": "X"})
+
+    assert tidak_ada.status_code == 404
+    assert tanpa_login.status_code in (401, 403)
+
+
+async def test_ubah_field_tidak_mengubah_status_maupun_penugasan(dunia, api):
+    _, sid = await _siapkan(dunia, status="in_progress")
+
+    await api.client.patch(SUBTASK.format(sid), json={"description": "X"}, headers=dunia.h["lead"])
+
+    st = await _status_tersimpan(dunia.db, sid)
+    assert (st.status, st.assigned_sa) == ("in_progress", dunia.sa.id)
+
+
+@pytest.mark.parametrize(
+    ("due", "status", "terlambat"),
+    [
+        (LALU, "open", True),
+        (LALU, "in_progress", True),
+        (LALU, "done", False),
+        (DEPAN, "open", False),
+        (None, "open", False),
+    ],
+)
+async def test_daftar_subtask_menandai_terlambat_hanya_bila_lewat_due_date_dan_belum_done(
+    dunia, api, due, status, terlambat
+):
+    proyek = await dunia.buat_proyek(status="Assigned", assigned_sa=dunia.sa.id)
+    st = bangun_subtask(
+        proyek.id_project,
+        status=status,
+        due_date=date.fromisoformat(due) if due else None,
+        description="Uraian",
+        estimate_hours=Decimal("3"),
+    )
+    dunia.db.add(st)
+    await dunia.db.commit()
+
+    resp = await api.client.get(SUBTASK_PROYEK.format(proyek.id_project), headers=dunia.h["lead"])
+
+    [item] = resp.json()["data"]["items"]
+    assert item["terlambat"] is terlambat
+    assert item["due_date"] == due
+    assert (item["description"], Decimal(item["estimate_hours"])) == ("Uraian", Decimal("3"))
+
+
+async def test_ubah_status_dan_assign_juga_mengembalikan_field_baru(dunia, api):
+    _, sid = await _siapkan(dunia, description="U", due_date=date(2000, 1, 1))
+
+    status_resp = await api.client.patch(
+        SUBTASK.format(sid) + "/status", json={"status": "done"}, headers=dunia.h["lead"]
+    )
+    assign_resp = await api.client.patch(
+        SUBTASK.format(sid) + "/assign",
+        json={"assigned_sa": str(dunia.sa.id)},
+        headers=dunia.h["lead"],
+    )
+
+    assert status_resp.json()["data"]["terlambat"] is False  # sudah done
+    assert assign_resp.json()["data"]["description"] == "U"

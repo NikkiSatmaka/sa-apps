@@ -61,6 +61,11 @@ export interface SubtaskFixture {
   status: "open" | "in_progress" | "done";
   assigned_sa: string | null;
   assigned_sa_name: string | null;
+  description: string | null;
+  due_date: string | null;
+  /** Decimal dari backend, berbentuk string (mis. "12.50"). */
+  estimate_hours: string | null;
+  terlambat: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -73,6 +78,10 @@ export function makeSubtask(overrides: Partial<SubtaskFixture> = {}): SubtaskFix
     status: "open",
     assigned_sa: null,
     assigned_sa_name: null,
+    description: null,
+    due_date: null,
+    estimate_hours: null,
+    terlambat: false,
     created_at: "2025-01-01T00:00:00Z",
     updated_at: "2025-01-01T00:00:00Z",
     ...overrides,

@@ -7,6 +7,8 @@ berbeda dengan ActivityCategory (activity_logs.subtask_category).
 Endpoints:
 - POST   /projects/{project_id}/subtasks        — buat subtask (Lead_SA/Admin)
 - GET    /projects/{project_id}/subtasks        — daftar subtask proyek (read-set)
+- PATCH  /subtasks/{id_subtask}                 — ubah description/due_date/estimate_hours
+                                                  (owner SA / privileged)
 - PATCH  /subtasks/{id_subtask}/status          — ubah status (owner SA / privileged)
 - PATCH  /subtasks/{id_subtask}/assign          — assign/reassign (Lead_SA/Admin)
 - DELETE /subtasks/{id_subtask}                 — hapus subtask (Lead_SA/Admin)
@@ -41,8 +43,10 @@ from app.schemas.subtask import (
     SubtaskCreateRequest,
     SubtaskListResponse,
     SubtaskResponse,
+    SubtaskUpdateRequest,
     SubtaskUpdateStatusRequest,
 )
+from app.services.subtask import subtask_terlambat
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +99,37 @@ async def _load_subtask(id_subtask: str, db: AsyncSession) -> Subtask:
     return subtask
 
 
+async def _pastikan_boleh_mengubah(
+    subtask: Subtask, project: Project, current_user: User, db: AsyncSession
+) -> None:
+    """
+    Hak ubah subtask: Lead_SA/Admin, atau SA pemilik yang masih berhak TULIS ke proyeknya
+    (403 bila tidak); lalu proyek tidak boleh read-only (409). Dipakai ubah status dan field.
+    """
+    is_privileged = adalah_privileged(current_user)
+    is_owner = subtask.assigned_sa == current_user.id
+    if not (is_privileged or is_owner):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak memiliki akses untuk mengubah subtask ini.",
+        )
+    # Pemilik non-privileged juga harus masih berhak TULIS ke proyek subtask ini (SA yang sudah
+    # dilepas dari proyek atau menjadi viewer ditolak). Lead_SA/Admin selalu lolos di sini.
+    if not is_privileged:
+        await ensure_project_access(db, project, current_user, TingkatAkses.TULIS)
+    pastikan_proyek_bisa_ditulis(project)
+
+
+async def _nama_assignee(subtask: Subtask, db: AsyncSession) -> str | None:
+    """Nama user assignee subtask, atau None bila belum ditugaskan."""
+    if subtask.assigned_sa is None:
+        return None
+    sa_user = (
+        await db.execute(select(User).where(User.id == subtask.assigned_sa))
+    ).scalar_one_or_none()
+    return sa_user.name if sa_user else None
+
+
 def _subtask_response(subtask: Subtask, assigned_sa_name: str | None = None) -> dict:
     """Bangun dict response dari instance Subtask."""
     return SubtaskResponse(
@@ -104,6 +139,10 @@ def _subtask_response(subtask: Subtask, assigned_sa_name: str | None = None) -> 
         status=subtask.status,
         assigned_sa=subtask.assigned_sa,
         assigned_sa_name=assigned_sa_name,
+        description=subtask.description,
+        due_date=subtask.due_date,
+        estimate_hours=subtask.estimate_hours,
+        terlambat=subtask_terlambat(subtask.due_date, subtask.status),
         created_at=subtask.created_at,
         updated_at=subtask.updated_at,
     ).model_dump(mode="json")
@@ -131,6 +170,9 @@ async def create_subtask(
         id_project=project_id,
         title=body.title,
         status="open",
+        description=body.description,
+        due_date=body.due_date,
+        estimate_hours=body.estimate_hours,
     )
     db.add(subtask)
     await db.commit()
@@ -187,6 +229,37 @@ async def list_subtasks(
 
 
 @router.patch(
+    "/subtasks/{id_subtask}",
+    summary="Ubah description, due_date, dan estimate_hours subtask",
+    description=(
+        "Perubahan parsial: field yang tidak dikirim tidak diubah, null mengosongkan field. "
+        "Hanya SA pemilik subtask yang masih berhak tulis ke proyeknya, atau Lead_SA/Admin."
+    ),
+)
+async def update_subtask_fields(
+    id_subtask: str,
+    body: SubtaskUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Ubah field kaya subtask (owner SA atau privileged; hak sama dengan ubah status)."""
+    subtask = await _load_subtask(id_subtask, db)
+    project = await _verify_project_exists(subtask.id_project, db)
+    await _pastikan_boleh_mengubah(subtask, project, current_user, db)
+
+    for nama in body.model_fields_set:
+        setattr(subtask, nama, getattr(body, nama))
+    subtask.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(subtask)
+
+    return success_response(
+        data=_subtask_response(subtask, await _nama_assignee(subtask, db)),
+        message="Subtask berhasil diperbarui.",
+    )
+
+
+@router.patch(
     "/subtasks/{id_subtask}/status",
     summary="Ubah status subtask",
     description=(
@@ -205,18 +278,7 @@ async def update_subtask_status(
     # Pastikan proyek induk ada (konsistensi FK / validasi keberadaan).
     project = await _verify_project_exists(subtask.id_project, db)
 
-    is_privileged = adalah_privileged(current_user)
-    is_owner = subtask.assigned_sa == current_user.id
-    if not (is_privileged or is_owner):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Anda tidak memiliki akses untuk mengubah status subtask ini.",
-        )
-    # Pemilik non-privileged juga harus masih berhak TULIS ke proyek subtask ini (SA yang sudah
-    # dilepas dari proyek atau menjadi viewer ditolak). Lead_SA/Admin selalu lolos di sini.
-    if not is_privileged:
-        await ensure_project_access(db, project, current_user, TingkatAkses.TULIS)
-    pastikan_proyek_bisa_ditulis(project)
+    await _pastikan_boleh_mengubah(subtask, project, current_user, db)
 
     if body.status not in VALID_SUBTASK_STATUSES:
         raise HTTPException(

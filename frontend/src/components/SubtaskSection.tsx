@@ -21,9 +21,15 @@ import { isPrivileged as isPrivilegedUser } from "@/lib/roles";
  * Badge status per item + ringkasan "N/M selesai" di header dihitung dari data
  * `GET /projects/{id}/subtasks` yang sudah di-fetch (tanpa endpoint agregat).
  *
- * Endpoint yang direuse (tidak ada endpoint baru):
+ * Subtask kaya (#124): tiap item menampilkan due date, penanda "Terlambat" (dihitung server:
+ * due_date < hari ini dan belum selesai), deskripsi, dan estimasi jam. Lead_SA/Admin dan SA
+ * pemilik boleh mengubah ketiganya (hak sama dengan ubah status). Penolakan server (mis. 409
+ * pada proyek Closed/Lost) ditampilkan apa adanya.
+ *
+ * Endpoint:
  * - GET    /projects/{id}/subtasks
  * - POST   /projects/{id}/subtasks
+ * - PATCH  /projects/subtasks/{id} (ubah description, due_date, estimate_hours)
  * - PATCH  /projects/subtasks/{id}/status
  * - PATCH  /projects/subtasks/{id}/assign
  * - GET    /projects/{id}/tim-sa (opsi assignee: SA utama + SA tambahan)
@@ -39,6 +45,11 @@ interface Subtask {
   status: SubtaskStatus;
   assigned_sa: string | null;
   assigned_sa_name: string | null;
+  description: string | null;
+  due_date: string | null;
+  /** Decimal dari backend sebagai string (mis. "12.50"). */
+  estimate_hours: string | null;
+  terlambat: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -55,6 +66,112 @@ interface TimSA {
 
 interface SubtaskSectionProps {
   projectId: string;
+}
+
+/** Isian form ketiga field opsional (string mentah dari input). */
+interface IsianKaya {
+  description: string;
+  due_date: string;
+  estimate_hours: string;
+}
+
+const ISIAN_KOSONG: IsianKaya = { description: "", due_date: "", estimate_hours: "" };
+
+const BULAN = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+
+/** "2030-01-15" → "15 Jan 2030" (tanpa Date, jadi bebas pergeseran zona waktu). */
+function formatTanggal(iso: string): string {
+  const [tahun, bulan, hari] = iso.split("-").map(Number);
+  return `${hari} ${BULAN[bulan - 1]} ${tahun}`;
+}
+
+/** "12.50" → "12,5 jam". */
+function formatJam(desimal: string): string {
+  return `${String(Number(desimal)).replace(".", ",")} jam`;
+}
+
+/**
+ * Ubah isian form menjadi nilai request. Kosong → null (mengosongkan field).
+ * Mengembalikan pesan error bila estimasi bukan angka atau negatif.
+ */
+function bacaIsian(
+  isian: IsianKaya
+): { error: string } | { description: string | null; due_date: string | null; estimate_hours: string | null } {
+  const jam = isian.estimate_hours.trim();
+  if (jam !== "") {
+    const angka = Number(jam);
+    if (Number.isNaN(angka)) return { error: "Estimasi jam harus berupa angka." };
+    if (angka < 0) return { error: "Estimasi jam tidak boleh negatif." };
+  }
+  return {
+    description: isian.description.trim() || null,
+    due_date: isian.due_date || null,
+    estimate_hours: jam || null,
+  };
+}
+
+/** Tiga input opsional yang dipakai bersama oleh form tambah dan form ubah. */
+function FieldKaya({
+  idAwalan,
+  nilai,
+  onChange,
+  disabled,
+}: {
+  idAwalan: string;
+  nilai: IsianKaya;
+  onChange: (n: IsianKaya) => void;
+  disabled?: boolean;
+}) {
+  const kelasInput =
+    "w-full px-3 py-2 text-sm border border-neutral-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none";
+  return (
+    <>
+      <div>
+        <label htmlFor={`${idAwalan}-deskripsi`} className="text-xs font-medium text-neutral-600 mb-1 block">
+          Deskripsi:
+        </label>
+        <textarea
+          id={`${idAwalan}-deskripsi`}
+          value={nilai.description}
+          maxLength={2000}
+          rows={2}
+          disabled={disabled}
+          onChange={(e) => onChange({ ...nilai, description: e.target.value })}
+          className={kelasInput}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label htmlFor={`${idAwalan}-due`} className="text-xs font-medium text-neutral-600 mb-1 block">
+            Due date:
+          </label>
+          <input
+            id={`${idAwalan}-due`}
+            type="date"
+            value={nilai.due_date}
+            disabled={disabled}
+            onChange={(e) => onChange({ ...nilai, due_date: e.target.value })}
+            className={kelasInput}
+          />
+        </div>
+        <div>
+          <label htmlFor={`${idAwalan}-jam`} className="text-xs font-medium text-neutral-600 mb-1 block">
+            Estimasi (jam):
+          </label>
+          <input
+            id={`${idAwalan}-jam`}
+            type="number"
+            min={0}
+            step="0.25"
+            value={nilai.estimate_hours}
+            disabled={disabled}
+            onChange={(e) => onChange({ ...nilai, estimate_hours: e.target.value })}
+            className={kelasInput}
+          />
+        </div>
+      </div>
+    </>
+  );
 }
 
 /** Badge visual per status subtask. */
@@ -77,6 +194,10 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
   const isSA = user?.role === "SA";
 
   const [newTitle, setNewTitle] = useState("");
+  const [isianBaru, setIsianBaru] = useState<IsianKaya>(ISIAN_KOSONG);
+  // id_subtask yang form ubah field-nya terbuka, beserta isiannya.
+  const [editId, setEditId] = useState<string | null>(null);
+  const [isianEdit, setIsianEdit] = useState<IsianKaya>(ISIAN_KOSONG);
   const [showAddForm, setShowAddForm] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,20 +241,67 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
   const handleAdd = async () => {
     const title = newTitle.trim();
     if (!title) return;
+    const isian = bacaIsian(isianBaru);
+    if ("error" in isian) {
+      setError(isian.error);
+      return;
+    }
+    // Field opsional yang kosong tidak dikirim sama sekali.
+    const body: Record<string, string> = { title };
+    if (isian.description) body.description = isian.description;
+    if (isian.due_date) body.due_date = isian.due_date;
+    if (isian.estimate_hours) body.estimate_hours = isian.estimate_hours;
     setIsAdding(true);
     setError(null);
     try {
       await apiRequest(`/projects/${projectId}/subtasks`, {
         method: "POST",
-        body: { title },
+        body,
       });
       setNewTitle("");
+      setIsianBaru(ISIAN_KOSONG);
       setShowAddForm(false);
       mutate();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menambahkan subtask.");
     } finally {
       setIsAdding(false);
+    }
+  };
+
+  const bukaEdit = (subtask: Subtask) => {
+    setError(null);
+    if (editId === subtask.id_subtask) {
+      setEditId(null);
+      return;
+    }
+    setIsianEdit({
+      description: subtask.description ?? "",
+      due_date: subtask.due_date ?? "",
+      estimate_hours: subtask.estimate_hours ?? "",
+    });
+    setEditId(subtask.id_subtask);
+  };
+
+  const handleSimpanEdit = async (subtask: Subtask) => {
+    const isian = bacaIsian(isianEdit);
+    if ("error" in isian) {
+      setError(isian.error);
+      return;
+    }
+    setBusyId(subtask.id_subtask);
+    setError(null);
+    try {
+      await apiRequest(`/projects/subtasks/${subtask.id_subtask}`, {
+        method: "PATCH",
+        body: isian,
+      });
+      setEditId(null);
+      mutate();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyimpan perubahan subtask.");
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -255,6 +423,7 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
                          focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
             />
           </div>
+          <FieldKaya idAwalan="subtask-baru" nilai={isianBaru} onChange={setIsianBaru} disabled={isAdding} />
           <button
             type="button"
             onClick={handleAdd}
@@ -310,7 +479,21 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
                       <p className="text-sm font-medium text-neutral-800 truncate">
                         {subtask.title}
                       </p>
+                      {subtask.terlambat && (
+                        <span className="px-2 py-0.5 text-xs font-medium rounded-full border bg-red-100 text-red-700 border-red-200">
+                          Terlambat
+                        </span>
+                      )}
                     </div>
+                    {subtask.description && (
+                      <p className="text-xs text-neutral-600 mt-1 whitespace-pre-line">{subtask.description}</p>
+                    )}
+                    {(subtask.due_date || subtask.estimate_hours !== null) && (
+                      <p className="text-xs text-neutral-500 mt-1 flex gap-3 flex-wrap">
+                        {subtask.due_date && <span>Jatuh tempo: {formatTanggal(subtask.due_date)}</span>}
+                        {subtask.estimate_hours !== null && <span>Estimasi: {formatJam(subtask.estimate_hours)}</span>}
+                      </p>
+                    )}
                     <p className="text-xs text-neutral-500 mt-1">
                       Ditugaskan ke:{" "}
                       <span className="font-medium text-neutral-600">
@@ -331,6 +514,22 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
                                    disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {busy ? "Menyimpan..." : "Tandai selesai"}
+                      </button>
+                    )}
+
+                    {/* Lead_SA/Admin atau SA pemilik: ubah description, due date, estimasi */}
+                    {(isPrivileged || (isSA && isOwner)) && (
+                      <button
+                        type="button"
+                        onClick={() => bukaEdit(subtask)}
+                        disabled={busy}
+                        className="px-3 py-1.5 text-xs font-medium text-neutral-700 border border-neutral-300
+                                   rounded-lg hover:bg-neutral-50 transition-colors min-h-[32px]
+                                   disabled:opacity-50 disabled:cursor-not-allowed"
+                        aria-label={`Ubah subtask ${subtask.title}`}
+                        aria-expanded={editId === subtask.id_subtask}
+                      >
+                        Ubah
                       </button>
                     )}
 
@@ -370,6 +569,38 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
                     )}
                   </div>
                 </div>
+
+                {/* Form ubah field (Lead_SA/Admin atau SA pemilik) */}
+                {editId === subtask.id_subtask && (
+                  <div className="mt-3 pt-3 border-t border-neutral-200 space-y-3">
+                    <FieldKaya
+                      idAwalan={`ubah-${subtask.id_subtask}`}
+                      nilai={isianEdit}
+                      onChange={setIsianEdit}
+                      disabled={busy}
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleSimpanEdit(subtask)}
+                        disabled={busy}
+                        className="px-3 py-1.5 text-xs font-medium text-white bg-primary-600 rounded-lg
+                                   hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {busy ? "Menyimpan..." : "Simpan"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditId(null)}
+                        disabled={busy}
+                        className="px-3 py-1.5 text-xs font-medium text-neutral-700 border border-neutral-300
+                                   rounded-lg hover:bg-neutral-50 transition-colors disabled:opacity-50"
+                      >
+                        Batal ubah
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Panel assign/reassign (Lead_SA/Admin) */}
                 {isPrivileged && assignOpenId === subtask.id_subtask && (

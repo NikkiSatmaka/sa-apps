@@ -109,6 +109,15 @@ async def _ubah_status_subtask(c: Ctx):
     )
 
 
+async def _ubah_field_subtask(c: Ctx):
+    st = await c.subtask()
+    return await c.api.client.patch(
+        f"{PROYEK}/subtasks/{st.id_subtask}",
+        json={"description": "Uraian baru", "estimate_hours": "2.5"},
+        headers=bearer(c.lead),
+    )
+
+
 async def _assign_subtask(c: Ctx):
     st = await c.subtask()
     return await c.api.client.patch(
@@ -161,6 +170,7 @@ AKSI_TULIS = {
     "kalender": _petakan_kalender,
     "subtask_buat": _buat_subtask,
     "subtask_status": _ubah_status_subtask,
+    "subtask_ubah": _ubah_field_subtask,
     "subtask_assign": _assign_subtask,
     "subtask_hapus": _hapus_subtask,
     "dokumen_buat": _buat_dokumen,
@@ -170,7 +180,14 @@ AKSI_TULIS = {
     "requirement_keep": _pertahankan_versi_requirement,
 }
 # Aksi yang harus tetap boleh sebelum `Closed`, termasuk `Handed Over` (spec §2.0).
-AKSI_BOLEH_SAAT_HANDED_OVER = ["log", "kalender", "subtask_buat", "subtask_status", "dokumen_buat"]
+AKSI_BOLEH_SAAT_HANDED_OVER = [
+    "log",
+    "kalender",
+    "subtask_buat",
+    "subtask_status",
+    "subtask_ubah",
+    "dokumen_buat",
+]
 
 
 @pytest.mark.parametrize("status", ["Closed", "Lost"])

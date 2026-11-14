@@ -1,11 +1,12 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { HttpResponse, api, errorEnvelope, http, renderWithProviders, server, successEnvelope } from "@/test";
+import { HttpResponse, api, errorEnvelope, http, pasangHubungan, renderWithProviders, server, successEnvelope, type Hubungan, type Role } from "@/test";
 import { makeActivityLog, makeStoryPage } from "@/test/fixtures/operations";
 import { ProjectStory } from "./ProjectStory";
 
-function setup() {
-  return renderWithProviders(<ProjectStory projectId="p-1" />, { role: "SA" });
+function setup(role: Role = "SA", hubungan: Hubungan = "sa_utama") {
+  pasangHubungan(role, hubungan);
+  return renderWithProviders(<ProjectStory projectId="p-1" />, { role });
 }
 
 function recordStoryRequests(page: () => unknown) {
@@ -199,6 +200,34 @@ describe("ProjectStory — Sales/Product PIC (read-only, keputusan 2026-11-10)",
     renderWithProviders(<ProjectStory projectId="p-1" />, { role });
     expect(await screen.findByText("Diskusi kebutuhan dengan customer")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Polish Ulang" })).not.toBeInTheDocument();
+  });
+});
+
+// Polish ulang = TingkatAkses.TULIS (#154): SA ditugaskan, contributor, Lead_SA, Admin. PIC, viewer,
+// dan pengguna tak terkait membaca Story tetapi tidak melihat tombol.
+describe("ProjectStory — hak Polish Ulang per hubungan", () => {
+  const KASUS: { role: Role; hubungan: Hubungan; berhak: boolean }[] = [
+    { role: "SA", hubungan: "sa_utama", berhak: true },
+    { role: "SA", hubungan: "sa_tambahan", berhak: true },
+    { role: "SA", hubungan: "contributor", berhak: true },
+    { role: "Lead_SA", hubungan: "tak_terkait", berhak: true },
+    { role: "Admin", hubungan: "tak_terkait", berhak: true },
+    { role: "Sales", hubungan: "sales_pic", berhak: false },
+    { role: "Product", hubungan: "product_pic", berhak: false },
+    { role: "SA", hubungan: "viewer", berhak: false },
+    { role: "SA", hubungan: "tak_terkait", berhak: false },
+    { role: "Sales", hubungan: "tak_terkait", berhak: false },
+  ];
+
+  it.each(KASUS)("$role sebagai $hubungan: Polish Ulang tampil=$berhak, Story tetap terbaca", async ({ role, hubungan, berhak }) => {
+    setup(role, hubungan);
+    expect(await screen.findByText("Diskusi kebutuhan dengan customer")).toBeInTheDocument();
+    if (berhak) {
+      expect(await screen.findByRole("button", { name: "Polish Ulang" })).toBeInTheDocument();
+    } else {
+      await new Promise((r) => setTimeout(r, 50)); // beri waktu hubungan selesai dimuat
+      expect(screen.queryByRole("button", { name: "Polish Ulang" })).not.toBeInTheDocument();
+    }
   });
 });
 

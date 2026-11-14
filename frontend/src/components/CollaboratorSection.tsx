@@ -5,7 +5,8 @@ import useSWR from "swr";
 import { fetcher, apiRequest } from "@/lib/fetcher";
 import { LoadError } from "./LoadError";
 import { useAuthStore } from "@/store/auth";
-import { isPrivileged, isRequester, isRequesterTerbatas, ROLES } from "@/lib/roles";
+import { isPrivileged, isRequester, isRequesterTerbatas } from "@/lib/roles";
+import { useAksesProyek } from "@/lib/useAksesProyek";
 
 /**
  * Section Kolaborator — Menampilkan dan mengelola kolaborator proyek.
@@ -42,6 +43,7 @@ export function CollaboratorSection({
   onMutate,
 }: CollaboratorSectionProps) {
   const { user } = useAuthStore();
+  const { bisa } = useAksesProyek(projectId);
   const [showAddForm, setShowAddForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState<UserSearchResult | null>(null);
@@ -140,7 +142,9 @@ export function CollaboratorSection({
   };
 
   // Can add collaborator: semua role fungsional (SA, Sales, Product, Lead_SA); batasan per role di atas
-  const canManage = !!user?.role && (ROLES as readonly string[]).includes(user.role);
+  // Hak tulis mencerminkan TingkatAkses.TAMBAH_/HAPUS_KOLABORATOR (lib/akses). Daftar tetap terbaca semua.
+  const canAdd = bisa("tambah_kolaborator");
+  const canRemove = bisa("hapus_kolaborator");
 
   const getRoleBadge = (role: string) => {
     if (role === "viewer")
@@ -162,7 +166,7 @@ export function CollaboratorSection({
             Peer atau atasan yang di-tag untuk melihat atau berkontribusi di proyek ini
           </p>
         </div>
-        {canManage && (
+        {canAdd && (
           <button
             onClick={() => setShowAddForm(!showAddForm)}
             className="px-3 py-1.5 text-xs font-medium text-primary-600 border border-primary-200
@@ -361,7 +365,7 @@ export function CollaboratorSection({
               <span className={`px-2 py-0.5 text-xs font-medium rounded-full border ${getRoleBadge(c.role)}`}>
                 {getRoleLabel(c.role)}
               </span>
-              {canManage && (
+              {canRemove && (
                 <button
                   onClick={() => handleRemove(c.user_id, c.user_name)}
                   className="p-1 text-neutral-400 hover:text-red-600 transition-colors"

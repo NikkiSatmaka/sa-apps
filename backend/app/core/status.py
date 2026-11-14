@@ -65,6 +65,7 @@ STATUS_AKHIR = (WON, HANDED_OVER, CLOSED, LOST)
 
 # Proyek yang tidak dihitung sebagai beban kerja SA (tampilan workload Lead_SA, spec §2.5):
 # `Closed` dan `Lost` sudah berakhir, `On Hold` dijeda. `Won` dan `Handed Over` tetap aktif karena
-# SA masih bekerja di sana (HLD, handover). Berbeda dari `STATUS_AKHIR` yang dipakai
-# `/sa/available` (mengecualikan Won/Handed Over dan tidak mengecualikan On Hold).
+# SA masih bekerja di sana (HLD, handover). Dipakai `/workload/beban` dan `/sa/available`
+# (lewat `services.workload.hitung_project_aktif_per_sa`). Berbeda dari `STATUS_AKHIR`
+# (penugasan/Requirement baru), yang tidak dipakai untuk menghitung beban.
 STATUS_TIDAK_AKTIF = (CLOSED, LOST, ON_HOLD)

@@ -3,8 +3,7 @@
 import { useState, useCallback } from "react";
 import useSWR from "swr";
 import { fetcher, apiRequest } from "@/lib/fetcher";
-import { useAuthStore } from "@/store/auth";
-import { isRequesterTerbatas } from "@/lib/roles";
+import { useAksesProyek } from "@/lib/useAksesProyek";
 
 /**
  * Komponen Project Story — timeline activity log untuk satu proyek.
@@ -65,8 +64,9 @@ interface ProjectStoryProps {
 const PAGE_SIZE = 20;
 
 export function ProjectStory({ projectId }: ProjectStoryProps) {
-  // Sales/Product PIC boleh membaca Story tetapi tidak boleh menulis (polish ulang = tingkat TULIS)
-  const bisaMenulis = !isRequesterTerbatas(useAuthStore((s) => s.user));
+  // Polish ulang = TingkatAkses.TULIS (SA ditugaskan, contributor, Lead_SA, Admin); PIC, viewer,
+  // dan pengguna tak terkait boleh membaca Story tetapi tidak menulis.
+  const bisaMenulis = useAksesProyek(projectId).bisa("tulis");
   const [filterCategory, setFilterCategory] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");

@@ -1,15 +1,12 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { HttpResponse, api, errorEnvelope, http, renderWithProviders, server, setParams, successEnvelope, type Role } from "@/test";
+import { HttpResponse, api, errorEnvelope, http, pasangHubungan, renderWithProviders, server, setParams, successEnvelope, type Hubungan, type Role } from "@/test";
 import { makeStoryPage } from "@/test/fixtures/operations";
 import ProjectActivityLogsPage from "./page";
 
-function useProject() {
-  server.use(
-    http.get(api("/projects/:id"), () =>
-      HttpResponse.json(successEnvelope({ id_project: "p-1", project_name: "Migrasi Cloud", customer_name: "PT Contoh" }))
-    )
-  );
+// Proyek + hubungan pengguna ke proyek (bawaan: SA utama, berhak menulis log).
+function useProject(role: Role = "SA", hubungan: Hubungan = "sa_utama") {
+  pasangHubungan(role, hubungan, { id_project: "p-1", project_name: "Migrasi Cloud", customer_name: "PT Contoh" });
 }
 
 describe("ProjectActivityLogsPage", () => {
@@ -35,13 +32,13 @@ describe("ProjectActivityLogsPage", () => {
     useProject();
     renderWithProviders(<ProjectActivityLogsPage />, { role: "SA" });
     expect(screen.getByRole("link", { name: "← Kembali ke proyek" })).toHaveAttribute("href", "/projects/p 1");
-    expect(screen.getByRole("link", { name: "+ Tambah Log" })).toHaveAttribute("href", "/activity-logs?project=p%201");
+    expect(await screen.findByRole("link", { name: "+ Tambah Log" })).toHaveAttribute("href", "/activity-logs?project=p%201");
     await screen.findByText("Diskusi kebutuhan dengan customer");
   });
 
   it("Sales (PIC) membaca riwayat tetapi tidak melihat tombol + Tambah Log", async () => {
     setParams({ id: "p-1" });
-    useProject();
+    useProject("Sales", "sales_pic");
     renderWithProviders(<ProjectActivityLogsPage />, { role: "Sales" });
     await screen.findByText("Diskusi kebutuhan dengan customer");
     expect(screen.queryByRole("link", { name: "+ Tambah Log" })).not.toBeInTheDocument();
@@ -80,8 +77,36 @@ describe("ProjectActivityLogsPage", () => {
 
   it.each<Role>(["SA", "Sales", "Product", "Lead_SA", "Admin"])("dapat dirender oleh peran %s", async (role) => {
     setParams({ id: "p-1" });
-    useProject();
+    useProject(role, "tak_terkait");
     renderWithProviders(<ProjectActivityLogsPage />, { role });
     expect(await screen.findByText("Diskusi kebutuhan dengan customer")).toBeInTheDocument();
+  });
+});
+
+// "+ Tambah Log" = TingkatAkses.TULIS (#154): SA ditugaskan, contributor, Lead_SA, Admin.
+describe("ProjectActivityLogsPage — hak tulis per hubungan", () => {
+  const KASUS: { role: Role; hubungan: Hubungan; berhak: boolean }[] = [
+    { role: "SA", hubungan: "sa_utama", berhak: true },
+    { role: "SA", hubungan: "sa_tambahan", berhak: true },
+    { role: "SA", hubungan: "contributor", berhak: true },
+    { role: "Lead_SA", hubungan: "tak_terkait", berhak: true },
+    { role: "Admin", hubungan: "tak_terkait", berhak: true },
+    { role: "Sales", hubungan: "sales_pic", berhak: false },
+    { role: "Product", hubungan: "product_pic", berhak: false },
+    { role: "SA", hubungan: "viewer", berhak: false },
+    { role: "SA", hubungan: "tak_terkait", berhak: false },
+  ];
+
+  it.each(KASUS)("$role sebagai $hubungan: + Tambah Log tampil=$berhak, riwayat tetap terbaca", async ({ role, hubungan, berhak }) => {
+    setParams({ id: "p-1" });
+    useProject(role, hubungan);
+    renderWithProviders(<ProjectActivityLogsPage />, { role });
+    expect(await screen.findByText("Diskusi kebutuhan dengan customer")).toBeInTheDocument();
+    if (berhak) {
+      expect(await screen.findByRole("link", { name: "+ Tambah Log" })).toBeInTheDocument();
+    } else {
+      await new Promise((r) => setTimeout(r, 50));
+      expect(screen.queryByRole("link", { name: "+ Tambah Log" })).not.toBeInTheDocument();
+    }
   });
 });

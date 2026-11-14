@@ -1,6 +1,6 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { api, errorEnvelope, gagalLaluBerhasil, http, HttpResponse, renderWithProviders, server, successEnvelope, type Role } from "@/test";
+import { api, errorEnvelope, gagalLaluBerhasil, http, HttpResponse, pasangHubungan, renderWithProviders, server, successEnvelope, type Hubungan, type Role } from "@/test";
 import { ProjectComments } from "./ProjectComments";
 
 interface Komentar {
@@ -30,7 +30,17 @@ function serve(items: Komentar[]) {
   server.use(http.get(api("/projects/p1/comments"), () => HttpResponse.json(successEnvelope({ items, total: items.length }))));
 }
 
-function setup(role: Role = "SA", readOnly = false) {
+// Hubungan bawaan: pengguna berhak (SA = SA utama, Sales/Product = PIC); privileged tak terkait.
+const HUBUNGAN_BAWAAN: Record<Role, Hubungan> = {
+  SA: "sa_utama",
+  Sales: "sales_pic",
+  Product: "product_pic",
+  Lead_SA: "tak_terkait",
+  Admin: "tak_terkait",
+};
+
+function setup(role: Role = "SA", readOnly = false, hubungan: Hubungan = HUBUNGAN_BAWAAN[role]) {
+  pasangHubungan(role, hubungan);
   return renderWithProviders(<ProjectComments projectId="p1" readOnly={readOnly} />, { role });
 }
 
@@ -79,6 +89,41 @@ describe("ProjectComments — daftar", () => {
   });
 });
 
+// Hak tulis komentar = TingkatAkses.KOMENTAR (#154): PIC, SA ditugaskan, contributor, Lead_SA, Admin.
+// Viewer dan pengguna tak terkait hanya membaca: thread tampil, form diganti keterangan.
+describe("ProjectComments — hak menulis per hubungan", () => {
+  const KASUS: { role: Role; hubungan: Hubungan; berhak: boolean }[] = [
+    { role: "SA", hubungan: "sa_utama", berhak: true },
+    { role: "SA", hubungan: "sa_tambahan", berhak: true },
+    { role: "Sales", hubungan: "sales_pic", berhak: true },
+    { role: "Product", hubungan: "product_pic", berhak: true },
+    { role: "SA", hubungan: "contributor", berhak: true },
+    { role: "Lead_SA", hubungan: "tak_terkait", berhak: true },
+    { role: "Admin", hubungan: "tak_terkait", berhak: true },
+    { role: "SA", hubungan: "viewer", berhak: false },
+    { role: "Sales", hubungan: "viewer", berhak: false },
+    { role: "SA", hubungan: "tak_terkait", berhak: false },
+    { role: "Sales", hubungan: "tak_terkait", berhak: false },
+    { role: "Product", hubungan: "tak_terkait", berhak: false },
+  ];
+
+  it.each(KASUS)("$role sebagai $hubungan: form tampil=$berhak, thread tetap terbaca", async ({ role, hubungan, berhak }) => {
+    serve([makeKomentar()]);
+    setup(role, false, hubungan);
+    expect(await screen.findByText("Mohon cek BOQ")).toBeInTheDocument();
+    if (berhak) {
+      expect(await screen.findByLabelText("Tulis komentar")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Kirim" })).toBeInTheDocument();
+    } else {
+      expect(
+        await screen.findByText("Hanya orang yang ditugaskan di proyek ini yang dapat menulis komentar."),
+      ).toBeInTheDocument();
+      expect(screen.queryByLabelText("Tulis komentar")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Kirim" })).not.toBeInTheDocument();
+    }
+  });
+});
+
 describe("ProjectComments — menulis", () => {
   it("mengirim isi ter-trim, mengosongkan form, dan memuat ulang thread", async () => {
     let items: Komentar[] = [];
@@ -93,7 +138,7 @@ describe("ProjectComments — menulis", () => {
     );
     const { user } = setup("Sales");
     await screen.findByText("Belum ada komentar.");
-    await user.type(screen.getByLabelText("Tulis komentar"), "  Halo tim  ");
+    await user.type(await screen.findByLabelText("Tulis komentar"), "  Halo tim  ");
     await user.click(screen.getByRole("button", { name: "Kirim" }));
     expect(await screen.findByText("Halo tim")).toBeInTheDocument();
     expect(body).toEqual({ body: "Halo tim" });
@@ -104,7 +149,7 @@ describe("ProjectComments — menulis", () => {
     serve([]);
     const { user } = setup();
     await screen.findByText("Belum ada komentar.");
-    expect(screen.getByRole("button", { name: "Kirim" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Kirim" })).toBeDisabled();
     await user.type(screen.getByLabelText("Tulis komentar"), "   ");
     expect(screen.getByRole("button", { name: "Kirim" })).toBeDisabled();
   });
@@ -113,7 +158,7 @@ describe("ProjectComments — menulis", () => {
     serve([]);
     setup();
     await screen.findByText("Belum ada komentar.");
-    expect(screen.getByLabelText("Tulis komentar")).toHaveAttribute("maxlength", "4000");
+    expect(await screen.findByLabelText("Tulis komentar")).toHaveAttribute("maxlength", "4000");
   });
 
   it("menampilkan penolakan server (403) apa adanya dan mempertahankan isian", async () => {
@@ -121,7 +166,7 @@ describe("ProjectComments — menulis", () => {
     server.use(http.post(api("/projects/p1/comments"), () => HttpResponse.json(errorEnvelope("Anda tidak memiliki akses ke proyek ini."), { status: 403 })));
     const { user } = setup("Sales");
     await screen.findByText("Belum ada komentar.");
-    await user.type(screen.getByLabelText("Tulis komentar"), "Halo");
+    await user.type(await screen.findByLabelText("Tulis komentar"), "Halo");
     await user.click(screen.getByRole("button", { name: "Kirim" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Anda tidak memiliki akses ke proyek ini.");
     expect(screen.getByLabelText("Tulis komentar")).toHaveValue("Halo");

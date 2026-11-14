@@ -254,6 +254,8 @@ class KlienApi:
 
     async def login_demo(self, role: str) -> dict[str, str]:
         """Demo login → header Authorization (JWT asli lewat alur produksi)."""
+        # Alias lama untuk test admin; akun demo fungsional admin adalah Lead_SA.
+        role = "Lead_SA" if role == "Admin" else role
         resp = await self.client.post("/api/v1/auth/demo-login", json={"role": role})
         assert resp.status_code == 200, resp.text
         return {"Authorization": f"Bearer {resp.json()['tokens']['access_token']}"}

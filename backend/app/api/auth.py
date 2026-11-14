@@ -97,6 +97,7 @@ DEMO_USERS = {
         "email": "demo-lead@portal-sa.local",
         "name": "Demo Lead SA",
         "google_id": "demo-google-id-lead-sa",
+        "is_admin": True,
     },
     "Product": {
         "email": "demo-product@portal-sa.local",

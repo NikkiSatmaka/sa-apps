@@ -35,6 +35,7 @@ from app.models.project import Project
 from app.models.subtask import Subtask
 from app.models.user import User
 from app.schemas.response import success_response
+from app.services.status_proyek import majukan_ke_in_progress
 from app.schemas.subtask import (
     SubtaskAssignRequest,
     SubtaskCreateRequest,
@@ -226,6 +227,9 @@ async def update_subtask_status(
 
     subtask.status = body.status
     subtask.updated_at = datetime.now(timezone.utc)
+    # Subtask `in_progress` pertama memindahkan proyek `Assigned` → `In Progress`.
+    if body.status == "in_progress":
+        majukan_ke_in_progress(db, project, current_user.id, "subtask")
     await db.commit()
     await db.refresh(subtask)
 

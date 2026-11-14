@@ -180,7 +180,7 @@ def test_map_integrity_error_non_gcal_400_dan_rollback(monkeypatch):
     # Tiket #89: cek akses TULIS di-stub lolos; yang diuji adalah galat commit.
     monkeypatch.setattr(modul, "ensure_project_access", AsyncMock())
     db = MagicMock()
-    db.execute = AsyncMock(return_value=_hasil(SimpleNamespace(id_project="PRJ-1")))
+    db.execute = AsyncMock(return_value=_hasil(SimpleNamespace(id_project="PRJ-1", status="In Progress")))
     db.add = MagicMock()
     db.commit = AsyncMock(
         side_effect=IntegrityError(
@@ -212,7 +212,7 @@ def test_map_konflik_gcal_409_pesan_generik_tanpa_mencari_proyek_lain(monkeypatc
 
     monkeypatch.setattr(modul, "ensure_project_access", AsyncMock())  # tiket #89: cek akses lolos
     db = MagicMock()
-    db.execute = AsyncMock(side_effect=[_hasil(SimpleNamespace(id_project="PRJ-1")), _hasil(None)])
+    db.execute = AsyncMock(side_effect=[_hasil(SimpleNamespace(id_project="PRJ-1", status="In Progress")), _hasil(None)])
     db.add = MagicMock()
     db.commit = AsyncMock(
         side_effect=IntegrityError("INSERT", {}, Exception("duplicate key idx_unique_gcal_mapping"))

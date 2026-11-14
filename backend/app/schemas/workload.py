@@ -1,6 +1,7 @@
 """Skema respons tampilan workload Lead_SA (issue #127, spec §2.5)."""
 
 import uuid
+from datetime import date
 
 from pydantic import BaseModel
 
@@ -20,3 +21,32 @@ class BebanSA(BaseModel):
 class BebanResponse(BaseModel):
     minggu_mulai: str
     items: list[BebanSA]
+
+
+class SubtaskJatuhTempo(BaseModel):
+    id_subtask: str
+    id_project: str
+    project_name: str
+    title: str
+    status: str
+    assigned_sa: uuid.UUID | None
+    assigned_sa_name: str | None
+    due_date: date
+    hari_lagi: int
+    terlambat: bool
+
+
+class ProjectJatuhTempo(BaseModel):
+    id_project: str
+    project_name: str
+    customer_name: str
+    status: str
+    target_submit: date
+    hari_lagi: int
+    terlambat: bool
+
+
+class JatuhTempoResponse(BaseModel):
+    hari_peringatan: int
+    subtask: list[SubtaskJatuhTempo]
+    project: list[ProjectJatuhTempo]

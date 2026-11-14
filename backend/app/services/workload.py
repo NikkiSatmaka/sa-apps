@@ -6,10 +6,12 @@ Definisi (keputusan konservatif, lihat `app.core.status.STATUS_TIDAK_AKTIF`):
 - Subtask aktif: status `open` atau `in_progress` pada project aktif.
 - Jam terlog minggu ini: jumlah `ActivityLog.duration_hours` SA itu sejak Senin 00:00 UTC
   (konsisten dengan `/sa/utilization` yang mengelompokkan `created_at` dalam UTC).
+- Jatuh tempo: subtask aktif ber-`due_date` dan project berstatus `STATUS_PANTAU_TARGET_SUBMIT`
+  (`target_submit`) yang `due <= hari ini + HARI_PERINGATAN_DUE`; "hari ini" memakai tanggal UTC.
 - Project dengan banyak SA (SA utama + `ProjectAssignments`) dihitung untuk tiap SA, sekali per SA.
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,9 +23,25 @@ from app.models.project import Project
 from app.models.project_assignment import ProjectAssignment
 from app.models.subtask import Subtask
 from app.models.user import User
-from app.schemas.workload import BebanSA
+from app.schemas.workload import (
+    BebanSA,
+    JatuhTempoResponse,
+    ProjectJatuhTempo,
+    SubtaskJatuhTempo,
+)
 
 STATUS_SUBTASK_AKTIF = ("open", "in_progress")
+
+# Subtask/project "mendekati due date" bila jatuh tempo dalam N hari ke depan (termasuk hari ini).
+HARI_PERINGATAN_DUE = 3
+
+# `target_submit` hanya relevan sampai proposal diserahkan: sesudah `Submitted` tidak lagi dipantau.
+STATUS_PANTAU_TARGET_SUBMIT = (
+    status_konst.INTAKE,
+    status_konst.AWAITING_ASSIGNMENT,
+    status_konst.ASSIGNED,
+    status_konst.IN_PROGRESS,
+)
 
 
 def _proyek_aktif():
@@ -97,3 +115,59 @@ async def hitung_beban(db: AsyncSession, sekarang: datetime) -> list[BebanSA]:
         )
         for u in pengguna
     ]
+
+
+async def hitung_jatuh_tempo(db: AsyncSession, hari_ini: date) -> JatuhTempoResponse:
+    """Subtask dan project yang lewat atau mendekati due date, urut due date naik."""
+    batas = hari_ini + timedelta(days=HARI_PERINGATAN_DUE)
+
+    baris_subtask = await db.execute(
+        select(Subtask, Project.project_name, User.name)
+        .join(Project, Project.id_project == Subtask.id_project)
+        .outerjoin(User, User.id == Subtask.assigned_sa)
+        .where(
+            Subtask.due_date.is_not(None),
+            Subtask.due_date <= batas,
+            Subtask.status.in_(STATUS_SUBTASK_AKTIF),
+            *_proyek_aktif(),
+        )
+        .order_by(Subtask.due_date, Subtask.id_subtask)
+    )
+    subtask = [
+        SubtaskJatuhTempo(
+            id_subtask=st.id_subtask,
+            id_project=st.id_project,
+            project_name=nama_proyek,
+            title=st.title,
+            status=st.status,
+            assigned_sa=st.assigned_sa,
+            assigned_sa_name=nama_sa,
+            due_date=st.due_date,
+            hari_lagi=(st.due_date - hari_ini).days,
+            terlambat=st.due_date < hari_ini,
+        )
+        for st, nama_proyek, nama_sa in baris_subtask.all()
+    ]
+
+    baris_project = await db.execute(
+        select(Project)
+        .where(
+            Project.target_submit <= batas,
+            Project.status.in_(STATUS_PANTAU_TARGET_SUBMIT),
+            *_proyek_aktif(),
+        )
+        .order_by(Project.target_submit, Project.id_project)
+    )
+    project = [
+        ProjectJatuhTempo(
+            id_project=p.id_project,
+            project_name=p.project_name,
+            customer_name=p.customer_name,
+            status=p.status,
+            target_submit=p.target_submit,
+            hari_lagi=(p.target_submit - hari_ini).days,
+            terlambat=p.target_submit < hari_ini,
+        )
+        for p in baris_project.scalars().all()
+    ]
+    return JatuhTempoResponse(hari_peringatan=HARI_PERINGATAN_DUE, subtask=subtask, project=project)

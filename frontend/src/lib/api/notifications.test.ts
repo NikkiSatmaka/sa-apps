@@ -35,8 +35,9 @@ describe("getNotifications", () => {
   });
 
   it("error: pesan backend, lalu pesan bawaan", async () => {
-    server.use(http.get(api("/notifications"), () => HttpResponse.json(errorEnvelope("Sesi habis"), { status: 401 })));
-    await expect(getNotifications()).rejects.toMatchObject({ status: 401, message: "Sesi habis" });
+    server.use(http.get(api("/notifications"), () => HttpResponse.json(errorEnvelope("Akses ditolak"), { status: 403 })));
+    // 401 pada GET kini ditangani terpusat (lihat blok "penanganan 401"); pesan backend diuji dengan 403.
+    await expect(getNotifications()).rejects.toMatchObject({ status: 403, message: "Akses ditolak" });
     server.use(http.get(api("/notifications"), () => new HttpResponse("x", { status: 500 })));
     await expect(getNotifications()).rejects.toMatchObject({ message: "Gagal mengambil notifikasi (status 500)" });
   });

@@ -127,6 +127,69 @@ export async function apiRequest<T>(
   return json.data ?? json;
 }
 
+/** Opsi `apiCall`: satu pintu untuk klien API di `lib/api/*` (menggantikan `fetch` langsung). */
+export interface ApiCallOptions {
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  /** `FormData` dikirim apa adanya (tanpa Content-Type, boundary dari browser); lainnya di-JSON-kan. */
+  body?: unknown;
+  /** Pesan bila backend tidak memberi pesan; status HTTP ditambahkan: `${pesanGagal} (status N)`. */
+  pesanGagal: string;
+  /** Pilih pesan dari body error backend; kembalian kosong memakai `pesanGagal`. Bawaan: `message`. */
+  ambilPesan?: (errorData: Record<string, unknown> | null) => string | undefined | null;
+  /** Status yang bukan error: `apiCall` mengembalikan `null` tanpa membaca body (mis. 404 = belum ada). */
+  terimaStatus?: number[];
+  /** Abaikan body respons sukses (mis. 204/ tanpa konten). */
+  tanpaBody?: boolean;
+}
+
+/**
+ * Request ke API dengan token dari localStorage dan `ApiError` standar.
+ *
+ * Penanganan 401 mengikuti pola yang sudah ada: GET seperti `fetcher` (hapus token, ke /login),
+ * mutasi seperti `apiRequest` (hanya `ApiError`, tanpa logout otomatis).
+ * Mengembalikan body JSON mentah; pemanggil membuka envelope (`json.data ?? json`) sendiri.
+ */
+export async function apiCall(endpoint: string, opsi: ApiCallOptions): Promise<any> {
+  const { method = "GET", body, pesanGagal, ambilPesan, terimaStatus, tanpaBody } = opsi;
+  const url = endpoint.startsWith("http") ? endpoint : `${API_BASE_URL}${endpoint}`;
+  const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+
+  const multipart = typeof FormData !== "undefined" && body instanceof FormData;
+  const headers: Record<string, string> = {};
+  // Multipart: jangan set Content-Type, browser menambahkan boundary.
+  if (!multipart) headers["Content-Type"] = "application/json";
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: body === undefined ? undefined : multipart ? (body as FormData) : JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    if (terimaStatus?.includes(response.status)) return null;
+
+    if (response.status === 401 && method === "GET") {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("refresh_token");
+        window.location.href = "/login";
+      }
+      throw new ApiError("Unauthorized", 401);
+    }
+
+    const errorData = await response.json().catch(() => null);
+    throw new ApiError(
+      ambilPesan?.(errorData) || errorData?.message || `${pesanGagal} (status ${response.status})`,
+      response.status,
+      errorData
+    );
+  }
+
+  if (tanpaBody) return undefined;
+  return response.json();
+}
+
 /**
  * Konfigurasi default SWR
  * Digunakan di SWRConfig provider

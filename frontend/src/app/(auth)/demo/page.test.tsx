@@ -34,6 +34,9 @@ describe("halaman /demo — guard demo mode", () => {
     for (const [, label] of roles) expect(screen.getByRole("button", { name: label })).toBeEnabled();
     expect(screen.getByRole("link", { name: "Login dengan Google Account" })).toHaveAttribute("href", "/login");
     expect(router.replace).not.toHaveBeenCalled();
+    for (const label of ["Sales 2 — Demo Sales 2", "Product Manager 2 — Demo Product 2", "SA 2 — Demo SA 2", "Lead SA 2 — Demo Lead SA 2", "Admin 2 — Demo Admin 2"]) {
+      expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument();
+    }
   });
 
   it("demo_mode nonaktif: dialihkan ke /login dan tombol tidak pernah tampil", async () => {

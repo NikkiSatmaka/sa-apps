@@ -9,7 +9,7 @@ import { setAccessToken } from "@/lib/fetcher";
 /**
  * Halaman Demo Login Portal SA
  *
- * Menampilkan tombol demo login per persona (Sales, Product, SA, Lead SA, Admin).
+ * Menampilkan tombol demo login per role (Sales, Product, SA, Lead SA, Admin).
  * Persona "Admin" = SA dengan flag admin (ADR 0012), bukan role tersendiri.
  * Klik tombol demo → POST ke /auth/demo-login → simpan token → redirect dashboard.
  *

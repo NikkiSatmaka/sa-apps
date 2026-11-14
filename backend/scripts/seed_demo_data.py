@@ -15,24 +15,83 @@ Data yang dibuat:
 """
 
 import asyncio
-import uuid
-from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
 import hashlib
+import random
+import uuid
+from datetime import date, datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
-from app.models.user import User
-from app.models.project import Project
-from app.models.document import Document
 from app.models.activity_log import ActivityLog
+from app.models.document import Document
+from app.models.project import Project
+from app.models.user import User
+from app.schemas.qualification_definition import QUESTIONNAIRE_SCHEMA_VERSION
+
+DEMO_ASSIGNMENT_SEED = 169
+DEMO_ASSIGNMENT_VERSION = 1
 
 
 def deterministic_uuid(seed_string: str) -> uuid.UUID:
     """Generate UUID deterministic berdasarkan string (selalu sama untuk input sama)."""
     return uuid.UUID(hashlib.md5(seed_string.encode()).hexdigest())
+
+
+def qualification_answers_for_demo(
+    mrr: int | None, pic_name: str, pic_position: str, pic_email: str, need: str
+) -> dict:
+    """Jawaban demo mengikuti nama field dan pilihan skema kualifikasi aktif."""
+    return {
+        "mrr": mrr,
+        "budget_dialokasikan": "Ya",
+        "pic_nama": pic_name,
+        "pic_jabatan": pic_position,
+        "pic_email": pic_email,
+        "peran_pic": "Pengambil keputusan",
+        "stakeholder_lain": None,
+        "masalah_bisnis": need,
+        "jenis_workload": "Data warehouse/analytics",
+        "lingkungan": "Hybrid",
+        "skala": "40 server, 20 TB",
+        "persyaratan_khusus": None,
+        "target_go_live": "≤ 6 bulan",
+        "kompetitor": None,
+    }
+
+
+def demo_project_assignment_plan(
+    projects_data: list[dict],
+    sales_ids: list[uuid.UUID],
+    sa_ids: list[uuid.UUID],
+    product_ids: list[uuid.UUID],
+) -> dict[str, dict[str, uuid.UUID | None]]:
+    """Susun owner pseudo-random yang seimbang dan stabil untuk fixture demo."""
+    # Ubah version bila algoritme/pola assignment fixture sengaja diganti.
+    rng = random.Random((DEMO_ASSIGNMENT_VERSION << 32) | DEMO_ASSIGNMENT_SEED)
+
+    def pilih_berimbang(owners: list[uuid.UUID], jumlah: int) -> list[uuid.UUID]:
+        if not owners and jumlah:
+            raise ValueError("Daftar user owner demo tidak boleh kosong.")
+        urutan = [owners[index % len(owners)] for index in range(jumlah)]
+        rng.shuffle(urutan)
+        return urutan
+
+    eligible_sa = [project for project in projects_data if project.get("sa") is not None]
+    sales_assignment = pilih_berimbang(sales_ids, len(projects_data))
+    sa_assignment = iter(pilih_berimbang(sa_ids, len(eligible_sa)))
+    product_assignment = pilih_berimbang(product_ids, len(projects_data))
+
+    return {
+        project["id_project"]: {
+            "sales_id": sales_assignment[index],
+            "sa_id": next(sa_assignment) if project.get("sa") is not None else None,
+            "product_id": product_assignment[index],
+        }
+        for index, project in enumerate(projects_data)
+    }
 
 
 # ============================================================
@@ -47,10 +106,16 @@ DEMO_USERS = [
         "google_id": "demo-google-id-sales",
     },
     {
-        "email": "demo-sales2@portal-sa.local",
-        "name": "Rina Susanti",
-        "role": "Sales",
-        "google_id": "demo-google-id-sales-002",
+        "email": "demo-sales2@portal-sa.local", "name": "Demo Sales 2",
+        "role": "Sales", "google_id": "demo-google-id-sales-2",
+    },
+    {
+        "email": "demo-product@portal-sa.local", "name": "Demo Product",
+        "role": "Product", "google_id": "demo-google-id-product",
+    },
+    {
+        "email": "demo-product2@portal-sa.local", "name": "Demo Product 2",
+        "role": "Product", "google_id": "demo-google-id-product-2",
     },
     {
         "email": "demo-sa@portal-sa.local",
@@ -59,16 +124,8 @@ DEMO_USERS = [
         "google_id": "demo-google-id-sa",
     },
     {
-        "email": "demo-sa2@portal-sa.local",
-        "name": "Budi Prakoso",
-        "role": "SA",
-        "google_id": "demo-google-id-sa-002",
-    },
-    {
-        "email": "demo-sa3@portal-sa.local",
-        "name": "Ayu Lestari",
-        "role": "SA",
-        "google_id": "demo-google-id-sa-003",
+        "email": "demo-sa2@portal-sa.local", "name": "Demo SA 2",
+        "role": "SA", "google_id": "demo-google-id-sa-2",
     },
     {
         "email": "demo-lead@portal-sa.local",
@@ -77,11 +134,19 @@ DEMO_USERS = [
         "google_id": "demo-google-id-lead-sa",
     },
     {
+        "email": "demo-lead2@portal-sa.local", "name": "Demo Lead SA 2",
+        "role": "Lead_SA", "google_id": "demo-google-id-lead-sa-2",
+    },
+    {
         "email": "demo-admin@portal-sa.local",
         "name": "Demo Admin",
         "role": "SA",
         "is_admin": True,
         "google_id": "demo-google-id-admin",
+    },
+    {
+        "email": "demo-admin2@portal-sa.local", "name": "Demo Admin 2",
+        "role": "SA", "is_admin": True, "google_id": "demo-google-id-admin-2",
     },
 ]
 
@@ -126,6 +191,7 @@ async def get_or_create_project(
     project_data: dict,
     sales_id: uuid.UUID,
     sa_id: uuid.UUID | None = None,
+    product_id: uuid.UUID | None = None,
 ) -> Project:
     """Cek proyek berdasarkan id_project, buat jika belum ada."""
     result = await db.execute(
@@ -134,8 +200,37 @@ async def get_or_create_project(
     existing = result.scalar_one_or_none()
 
     if existing:
-        # Update bant_detail jika berubah
-        if project_data.get("bant_detail") and existing.bant_detail != project_data["bant_detail"]:
+        # Hanya fixture demo bernama tetap yang ownership-nya disinkronkan saat rerun.
+        if project_data["id_project"].startswith("PRJ-DEMO-"):
+            ownership = {"sales_pic": sales_id, "assigned_sa": sa_id}
+            if product_id is not None:
+                ownership["product_pic"] = product_id
+            changed = False
+            for field, value in ownership.items():
+                if getattr(existing, field, None) != value:
+                    setattr(existing, field, value)
+                    changed = True
+            if changed:
+                await db.flush()
+        jawaban = project_data.get("qualification_answers")
+        if jawaban is not None:
+            versi = QUESTIONNAIRE_SCHEMA_VERSION
+            berubah = (
+                existing.qualification_answers != jawaban
+                or existing.qualification_schema_version != versi
+            )
+            if berubah:
+                existing.qualification_answers = jawaban
+                existing.qualification_schema_version = versi
+                await db.flush()
+                print(
+                    f"  [~] Kualifikasi proyek diperbarui: "
+                    f"{project_data['project_name']}"
+                )
+            else:
+                print(f"  [ok] Proyek sudah ada: {project_data['project_name']}")
+        # Pembaruan legacy tetap berlaku hanya untuk payload tanpa jawaban kuesioner.
+        elif project_data.get("bant_detail") and existing.bant_detail != project_data["bant_detail"]:
             existing.bant_detail = project_data["bant_detail"]
             await db.flush()
             print(f"  [~] Proyek diupdate: {project_data['project_name']}")
@@ -148,6 +243,8 @@ async def get_or_create_project(
         id_project=project_data["id_project"],
         project_name=project_data["project_name"],
         customer_name=project_data["customer_name"],
+        created_by=sales_id,
+        product_pic=product_id or sales_id,
         sales_pic=sales_id,
         assigned_sa=sa_id,
         status=project_data["status"],
@@ -156,7 +253,13 @@ async def get_or_create_project(
         ),
         target_submit=project_data["target_submit"],
         bant_score=project_data.get("bant_score"),
-        bant_detail=project_data.get("bant_detail"),
+        qualification_answers=project_data.get("qualification_answers"),
+        qualification_schema_version=(
+            QUESTIONNAIRE_SCHEMA_VERSION
+            if project_data.get("qualification_answers") is not None
+            else None
+        ),
+        bant_detail=None,
         use_case_tags=project_data.get("use_case_tags"),
         dq_number=project_data.get("dq_number"),
         assigned_at=now if sa_id else None,
@@ -255,8 +358,10 @@ async def seed_all():
             sales2 = users["demo-sales2@portal-sa.local"]
             sa1 = users["demo-sa@portal-sa.local"]
             sa2 = users["demo-sa2@portal-sa.local"]
-            sa3 = users["demo-sa3@portal-sa.local"]
+            sa3 = users["demo-sa@portal-sa.local"]
             lead_sa = users["demo-lead@portal-sa.local"]
+            product1 = users["demo-product@portal-sa.local"]
+            product2 = users["demo-product2@portal-sa.local"]
 
             # == 2. Buat Projects ==
             print("\n[2/4] Membuat demo projects...")
@@ -369,14 +474,33 @@ async def seed_all():
                 },
             ]
 
+            assignment_plan = demo_project_assignment_plan(
+                projects_data,
+                [sales1.id, sales2.id],
+                [sa1.id, sa2.id],
+                [product1.id, product2.id],
+            )
+
             for proj_data in projects_data:
-                sa = proj_data.pop("sa")
-                sales = proj_data.pop("sales")
+                assignment = assignment_plan[proj_data["id_project"]]
+                sa = assignment["sa_id"]
+                sales = assignment["sales_id"]
+                proj_data.pop("sa")
+                proj_data.pop("sales")
+                detail = proj_data.pop("bant_detail")
+                proj_data["qualification_answers"] = qualification_answers_for_demo(
+                    detail["budget_mrr"],
+                    detail["pic_name"],
+                    detail["pic_position"],
+                    detail["pic_email"],
+                    detail["need_description"],
+                )
                 await get_or_create_project(
                     db,
                     proj_data,
                     sales_id=sales,
                     sa_id=sa,
+                    product_id=assignment["product_id"],
                 )
 
             # == 3. Buat Documents ==

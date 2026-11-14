@@ -113,7 +113,6 @@ DEMO_USERS = {
     },
 }
 
-
 def _origin(url: str) -> tuple[str, str]:
     """(scheme, host:port) dari sebuah URL, untuk membandingkan origin."""
     parsed = urlparse(url)
@@ -151,7 +150,7 @@ async def demo_login(
             detail="Demo mode tidak aktif. Gunakan Google OAuth untuk login.",
         )
 
-    # Ambil konfigurasi demo user berdasarkan role
+    # Demo login tetap memakai akun default per role; field tambahan diabaikan.
     demo_config = DEMO_USERS[body.role]
 
     # Cari user di database berdasarkan email (INSERT IF NOT EXISTS)

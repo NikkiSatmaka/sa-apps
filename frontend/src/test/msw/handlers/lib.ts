@@ -6,6 +6,7 @@
 import { http, HttpResponse } from "msw";
 import { makeDocument } from "../../fixtures/documents";
 import { successEnvelope } from "../../fixtures/envelope";
+import { makeHandoverReadiness } from "../../fixtures/operations";
 import { api } from "../base";
 
 export const libHandlers = [
@@ -38,17 +39,15 @@ export const libHandlers = [
   // handover & RAG
   http.get(api("/projects/:id/recommendations"), () => HttpResponse.json(successEnvelope([]))),
   http.post(api("/projects/:id/handover"), () =>
-    HttpResponse.json(successEnvelope({ status: "success", message: "Handover berhasil" }))
+    HttpResponse.json(successEnvelope({
+      id_project: "p1", project_name: "Migrasi Cloud", customer_name: "ACME", old_status: "Won", new_status: "Handed Over",
+      pmo_email: "pmo@example.com", delivery_email: "delivery@example.com", final_deliverables_folder_id: "f1",
+      documents_handed_over: ["HLD"], handover_at: "2025-01-05T00:00:00Z",
+    }))
   ),
   http.get(api("/projects/:id/handover-status"), () =>
     HttpResponse.json(
-      successEnvelope({
-        is_ready: true,
-        has_hld_final: true,
-        is_closed_win: true,
-        pmo_email: "pmo@example.com",
-        delivery_email: "delivery@example.com",
-      })
+      successEnvelope(makeHandoverReadiness())
     )
   ),
   http.post(api("/projects/:id/handover-config"), () => HttpResponse.json(successEnvelope({ message: "Tersimpan" }))),

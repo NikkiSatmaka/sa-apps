@@ -13,6 +13,8 @@ import { api } from "../base";
 
 /** Handler default grup shell + dashboard (tiket #69). `GET /projects` ada di grup proyek. */
 export const shellHandlers = [
+  // "Tugas saya" di dashboard SA (#126): default kosong; test spesifik menimpa dengan `server.use`.
+  http.get(api("/subtasks/saya"), () => HttpResponse.json(successEnvelope({ items: [], total: 0 }))),
   http.get(api("/projects/status-summary"), () => HttpResponse.json(successEnvelope(makeStatusSummary()))),
   http.get(api("/projects/pending-assignment"), () => HttpResponse.json(successEnvelope([makePendingProject()]))),
   http.post(api("/projects/:id/provision-folder"), () =>

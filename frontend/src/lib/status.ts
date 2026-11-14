@@ -105,6 +105,19 @@ export function aksiStatusTersedia(k: KonteksAksi): AksiStatus[] {
   return aksi;
 }
 
+/**
+ * Hak tombol "Handover" (`Won` → `Handed Over`, POST /handover). Cermin `TingkatAkses.HANDOVER` di
+ * backend: SA ditugaskan (utama atau tambahan), Lead_SA, dan Admin. Sales/Product (termasuk PIC)
+ * ditolak. Bukan penentu hak: backend tetap memeriksa.
+ */
+export function bisaHandover(k: KonteksAksi): boolean {
+  const { actor, status } = k;
+  if (!actor || status !== "Won") return false;
+  const id = actor.id ?? null;
+  const saDitugaskan = actor.role === "SA" && id !== null && (k.saIds ?? []).includes(id);
+  return isPrivileged(actor) || saDitugaskan;
+}
+
 const BADGE_STATUS: Record<string, string> = {
   Intake: "bg-neutral-100 text-neutral-700",
   "Awaiting Assignment": "bg-yellow-100 text-yellow-800",

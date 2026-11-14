@@ -1,5 +1,6 @@
 /** Fixture grup operasi (assignment, kolaborasi, handover, activity log) — bentuk sama dengan respons backend. */
 import type { AvailableSA, PendingProject } from "@/lib/api/assignment";
+import type { HandoverReadiness } from "@/lib/api/handover";
 
 export function makeAvailableSA(overrides: Partial<AvailableSA> = {}): AvailableSA {
   return {
@@ -66,4 +67,17 @@ export function makeActivityLog(overrides: Record<string, unknown> = {}) {
 
 export function makeStoryPage(items: unknown[] = [makeActivityLog()], overrides: Record<string, unknown> = {}) {
   return { items, total: items.length, page: 1, page_size: 20, total_pages: 1, ...overrides };
+}
+
+/** Kesiapan handover (bentuk `HandoverReadiness` backend): siap, email PMO/Delivery terisi. */
+export function makeHandoverReadiness(overrides: Partial<HandoverReadiness> = {}): HandoverReadiness {
+  return {
+    ready: true,
+    missing_items: [],
+    pmo_email: "pmo@example.com",
+    delivery_email: "delivery@example.com",
+    project_status: "Won",
+    hld_status: "Final",
+    ...overrides,
+  };
 }

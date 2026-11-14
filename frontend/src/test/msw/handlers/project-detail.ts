@@ -2,6 +2,7 @@
 import { http, HttpResponse } from "msw";
 import { makeProjectDetail, makeTimSA } from "../../fixtures/project-detail";
 import { successEnvelope } from "../../fixtures/envelope";
+import { makeHandoverReadiness } from "../../fixtures/operations";
 import { api } from "../base";
 
 export const projectDetailHandlers = [
@@ -11,7 +12,7 @@ export const projectDetailHandlers = [
   http.get(api("/projects/:id/comments"), () => HttpResponse.json(successEnvelope({ items: [], total: 0 }))),
   http.get(api("/projects/:id/tim-sa"), () => HttpResponse.json(successEnvelope(makeTimSA()))),
   http.get(api("/projects/:id/handover-status"), () =>
-    HttpResponse.json(successEnvelope({ is_ready: true, has_hld_final: true, is_closed_win: true, pmo_email: "pmo@example.com", delivery_email: "delivery@example.com" })),
+    HttpResponse.json(successEnvelope(makeHandoverReadiness())),
   ),
   http.get(api("/sa/available"), () => HttpResponse.json(successEnvelope([]))),
   http.delete(api("/projects/:id"), () => HttpResponse.json(successEnvelope(null))),

@@ -6,6 +6,7 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import { LoadError } from "@/components/LoadError";
 import { SLABadge } from "@/components/SLABadge";
+import { TugasSayaSection } from "@/components/TugasSayaSection";
 
 /**
  * Dashboard SA (Solutions Architect)
@@ -101,6 +102,9 @@ export default function SADashboard() {
           + Request SA
         </button>
       </div>
+
+      {/* Tugas Saya: subtask milik SA lintas project (#126) */}
+      <TugasSayaSection />
 
       {/* Overview Proyek */}
       <section>

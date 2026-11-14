@@ -12,14 +12,16 @@ Endpoints:
 - PATCH  /subtasks/{id_subtask}/status          — ubah status (owner SA / privileged)
 - PATCH  /subtasks/{id_subtask}/assign          — assign/reassign (Lead_SA/Admin)
 - DELETE /subtasks/{id_subtask}                 — hapus subtask (Lead_SA/Admin)
+- GET    /subtasks/saya                         — "Tugas saya": subtask milik user lintas project
 """
 
 import logging
 import random
 import string
 from datetime import datetime, timezone
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +35,7 @@ from app.core.dependencies import (
     ensure_project_access,
     get_current_user,
 )
+from app.core import status as status_konst
 from app.models.project import Project
 from app.models.subtask import Subtask
 from app.models.user import User
@@ -45,12 +48,21 @@ from app.schemas.subtask import (
     SubtaskResponse,
     SubtaskUpdateRequest,
     SubtaskUpdateStatusRequest,
+    TugasSayaListResponse,
+    TugasSayaResponse,
 )
 from app.services.subtask import subtask_terlambat
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects", tags=["Subtasks"])
+
+# Router terpisah untuk sumber daya milik user lintas project. Prefix `/subtasks` tidak
+# berpapasan dengan `/projects/{project_id}`, jadi tidak ada risiko route tertangkap parameter.
+router_saya = APIRouter(prefix="/subtasks", tags=["Subtasks"])
+
+# Status project yang disembunyikan dari "Tugas saya" secara default (pekerjaan sudah berakhir).
+STATUS_PROJECT_DISEMBUNYIKAN = (status_konst.CLOSED, status_konst.LOST)
 
 # Status subtask yang valid (selaras dengan CheckConstraint di model)
 VALID_SUBTASK_STATUSES = ("open", "in_progress", "done")
@@ -389,4 +401,71 @@ async def delete_subtask(
     return success_response(
         data=None,
         message="Subtask berhasil dihapus.",
+    )
+
+
+@router_saya.get(
+    "/saya",
+    summary="Daftar 'Tugas saya' lintas project",
+    description=(
+        "Semua subtask yang ditugaskan ke user login, lintas project, urut due_date naik "
+        "(due_date kosong di akhir). Project soft-deleted tidak pernah ikut; project Closed/Lost "
+        "ikut hanya dengan `sertakan_project_selesai=true`. Filter `status` boleh diulang; "
+        "default semua status."
+    ),
+)
+async def daftar_tugas_saya(
+    status_filter: Annotated[
+        list[Literal["open", "in_progress", "done"]] | None,
+        Query(alias="status", description="Filter status subtask; boleh diulang"),
+    ] = None,
+    sertakan_project_selesai: Annotated[
+        bool, Query(description="Sertakan subtask dari project Closed/Lost")
+    ] = False,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Subtask milik user login (hanya data sendiri; tidak ada parameter user lain)."""
+    # Filter soft delete pada Project sudah otomatis oleh listener `_filter_soft_deleted`;
+    # kondisi eksplisit di bawah menjaga perilaku tetap benar bila listener berubah.
+    query = (
+        select(Subtask, Project)
+        .join(Project, Project.id_project == Subtask.id_project)
+        .where(Subtask.assigned_sa == current_user.id, Project.deleted_at.is_(None))
+    )
+    if status_filter:
+        query = query.where(Subtask.status.in_(status_filter))
+    if not sertakan_project_selesai:
+        query = query.where(Project.status.notin_(STATUS_PROJECT_DISEMBUNYIKAN))
+    query = query.order_by(
+        Subtask.due_date.asc().nulls_last(), Subtask.created_at, Subtask.id_subtask
+    )
+
+    baris = (await db.execute(query)).all()
+    items = [
+        TugasSayaResponse(
+            **SubtaskResponse(
+                id_subtask=st.id_subtask,
+                id_project=st.id_project,
+                title=st.title,
+                status=st.status,
+                assigned_sa=st.assigned_sa,
+                assigned_sa_name=current_user.name,
+                description=st.description,
+                due_date=st.due_date,
+                estimate_hours=st.estimate_hours,
+                terlambat=subtask_terlambat(st.due_date, st.status),
+                created_at=st.created_at,
+                updated_at=st.updated_at,
+            ).model_dump(),
+            project_name=pr.project_name,
+            customer_name=pr.customer_name,
+            project_status=pr.status,
+        )
+        for st, pr in baris
+    ]
+    data = TugasSayaListResponse(items=items, total=len(items))
+    return success_response(
+        data=data.model_dump(mode="json"),
+        message=f"Ditemukan {len(items)} tugas.",
     )

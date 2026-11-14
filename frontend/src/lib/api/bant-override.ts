@@ -14,21 +14,19 @@ export interface BANTOverrideResult {
   feedback?: string | null;
 }
 
-/** Status proyek yang boleh dioverride (selaras dengan backend). */
-export const OVERRIDE_ALLOWED_STATES = [
-  "Need Clarification",
-  "Manual Review Required",
-] as const;
+/** qualification_state yang boleh dioverride, hanya saat status Intake (selaras `QS_OVERRIDE_ALLOWED`). */
+export const OVERRIDE_ALLOWED_STATES = ["Need Clarification", "Manual Review"] as const;
 
-/** Tombol override hanya untuk Lead_SA/admin (is_admin) pada status yang relevan. */
+/** Tombol override hanya untuk Lead_SA/admin (is_admin) pada Intake dengan qualification_state yang relevan. */
 export function canOverrideBANT(
   actor: Actor | undefined | null,
   status: string,
-  _qualificationState?: string | null
+  qualificationState?: string | null
 ): boolean {
   return (
     isPrivileged(actor) &&
-    (OVERRIDE_ALLOWED_STATES as readonly string[]).includes(status)
+    status === "Intake" &&
+    (OVERRIDE_ALLOWED_STATES as readonly string[]).includes(qualificationState ?? "")
   );
 }
 

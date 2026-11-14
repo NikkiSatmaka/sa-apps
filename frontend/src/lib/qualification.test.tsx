@@ -8,7 +8,6 @@ import {
   answerEditMode,
   answerQuestions,
   answersFromView,
-  EDITABLE_STATUS,
   layoutRows,
   toPayload,
   useQualificationSchema,

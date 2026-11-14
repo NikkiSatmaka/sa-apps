@@ -10,8 +10,8 @@ import type { Actor } from "@/lib/roles";
 /**
  * Tombol + form "Override skor BANT" (#30).
  *
- * Tampil hanya untuk Lead_SA/Admin pada status Need Clarification /
- * Manual Review Required. Empat sub-skor 0-25 dan alasan wajib.
+ * Tampil hanya untuk Lead_SA/Admin pada status Intake dengan qualification_state
+ * Need Clarification / Manual Review. Empat sub-skor 0-25 dan alasan wajib.
  */
 
 interface BANTOverrideProps {
@@ -42,6 +42,7 @@ function initialScore(
 export function BANTOverride({
   projectId,
   status,
+  qualificationState,
   actor,
   currentScores,
 }: BANTOverrideProps) {
@@ -57,7 +58,7 @@ export function BANTOverride({
   const [submitting, setSubmitting] = useState(false);
   const showToast = useToastStore((s) => s.showToast);
 
-  if (!canOverrideBANT(actor, status)) return null;
+  if (!canOverrideBANT(actor, status, qualificationState)) return null;
 
   const parsed = CRITERIA.map(({ key }) => ({ key, n: Number(scores[key]) }));
   const invalid = parsed.some(
@@ -137,7 +138,7 @@ export function BANTOverride({
               Total: <span className="font-semibold">{invalid ? "—" : total}</span>
               {!invalid && (
                 <span className="ml-2 text-xs text-neutral-500">
-                  {total >= 60 ? "→ Pending Assignment" : "→ Need Clarification"}
+                  {total >= 60 ? "→ Awaiting Assignment" : "→ Need Clarification"}
                 </span>
               )}
             </p>

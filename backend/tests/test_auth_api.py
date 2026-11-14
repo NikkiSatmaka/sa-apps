@@ -107,11 +107,11 @@ class TestDemoLogin:
 
     def test_demo_nonaktif_403(self, klien, monkeypatch):
         monkeypatch.setattr(settings, "DEMO_MODE", False)
-        resp = klien().post(f"{P}/demo-login", json={"role": "Admin"})
+        resp = klien().post(f"{P}/demo-login", json={"role": "Sales"})
         assert resp.status_code == 403
         assert "Demo mode tidak aktif" in resp.json()["message"]
 
-    @pytest.mark.parametrize("role", ["Sales", "Product", "SA", "Lead_SA", "Admin"])
+    @pytest.mark.parametrize("role", ["Sales", "Product", "SA", "Lead_SA"])
     def test_produksi_memblok_demo_untuk_semua_peran(self, klien, monkeypatch, role):
         """Hard block: ENVIRONMENT=production menolak demo login meski DEMO_MODE=true."""
         monkeypatch.setattr(settings, "DEMO_MODE", True)
@@ -135,8 +135,6 @@ class TestDemoLogin:
             ("Product", "demo-product@portal-sa.local", "Product", False),
             ("SA", "demo-sa@portal-sa.local", "SA", False),
             ("Lead_SA", "demo-lead@portal-sa.local", "Lead_SA", False),
-            # Persona "Admin" = Lead_SA dengan flag admin.
-            ("Admin", "demo-admin@portal-sa.local", "Lead_SA", True),
         ],
     )
     def test_user_demo_baru_dibuat_dengan_id_deterministik_dan_token_valid(
@@ -165,9 +163,9 @@ class TestDemoLogin:
 
     def test_user_demo_existing_tidak_dibuat_ulang(self, klien, monkeypatch):
         monkeypatch.setattr(settings, "DEMO_MODE", True)
-        ada = user_palsu("SA", is_admin=True, email="demo-admin@portal-sa.local")
+        ada = user_palsu("SA", email="demo-sa@portal-sa.local")
         db = SesiPalsu(ada)
-        resp = klien(db).post(f"{P}/demo-login", json={"role": "Admin"})
+        resp = klien(db).post(f"{P}/demo-login", json={"role": "SA"})
         assert resp.status_code == 200
         assert resp.json()["user"]["id"] == str(ada.id)
         assert len(db.ditambahkan) == 1 and db.jumlah_commit == 1

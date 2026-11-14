@@ -10,6 +10,7 @@ from app.models.notification_log import NotificationLog
 from app.models.project import Project
 from app.models.project_assignment import ProjectAssignment
 from app.models.project_collaborator import ProjectCollaborator
+from app.models.project_comment import ProjectComment
 from app.models.sla_tracking import SLATracking
 from app.models.source_document import SourceDocument
 from app.models.subtask import Subtask
@@ -20,6 +21,7 @@ __all__ = [
     "Project",
     "ProjectAssignment",
     "ProjectCollaborator",
+    "ProjectComment",
     "Subtask",
     "Document",
     "ActivityLog",

@@ -130,7 +130,8 @@ export function makeProjectDetail(overrides: Record<string, unknown> = {}) {
     id_project: "22222222-2222-4222-8222-222222222222",
     project_name: "Migrasi DWH",
     customer_name: "PT Contoh",
-    status: "Need Clarification",
+    status: "Intake",
+    qualification_state: "Need Clarification",
     dq_number: "DQ-2025-001",
     target_submit: "2025-12-31",
     bant_detail: null,
@@ -143,7 +144,8 @@ export function makeProjectDetail(overrides: Record<string, unknown> = {}) {
 /** Proyek legacy (dibuat sebelum kuesioner): hanya metadata BANT lama. */
 export function makeLegacyProjectDetail(overrides: Record<string, unknown> = {}) {
   return makeProjectDetail({
-    status: "Pending Assignment",
+    status: "Awaiting Assignment",
+    qualification_state: "Qualified",
     bant_detail: {
       budget_mrr: 25000000,
       pic_name: "Siti",

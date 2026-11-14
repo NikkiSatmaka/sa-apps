@@ -9,8 +9,8 @@ function useProjects() {
     http.get(api("/projects"), () =>
       HttpResponse.json(
         successEnvelope([
-          makeProject({ id_project: "p-1", project_name: "Migrasi Cloud", status: "New" }),
-          makeProject({ id_project: "p-2", project_name: "Rollout Jaringan", status: "Handover Complete" }),
+          makeProject({ id_project: "p-1", project_name: "Migrasi Cloud", status: "Intake" }),
+          makeProject({ id_project: "p-2", project_name: "Rollout Jaringan", status: "Handed Over" }),
         ])
       )
     )
@@ -58,7 +58,7 @@ describe("ActivityLogsPage", () => {
   });
 
   it("error memuat proyek: pesan error menggantikan form (daftar proyek kosong tak berguna), coba lagi memuat ulang", async () => {
-    server.use(gagalLaluBerhasil("/projects", [makeProject({ id_project: "p-1", project_name: "Migrasi Cloud", status: "New" })]));
+    server.use(gagalLaluBerhasil("/projects", [makeProject({ id_project: "p-1", project_name: "Migrasi Cloud", status: "Intake" })]));
     const { user } = renderWithProviders(<ActivityLogsPage />, { role: "SA" });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat daftar proyek.");

@@ -46,7 +46,7 @@ describe("Dashboard SA", () => {
   it("berisi: kartu menampilkan status, progres dokumen, tanggal, dan menandai total ringkasan", async () => {
     projects([
       makeSAProject({ project_name: "Proyek A", customer_name: "PT A", doc_final_count: 2, doc_total_count: 4 }),
-      makeSAProject({ id_project: "p2", project_name: "Proyek B", customer_name: "PT B", doc_final_count: 3, doc_total_count: 3, status: "Ready" }),
+      makeSAProject({ id_project: "p2", project_name: "Proyek B", customer_name: "PT B", doc_final_count: 3, doc_total_count: 3, status: "Submitted" }),
       makeSAProject({ id_project: "p3", project_name: "Proyek C", customer_name: "PT C", doc_final_count: 0, doc_total_count: 0, status: "Lost" }),
     ]);
     renderWithProviders(<SADashboard />, { role: "SA" });
@@ -98,7 +98,7 @@ describe("Dashboard SA", () => {
 
   it("warna badge status mengikuti status proyek", async () => {
     projects(
-      ["Assigned", "Ready", "Closed-Win", "Handover Complete", "Lost", "Lainnya"].map((status, i) =>
+      ["Assigned", "Submitted", "Won", "Handed Over", "Lost", "Lainnya"].map((status, i) =>
         makeSAProject({ id_project: `p${i}`, project_name: `P${i}`, customer_name: "C", status }),
       ),
     );
@@ -106,9 +106,9 @@ describe("Dashboard SA", () => {
     await screen.findByRole("article", { name: "Proyek P0 - C" });
     const warna = (i: number, teks: string) =>
       within(screen.getByRole("article", { name: `Proyek P${i} - C` })).getByText(teks).className;
-    expect(warna(1, "Ready")).toContain("bg-green-100");
-    expect(warna(2, "Closed-Win")).toContain("bg-emerald-100");
-    expect(warna(3, "Handover Complete")).toContain("bg-teal-100");
+    expect(warna(1, "Submitted")).toContain("bg-green-100");
+    expect(warna(2, "Won")).toContain("bg-emerald-100");
+    expect(warna(3, "Handed Over")).toContain("bg-teal-100");
     expect(warna(4, "Lost")).toContain("bg-red-100");
     expect(warna(5, "Lainnya")).toContain("bg-neutral-100");
   });

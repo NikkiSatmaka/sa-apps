@@ -6,7 +6,7 @@ import ProjectsPage from "./page";
 
 const proyek = [
   makeProject({ id_project: "id-aaa", project_name: "Alfa Cloud", customer_name: "PT Satu", status: "Assigned", dq_number: "DQ-1" }),
-  makeProject({ id_project: "id-bbb", project_name: "Beta Security", customer_name: "PT Dua", status: "New", dq_number: null }),
+  makeProject({ id_project: "id-bbb", project_name: "Beta Security", customer_name: "PT Dua", status: "Intake", dq_number: null }),
   makeProject({ id_project: "id-ccc", project_name: "Gamma Data", customer_name: "Satu Sejahtera", status: "Lost", dq_number: null }),
 ];
 
@@ -170,6 +170,33 @@ describe("Daftar proyek — filter", () => {
     expect(within(kartuB).getByText("Menunggu DQ")).toBeInTheDocument();
   });
 
+  it("kartu Intake menampilkan qualification_state; di luar Intake tidak", async () => {
+    serve([
+      makeProject({ id_project: "i1", project_name: "Intake Satu", status: "Intake", qualification_state: "Need Clarification" }),
+      makeProject({ id_project: "i2", project_name: "Sudah Lolos", status: "Awaiting Assignment", qualification_state: "Qualified" }),
+    ]);
+    setup("Lead_SA");
+    const kartu = await screen.findByRole("button", { name: "Proyek Intake Satu - PT Contoh" });
+    expect(within(kartu).getByText("Need Clarification")).toBeInTheDocument();
+    const lolos = screen.getByRole("button", { name: "Proyek Sudah Lolos - PT Contoh" });
+    expect(within(lolos).queryByText("Qualified")).not.toBeInTheDocument();
+  });
+
+  it.each(["In Progress", "Submitted", "Won", "Handed Over", "Closed", "On Hold"])(
+    "filter status %s menyaring ke proyek berstatus itu",
+    async (status) => {
+      serve([
+        makeProject({ id_project: "x1", project_name: "Cocok", status }),
+        makeProject({ id_project: "x2", project_name: "Beda", status: "Assigned" }),
+      ]);
+      const { user } = setup("Lead_SA");
+      await screen.findByText("Cocok");
+      await user.selectOptions(screen.getByRole("combobox"), status);
+      expect(screen.getByText("Cocok")).toBeInTheDocument();
+      expect(screen.queryByText("Beda")).not.toBeInTheDocument();
+    },
+  );
+
   it("klik kartu menavigasi ke detail proyek", async () => {
     serve();
     const { user } = setup("Lead_SA");
@@ -194,8 +221,8 @@ describe("Daftar proyek — filter", () => {
     await screen.findByText("Alfa Cloud");
     const opsi = within(screen.getByRole("combobox")).getAllByRole("option").map((o) => o.textContent);
     expect(opsi).toEqual([
-      "Semua Status", "New", "Pending Assignment", "Assigned", "Ready",
-      "Closed-Win", "Handover Complete", "Need Clarification", "Lost",
+      "Semua Status", "Intake", "Awaiting Assignment", "Assigned", "In Progress", "Submitted",
+      "Won", "Handed Over", "Closed", "Lost", "On Hold",
     ]);
   });
 

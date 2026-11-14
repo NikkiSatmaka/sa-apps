@@ -395,7 +395,7 @@ describe("NewProjectPage — pengiriman", () => {
   it("skor lolos (>= 60): menampilkan hasil BANT, sub-skor, status, feedback, dan tombol ke detail", async () => {
     useSchema();
     capturePost(() =>
-      created({ status: "Pending Assignment", bant_score: 72, sub_scores: { budget: 20, authority: 18, need: 17, timeline: 17 }, scoring_triggered: false, feedback: "Bagus sekali" }),
+      created({ status: "Awaiting Assignment", bant_score: 72, sub_scores: { budget: 20, authority: 18, need: 17, timeline: 17 }, scoring_triggered: false, feedback: "Bagus sekali" }),
     );
     const user = setup();
     await isiLangkah1(user);
@@ -408,7 +408,7 @@ describe("NewProjectPage — pengiriman", () => {
     expect(screen.getByText("Lolos Threshold — Masuk Antrian Assignment")).toBeInTheDocument();
     expect(screen.getByText("72")).toBeInTheDocument();
     expect(screen.getByText("20")).toBeInTheDocument();
-    expect(screen.getByText("Pending Assignment")).toBeInTheDocument();
+    expect(screen.getByText("Awaiting Assignment")).toBeInTheDocument();
     expect(screen.getByText("Bagus sekali")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Proyek masuk antrian assignment");
     await user.click(screen.getByRole("button", { name: "Lihat Detail Proyek" }));
@@ -430,9 +430,9 @@ describe("NewProjectPage — pengiriman", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Perlu klarifikasi tambahan");
   });
 
-  it("skor tersedia tanpa rincian sub-skor, Pending Assignment: toast sukses + layar 'terkirim' dengan tautan ke detail; form tidak bisa dikirim lagi (#83)", async () => {
+  it("skor tersedia tanpa rincian sub-skor, Awaiting Assignment: toast sukses + layar 'terkirim' dengan tautan ke detail; form tidak bisa dikirim lagi (#83)", async () => {
     useSchema();
-    capturePost(() => created({ status: "Pending Assignment", bant_score: 65, sub_scores: null, scoring_triggered: false }));
+    capturePost(() => created({ status: "Awaiting Assignment", bant_score: 65, sub_scores: null, scoring_triggered: false }));
     const user = setup();
     await isiLangkah1(user);
     await lanjut(user);
@@ -469,7 +469,7 @@ describe("NewProjectPage — pengiriman", () => {
 
   it("dengan file (scoring berjalan): selama jeda sebelum redirect, form sudah tidak bisa dikirim ulang (#83)", async () => {
     useSchema();
-    capturePost(() => created({ scoring_triggered: true, bant_score: null, sub_scores: null, status: "Scoring Pending" }));
+    capturePost(() => created({ scoring_triggered: true, bant_score: null, sub_scores: null, status: "Intake", qualification_state: "Scoring" }));
     const user = setup({ fake: true });
     await isiLangkah1(user);
     await lanjut(user);
@@ -483,7 +483,7 @@ describe("NewProjectPage — pengiriman", () => {
 
   it("timer redirect dibersihkan saat unmount: berpindah halaman sebelum 2 detik tidak memicu router.push (#83)", async () => {
     useSchema();
-    capturePost(() => created({ scoring_triggered: true, bant_score: null, sub_scores: null, status: "Scoring Pending" }));
+    capturePost(() => created({ scoring_triggered: true, bant_score: null, sub_scores: null, status: "Intake", qualification_state: "Scoring" }));
     useOrang();
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
@@ -502,7 +502,7 @@ describe("NewProjectPage — pengiriman", () => {
 
   it("dengan file (analisis AI berjalan): toast sukses lalu diarahkan ke detail setelah 2 detik; toast hilang setelah 3 detik", async () => {
     useSchema();
-    capturePost(() => created({ scoring_triggered: true, bant_score: null, sub_scores: null, status: "Scoring Pending" }));
+    capturePost(() => created({ scoring_triggered: true, bant_score: null, sub_scores: null, status: "Intake", qualification_state: "Scoring" }));
     const user = setup({ fake: true });
     await isiLangkah1(user);
     await lanjut(user);

@@ -81,7 +81,7 @@ describe("createProject", () => {
 
 describe("getBANTResult", () => {
   it("mengembalikan hasil BANT", async () => {
-    await expect(getBANTResult("p1")).resolves.toMatchObject({ bant_score: 80, status: "Pending Assignment" });
+    await expect(getBANTResult("p1")).resolves.toMatchObject({ bant_score: 80, status: "Awaiting Assignment" });
   });
 
   it("404 berarti belum ada hasil → null", async () => {
@@ -129,7 +129,7 @@ describe("updateQualificationAnswers", () => {
       http.put(api("/projects/:id/qualification-answers"), async ({ request }) => {
         body = await request.json();
         method = request.method;
-        return HttpResponse.json(successEnvelope({ total_score: 90, status: "Pending Assignment", rescored: true }));
+        return HttpResponse.json(successEnvelope({ total_score: 90, status: "Awaiting Assignment", rescored: true }));
       })
     );
     const res = await updateQualificationAnswers("p1", schema, { budget_range: " 100 juta ", jumlah: "12", catatan: "" });

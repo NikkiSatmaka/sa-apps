@@ -5,8 +5,8 @@ import { GCAL_EVENTS_URL } from "@/test/msw/handlers/operations";
 import { CalendarSync } from "./CalendarSync";
 
 const projects = [
-  { id: "p-1", project_name: "Migrasi Cloud", status: "New" },
-  { id: "p-2", project_name: "Rollout Jaringan", status: "Handover Complete" },
+  { id: "p-1", project_name: "Migrasi Cloud", status: "Intake" },
+  { id: "p-2", project_name: "Rollout Jaringan", status: "Handed Over" },
 ];
 
 // Hari "ini" tetap: Sabtu, 15 Maret 2025 (waktu lokal) agar grid/rentang deterministik.

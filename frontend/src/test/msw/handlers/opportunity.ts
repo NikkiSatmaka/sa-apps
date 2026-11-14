@@ -12,7 +12,7 @@ export const opportunityHandlers = [
   http.patch(api("/projects/:id"), () => HttpResponse.json(successEnvelope({ ok: true }))),
   http.put(api("/projects/:id/qualification-answers"), () =>
     HttpResponse.json(
-      successEnvelope({ total_score: 72, status: "Pending Assignment", feedback: null, rescored: true }),
+      successEnvelope({ total_score: 72, status: "Awaiting Assignment", feedback: null, rescored: true }),
     ),
   ),
 ];

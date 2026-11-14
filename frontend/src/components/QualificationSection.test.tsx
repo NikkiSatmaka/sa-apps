@@ -82,7 +82,7 @@ describe("QualificationSection", () => {
       expect(screen.queryByRole("note")).not.toBeInTheDocument();
     });
 
-    it("Scoring Pending: menampilkan pesan analisis berjalan dan menyembunyikan skor", async () => {
+    it("qualification_state Scoring: menampilkan pesan analisis berjalan dan menyembunyikan skor", async () => {
       useSchema();
       renderWithProviders(
         <QualificationSection
@@ -168,7 +168,7 @@ describe("QualificationSection", () => {
       expect(container).toBeEmptyDOMElement();
     });
 
-    it("Scoring Pending pada proyek tanpa data lama tetap menampilkan status analisis", () => {
+    it("qualification_state Scoring pada proyek tanpa data lama tetap menampilkan status analisis", () => {
       renderWithProviders(
         <QualificationSection
           qualification={makeQualificationView({ legacy: true, answers: null, scoring_pending: true })}

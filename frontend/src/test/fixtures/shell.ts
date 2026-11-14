@@ -9,7 +9,7 @@ export interface StatusCountItem {
 export function makeStatusSummary(): StatusCountItem[] {
   return [
     { status: "Assigned", count: 3 },
-    { status: "Ready", count: 2 },
+    { status: "Submitted", count: 2 },
   ];
 }
 
@@ -53,7 +53,7 @@ export function makePendingProject(overrides: Partial<PendingProject> = {}): Pen
     customer_name: "PT Antrian",
     bant_score: 80,
     use_case_tags: ["Cloud", "AI"],
-    status: "Pending Assignment",
+    status: "Awaiting Assignment",
     target_submit: "2025-12-31",
     gdrive_folder_id: null,
     folder_provisioning_status: "provisioned",
@@ -116,7 +116,7 @@ export function makeProjectUtilization() {
       id_project: "44444444-4444-4444-8444-444444444444",
       project_name: "Proyek Effort",
       customer_name: "PT Effort",
-      status: "Ready",
+      status: "Submitted",
       total_hours: 12,
       sa_personnel: [{ sa_id: "00000000-0000-4000-8000-000000000002", sa_name: "SA Demo", hours: 12 }],
     },

@@ -204,7 +204,7 @@ describe("Dashboard Lead SA — overview & utilisasi SA", () => {
 
     ok("/projects/status-summary", [
       { status: "Assigned", count: 3 },
-      { status: "Ready", count: 2 },
+      { status: "Submitted", count: 2 },
       { status: "Status Aneh", count: 1 },
     ]);
     renderWithProviders(<LeadSADashboard />, { role: "Lead_SA" });

@@ -30,7 +30,7 @@ export const libHandlers = [
       successEnvelope({
         total_score: 80,
         sub_scores: { budget: 20, authority: 20, need: 20, timeline: 20 },
-        status: "Pending Assignment",
+        status: "Awaiting Assignment",
       })
     )
   ),
@@ -73,11 +73,11 @@ export const libHandlers = [
         bant_score: 80,
         bant_detail: { budget: 20, authority: 20, need: 20, timeline: 20 },
         use_case_tags: ["cloud"],
-        status: "Pending Assignment",
+        status: "Awaiting Assignment",
       })
     )
   ),
   http.put(api("/projects/:id/qualification-answers"), () =>
-    HttpResponse.json(successEnvelope({ total_score: 70, status: "Pending Assignment", rescored: true }))
+    HttpResponse.json(successEnvelope({ total_score: 70, status: "Awaiting Assignment", rescored: true }))
   ),
 ];

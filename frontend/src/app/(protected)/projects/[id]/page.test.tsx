@@ -4,6 +4,7 @@ import {
   api, errorEnvelope, gagalLaluBerhasil, http, HttpResponse, renderWithProviders, router, server, setParams, stubLocation,
   successEnvelope, type Role,
 } from "@/test";
+import { makeHandoverReadiness } from "@/test/fixtures/operations";
 import { DETAIL_ID, makeProjectDetail, makeSourceDoc, makeStoryItem } from "@/test/fixtures/project-detail";
 import ProjectDetailPage from "./page";
 
@@ -462,7 +463,7 @@ describe("Detail proyek — handover Won", () => {
   function serveHandover(status: Record<string, unknown>) {
     server.use(
       http.get(api(`/projects/${DETAIL_ID}/handover-status`), () =>
-        HttpResponse.json(successEnvelope({ is_ready: true, has_hld_final: true, is_closed_win: true, pmo_email: null, delivery_email: null, ...status })),
+        HttpResponse.json(successEnvelope(makeHandoverReadiness({ pmo_email: null, delivery_email: null, ...status }))),
       ),
     );
   }
@@ -512,9 +513,7 @@ describe("Detail proyek — handover Won", () => {
 
   it("handover-status gagal dimuat: pesan error di bagian Handover (form konfigurasi tidak hilang diam-diam), coba lagi memuat ulang", async () => {
     server.use(
-      gagalLaluBerhasil(`/projects/${DETAIL_ID}/handover-status`, {
-        is_ready: true, has_hld_final: true, is_closed_win: true, pmo_email: null, delivery_email: null,
-      }),
+      gagalLaluBerhasil(`/projects/${DETAIL_ID}/handover-status`, makeHandoverReadiness({ pmo_email: null, delivery_email: null })),
     );
     const { user } = setup("Lead_SA", { status: "Won" });
 
@@ -525,6 +524,36 @@ describe("Detail proyek — handover Won", () => {
 
     expect(await screen.findByText("Stub config form pmo=- delivery=-")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("tombol Handover pada Won: sukses memuat ulang detail sehingga status menjadi Handed Over dan tombol hilang", async () => {
+    serveHandover({ pmo_email: "pmo@x", delivery_email: "d@x" });
+    let handedOver = false;
+    server.use(
+      http.get(api(`/projects/${DETAIL_ID}`), () =>
+        HttpResponse.json(successEnvelope(makeProjectDetail({ status: handedOver ? "Handed Over" : "Won" }))),
+      ),
+      http.post(api(`/projects/${DETAIL_ID}/handover`), () => {
+        handedOver = true;
+        return HttpResponse.json(successEnvelope({ new_status: "Handed Over" }));
+      }),
+    );
+    const { user } = renderWithProviders(<ProjectDetailPage />, { role: "Lead_SA" });
+    await user.click(await screen.findByRole("button", { name: "Handover" }));
+    const dialog = await screen.findByRole("dialog", { name: "Handover Proyek" });
+    const kirim = within(dialog).getByRole("button", { name: "Konfirmasi Handover" });
+    await waitFor(() => expect(kirim).toBeEnabled());
+    await user.click(kirim);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Handover" })).not.toBeInTheDocument());
+    expect(screen.queryByRole("dialog", { name: "Handover Proyek" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Handed Over").length).toBeGreaterThan(0);
+  });
+
+  it("Sales tidak melihat tombol Handover pada Won", async () => {
+    serveHandover({ pmo_email: "pmo@x", delivery_email: "d@x" });
+    setup("Sales", { status: "Won" });
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("button", { name: "Handover" })).not.toBeInTheDocument();
   });
 
   it("handover-status tidak diminta bila bukan Won", async () => {

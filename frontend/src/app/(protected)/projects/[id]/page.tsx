@@ -18,7 +18,8 @@ import { QualificationSection } from "@/components/QualificationSection";
 import type { QualificationView } from "@/lib/qualification";
 import { BANTOverride } from "@/components/BANTOverride";
 import { SourceDocumentSection, type SourceDocumentItem } from "@/components/SourceDocumentSection";
-import type { HandoverStatus } from "@/lib/api/handover";
+import type { HandoverReadiness } from "@/lib/api/handover";
+import { HandoverAction } from "@/components/HandoverAction";
 import { StatusActions } from "@/components/StatusActions";
 import { StatusBadge } from "@/components/StatusBadge";
 import { isPrivileged } from "@/lib/roles";
@@ -106,7 +107,7 @@ export default function ProjectDetailPage() {
     data: handoverStatus,
     error: handoverError,
     mutate: mutateHandoverStatus,
-  } = useSWR<HandoverStatus>(
+  } = useSWR<HandoverReadiness>(
     project?.status === "Won" ? `/projects/${projectId}/handover-status` : null,
     fetcher
   );
@@ -228,6 +229,7 @@ export default function ProjectDetailPage() {
 
           {/* Aksi status (spec §2.0): tombol hanya tampil bila peran berhak */}
           <StatusActions project={project} onChanged={() => mutateProject()} />
+          <HandoverAction project={project} onDone={() => mutateProject()} />
 
           {/* Section: PIC & Info Utama */}
           <div className="bg-white border border-neutral-200 rounded-lg p-5">

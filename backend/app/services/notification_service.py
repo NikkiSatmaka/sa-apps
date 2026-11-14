@@ -60,6 +60,7 @@ class NotificationEventType(str, Enum):
     SLA_ESCALATION = "sla_escalation"  # H+5 eskalasi ke Lead SA dan Admin
     HANDOVER = "handover"  # Handover ke PMO/Delivery
     DOC_READY = "doc_ready"  # Dokumen siap review
+    KOMENTAR = "komentar"  # Komentar baru di thread proyek (#125)
 
 
 @dataclass
@@ -598,6 +599,7 @@ class NotificationService:
             NotificationEventType.SLA_ESCALATION: "[Portal SA] ESKALASI: DQ Number melewati batas",
             NotificationEventType.HANDOVER: "[Portal SA] Handover proyek ke tim Delivery",
             NotificationEventType.DOC_READY: "[Portal SA] Dokumen siap untuk review",
+            NotificationEventType.KOMENTAR: "[Portal SA] Komentar baru di proyek",
         }
         return subjects.get(event_type, "[Portal SA] Notifikasi baru")
 

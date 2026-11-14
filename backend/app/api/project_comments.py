@@ -28,6 +28,7 @@ from app.schemas.project_comment import (
     KomentarResponse,
 )
 from app.schemas.response import success_response
+from app.services.komentar import kirim_notifikasi_komentar
 from app.services.status_proyek import pastikan_proyek_bisa_ditulis
 
 logger = logging.getLogger(__name__)
@@ -126,4 +127,6 @@ async def tulis_komentar(
     await db.refresh(komentar)
 
     logger.info(f"Komentar {komentar.id_comment} ditulis di {project_id} oleh {current_user.email}")
-    return success_response(data=_respons(komentar, current_user), message="Komentar ditambahkan.")
+    data = _respons(komentar, current_user)
+    await kirim_notifikasi_komentar(db, proyek, current_user, komentar.body)
+    return success_response(data=data, message="Komentar ditambahkan.")

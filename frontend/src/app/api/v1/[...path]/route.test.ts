@@ -144,7 +144,7 @@ describe("proxy — auth/callback", () => {
   it("tidak pernah menaruh token di header Location", async () => {
     server.use(http.get(`${BACKEND}/auth/callback`, () => HttpResponse.json({ user, tokens })));
     const res = await callback();
-    expect(res.headers.get("location")).not.toMatch(/AT\.secret|RT\.secret/);
+    expect(res.headers.get("location") ?? "").not.toMatch(/AT\.secret|RT\.secret/);
   });
 
   it("calendar flow: 3xx + Location backend diteruskan apa adanya", async () => {
@@ -157,6 +157,17 @@ describe("proxy — auth/callback", () => {
     const res = await callback();
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toBe("http://localhost:3000/#gcal_token=g");
+  });
+
+  it("callback menolak Location yang memuat Google access token mentah", async () => {
+    server.use(
+      http.get(`${BACKEND}/auth/callback`, () => new HttpResponse(null, {
+        status: 302,
+        headers: { Location: "http://localhost:3000/activity-logs/calendar#gcal_token=SECRET" },
+      })),
+    );
+    const res = await callback();
+    expect(res.headers.get("location")).not.toContain("SECRET");
   });
 
   it("3xx tanpa Location jatuh ke cabang error → /login?error=auth_failed", async () => {
@@ -247,7 +258,7 @@ describe("proxy — tidak membocorkan rahasia ke log server (#80)", () => {
 
     const res = await callback();
 
-    expect(res.headers.get("location")).not.toMatch(/AT-RAHASIA|RT-RAHASIA/);
+    expect(res.headers.get("location") ?? "").not.toMatch(/AT-RAHASIA|RT-RAHASIA/);
     expect(keluaran()).not.toMatch(/AT-RAHASIA|RT-RAHASIA/);
   });
 

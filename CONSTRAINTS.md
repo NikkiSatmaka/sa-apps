@@ -27,6 +27,43 @@ semua contributor, termasuk agen AI. Konteks: spec induk #49.
   peringatan di Summary (`frontend/scripts/cakupan-ringkasan.mjs`), tidak memblok
   sendirian. Baseline saat gerbang dihidupkan: baris 99,6%, cabang 95,4%.
 
+### Gerbang cakupan diff (baris yang diubah PR, tiket #98)
+
+| Metrik | Ambang minimum | Berlaku untuk |
+| ------ | -------------- | ------------- |
+| Baris yang diubah/ditambah | **≥ 90%** | backend dan frontend |
+| Cabang pada baris yang diubah | **≥ 80%** | backend saja (lihat batasan di bawah) |
+
+- Ditegakkan oleh job CI `Gerbang cakupan diff (baris yang diubah)` (id `cakupan-diff`,
+  hanya pada `pull_request`), lewat `backend/scripts/gerbang_cakupan_diff.py` di atas
+  `diff-cover`. Yang dinilai hanya baris yang berubah terhadap merge-base dengan branch
+  dasar PR. Ambang memakai konstanta yang sama dengan gerbang total
+  (`AMBANG_BARIS`/`AMBANG_CABANG` di `cakupan_gerbang.py`), jadi ikut dijaga gerbang
+  anti-pelemahan. Gerbang ini menambah, bukan mengganti, gerbang total.
+- Backend memakai `coverage.xml` gabungan unit + integrasi; frontend memakai
+  `coverage/lcov.info` Vitest. Berkas yang dikecualikan sama dengan bagian 3, karena
+  laporan cakupan sudah tidak memuatnya.
+- **Batasan cabang**: `diff-cover` berbasis baris. Angka "cabang" backend memakai mode
+  `--branch-coverage`: persentase baris yang diubah yang dieksekusi **dan** tidak memuat
+  cabang parsial. Itu bukan rasio cabang murni, tetapi tidak pernah lebih longgar dari
+  cakupan baris. Untuk lcov (frontend) `diff-cover` tidak mendukung mode cabang, jadi
+  cabang frontend pada diff **tidak dinilai** dan Summary menuliskan "tidak didukung".
+  Cabang frontend tetap dijaga gerbang total.
+- **Dilewati otomatis berdasarkan path**: sisi yang tidak punya perubahan kode produk
+  tidak dinilai dan tidak butuh laporan. Kode produk = `backend/app/**/*.py` dan
+  `frontend/src/**/*.{ts,tsx}` selain `*.test.{ts,tsx}`, `src/test/**`, dan `*.d.ts`.
+  PR yang hanya mengubah dokumentasi, konfigurasi, CI, atau test lolos dengan pesan
+  "gerbang dilewati".
+- **Label pengecualian `cakupan-dikecualikan`**: melewati gerbang diff saja; gerbang
+  total dan gerbang anti-pelemahan tetap berlaku. Label hanya boleh dipasang oleh pemilik
+  produk sesuai bagian 4 (alasan dan batas waktu tertulis di PR). Label dibaca saat job
+  berjalan, jadi setelah label dipasang cukup jalankan ulang (Re-run) job itu.
+- Job ini wajib dijadikan **required status check** di ruleset `Core` oleh pemilik
+  repository.
+- Diff coverage hanya membuktikan baris baru **dieksekusi** test, bukan bahwa test ditulis
+  lebih dulu atau assertion-nya benar. Urutan test-first dan kualitas assertion tetap
+  lewat review dan checklist PR.
+
 ## 2. Aturan anti-pelemahan
 
 Dilarang, tanpa pengecualian prosedural (bagian 4):
@@ -56,10 +93,10 @@ Catatan penegakan aturan 1, 2, dan 4: ditegakkan mekanis oleh job CI `gerbang-pe
 `uv run python scripts/gerbang_pelemahan.py --base origin/main`. Aturan 3 (melemahkan
 assertion) tetap review manual.
 
-Catatan penegakan: gerbang cakupan (bagian 1) hanya memeriksa angka **total**, sehingga
-kode tak teruji dalam jumlah kecil bisa lolos tanpa terdeteksi. Aturan 7 karenanya
-ditegakkan lewat checklist di template PR dan review sampai gerbang per-perubahan
-(cakupan pada baris yang diubah) tersedia.
+Catatan penegakan aturan 7: gerbang cakupan diff (bagian 1, tiket #98) memblok PR yang
+menambah baris kode produk tak teruji, walau angka total tetap di atas ambang. Urutan
+test-first (test merah lebih dulu) dan mutu assertion tetap ditegakkan lewat checklist
+template PR dan review.
 
 Test menegaskan **perilaku eksternal** (respons API, status akhir, baris tersimpan,
 panggilan ke fake, invarian), bukan urutan panggilan internal.
@@ -146,5 +183,25 @@ GERBANG CAKUPAN GAGAL — ambang dilanggar:
   yang belum teruji; `coverage/index.html` (artifact `cakupan-frontend`) menampilkan
   cabang per berkas. Tambahkan test perilaku; dilarang menurunkan ambang atau menambah
   `exclude`. Test yang gagal juga membuat langkah ini merah, terlepas dari cakupan.
+- Gerbang cakupan diff: job `Gerbang cakupan diff (baris yang diubah)` mencetak, mis.
+
+  ```
+  GERBANG CAKUPAN DIFF GAGAL:
+    - backend: cakupan BARIS pada baris yang diubah 25.00% < 90% (3 dari 4 baris tak dieksekusi)
+    - backend: cakupan CABANG pada baris yang diubah 25.00% < 80% (...)
+    backend: 4 baris terukur, baris 25.00%, cabang 25.00%
+      backend/app/core/status.py: 75-77
+  ```
+
+  Baris berinden terdalam = berkas dan nomor baris (di versi PR) yang diubah tetapi belum
+  dieksekusi test (backend: termasuk baris dengan cabang parsial). Tabel yang sama ada di
+  tab **Summary**. Tambahkan test perilaku untuk baris itu; dilarang menambah
+  `pragma`/`exclude` atau meminta label tanpa persetujuan (bagian 4). Pesan "laporan
+  cakupan backend/frontend tidak ditemukan" = job sumber (`Backend — ringkasan cakupan
+  gabungan` atau `Frontend — ...`) gagal sebelum menghasilkan laporan; perbaiki job itu.
+  Lokal: `mise run verify-backend -- --full` dan `mise run verify-frontend -- --full`
+  menjalankan gerbang yang sama terhadap `origin/main` (ubah dengan `DIFF_BASE=<ref>`;
+  `git fetch origin` dulu). Lokal, perubahan yang belum di-commit dan berkas untracked
+  ikut dinilai.
 - Pesan "Data cakupan unit atau integrasi tidak lengkap" = job unit/integrasi gagal
   lebih dulu; perbaiki job itu, gerbang akan mengikuti.

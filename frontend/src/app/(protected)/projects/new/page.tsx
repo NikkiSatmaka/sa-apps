@@ -332,9 +332,11 @@ export default function NewProjectPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form, answers, schema, validFiles, router, showToast, perluPilihProduct, bolehPilihSales]);
 
-  // Scoring berjalan (ada file): arahkan ke detail proyek setelah 2 detik. Timer dibersihkan saat
-  // unmount agar berpindah halaman lebih dulu tidak memicu navigasi paksa.
-  const redirectProjectId = createdProject?.scoring_triggered ? createdProject.id_project : null;
+  // Proyek sudah dibuat dan tidak ada layar hasil BANT (scoring berjalan, atau skor tanpa sub-skor):
+  // arahkan ke detail proyek setelah 2 detik. Timer dibersihkan saat unmount agar berpindah halaman
+  // lebih dulu tidak memicu navigasi paksa.
+  const adaLayarHasilBant = createdProject?.bant_score != null && !!createdProject.sub_scores;
+  const redirectProjectId = createdProject && !adaLayarHasilBant ? createdProject.id_project : null;
   useEffect(() => {
     if (!redirectProjectId) return;
     const timer = setTimeout(() => router.push(`/projects/${redirectProjectId}`), 2000);
@@ -788,8 +790,8 @@ function ProjectCreatedNotice({
   const detail = result.scoring_triggered
     ? "File sedang dianalisis AI untuk scoring. Anda akan diarahkan ke detail proyek."
     : result.status === "Awaiting Assignment"
-      ? `BANT Score ${result.bant_score} — proyek masuk antrian assignment.`
-      : `BANT Score ${result.bant_score} — perlu klarifikasi tambahan.`;
+      ? `BANT Score ${result.bant_score} — proyek masuk antrian assignment. Anda akan diarahkan ke detail proyek.`
+      : `BANT Score ${result.bant_score} — perlu klarifikasi tambahan. Anda akan diarahkan ke detail proyek.`;
 
   return (
     <div className="space-y-4 rounded-lg border border-neutral-200 bg-white p-8 text-center">

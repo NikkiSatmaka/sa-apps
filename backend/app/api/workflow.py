@@ -8,6 +8,10 @@ Workflow valid (ADR 0013):
   Won → Handed Over hanya lewat POST /projects/{id}/handover (bukan endpoint ini)
   Intake → Awaiting Assignment hanya oleh sistem (gate BANT), bukan endpoint ini
 
+  "On Hold" — Awaiting Assignment..Submitted, oleh Lead_SA/Admin/Sales PIC/Product PIC; timer SLA
+  berhenti. Lanjut = PATCH ke `previous_status`.
+  "Closed"/"Lost" → `previous_status` (buka kembali): hanya is_admin, `reason` wajib (#122)
+
 Status khusus:
   "Lost" — hanya Lead_SA/Admin, dari status manapun kecuali "Handed Over"; `reason` wajib
   dan disimpan ke `lost_reason`
@@ -259,7 +263,9 @@ async def _notify_mandatory_hld(project: Project, db: AsyncSession) -> None:
         "Mencatat perubahan di audit log. "
         "Hak per transisi (spec §2.0): Submitted/revisi oleh SA ditugaskan, Lead_SA, Admin; "
         "Won oleh Sales/Product PIC, Lead_SA, Admin; Lost dan Closed oleh Lead_SA/Admin "
-        "(Lost wajib `reason`). Assigned lewat penugasan dan Handed Over lewat handover."
+        "(Lost wajib `reason`). Jeda (On Hold) oleh Sales/Product PIC, Lead_SA, Admin; lanjut "
+        "hanya ke `previous_status`. Buka kembali Closed/Lost hanya Admin, `reason` wajib. "
+        "Assigned lewat penugasan dan Handed Over lewat handover."
     ),
 )
 async def update_project_status(

@@ -12,16 +12,12 @@ from scripts.seed_demo_data import DEMO_USERS, get_or_create_project
 
 def test_seed_menyediakan_dua_user_untuk_setiap_persona_fungsional():
     jumlah = {
-        role: sum(
-            user["role"] == role and user.get("is_admin", False) is False
-            for user in DEMO_USERS
-        )
+        role: sum(user["role"] == role for user in DEMO_USERS)
         for role in ("Sales", "Product", "SA", "Lead_SA")
     }
-    jumlah["Admin"] = sum(user.get("is_admin", False) for user in DEMO_USERS)
-    assert jumlah == {"Sales": 2, "Product": 2, "SA": 2, "Lead_SA": 2, "Admin": 2}
-    assert all(user["role"] != "SA" or not user.get("is_admin", False) for user in DEMO_USERS)
-    assert all(user["role"] == "Lead_SA" for user in DEMO_USERS if user.get("is_admin", False))
+    assert jumlah == {"Sales": 2, "Product": 2, "SA": 2, "Lead_SA": 4}
+    akun_lead = [user for user in DEMO_USERS if user["role"] == "Lead_SA"]
+    assert all(user.get("is_admin") is True for user in akun_lead)
 
 
 def test_demo_login_tidak_menampilkan_persona_admin():

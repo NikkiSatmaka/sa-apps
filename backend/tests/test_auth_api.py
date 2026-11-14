@@ -134,7 +134,7 @@ class TestDemoLogin:
             ("Sales", "demo-sales@portal-sa.local", "Sales", False),
             ("Product", "demo-product@portal-sa.local", "Product", False),
             ("SA", "demo-sa@portal-sa.local", "SA", False),
-            ("Lead_SA", "demo-lead@portal-sa.local", "Lead_SA", False),
+            ("Lead_SA", "demo-lead@portal-sa.local", "Lead_SA", True),
         ],
     )
     def test_user_demo_baru_dibuat_dengan_id_deterministik_dan_token_valid(

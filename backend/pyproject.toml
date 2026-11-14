@@ -27,6 +27,7 @@ dependencies = [
 # untuk build produksi. Tidak ikut ter-ship ke package.
 [dependency-groups]
 dev = [
+    "diff-cover==11.0.2",
     "hypothesis==6.170.15",
     "pytest==9.2.0",
     "pytest-asyncio==1.4.1.post1",

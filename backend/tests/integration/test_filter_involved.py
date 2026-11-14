@@ -52,7 +52,7 @@ async def test_involved_me_cocok_untuk_kolom_orang_di_project(api, db_session, r
     pembuat = await user_baru(db_session, "Product")
     dasar = {"created_by": pembuat.id, "product_pic": pembuat.id}
     dasar[kolom] = target.id
-    terlibat = bangun_project(None, **dasar)
+    terlibat = bangun_project(dasar.pop("sales_pic", None), **dasar)
     await simpan(db_session, terlibat)
     tak_terkait = await _proyek_orang_lain(db_session)
 

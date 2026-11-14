@@ -288,7 +288,7 @@ class TestNotificationLog:
         await simpan(db_session, user)
         await simpan(db_session, bangun_notifikasi(user.id, event_type=event))
 
-    @pytest.mark.parametrize("event", ["requirement_ready", "Assignment", "", "closed_win"])
+    @pytest.mark.parametrize("event", ["requirement_ready", "Assignment", "", "status_won"])
     async def test_event_type_tidak_valid_ditolak(self, db_session, event):
         user = bangun_user()
         await simpan(db_session, user)
@@ -382,10 +382,10 @@ class TestAuditLog:
         user = bangun_user()
         await simpan(db_session, user)
         a = bangun_audit(
-            user.id, action="status_change", old_value={"s": "New"}, new_value={"s": "Ready"}
+            user.id, action="status_change", old_value={"s": "Intake"}, new_value={"s": "Submitted"}
         )
         await simpan(db_session, a)
-        assert (a.old_value, a.new_value) == ({"s": "New"}, {"s": "Ready"})
+        assert (a.old_value, a.new_value) == ({"s": "Intake"}, {"s": "Submitted"})
 
     async def test_performed_by_null_diizinkan_untuk_aksi_otomatis_sistem(self, db_session):
         """#77: aksi otomatis (lock/unlock SLA) tidak punya pelaku; tidak ada user sistem."""

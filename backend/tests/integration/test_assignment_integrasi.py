@@ -191,7 +191,7 @@ async def test_assign_dua_kali_ditolak_tanpa_menggandakan_subtask_atau_timer(
     assert len(await daftar_notif(dunia.db, pid, "assignment")) == 1
 
 
-@pytest.mark.parametrize("status", ["Need Clarification", "Ready", "Closed-Win", "Lost"])
+@pytest.mark.parametrize("status", ["Intake", "Submitted", "Won", "Lost"])
 async def test_assign_hanya_untuk_pending_assignment(dunia, api, status):
     proyek = await dunia.buat_proyek(status=status)
 
@@ -219,7 +219,7 @@ async def test_assign_proyek_tidak_ada_404_dan_sa_tidak_ada_404(dunia, api):
     )
 
     assert tanpa_proyek.status_code == 404 and tanpa_sa.status_code == 404
-    assert (await ambil_proyek(dunia.db, proyek.id_project)).status == "Pending Assignment"
+    assert (await ambil_proyek(dunia.db, proyek.id_project)).status == "Awaiting Assignment"
 
 
 async def test_assign_lead_sa_diizinkan_sebagai_assigned_sa(dunia, api):
@@ -267,7 +267,7 @@ async def test_assign_target_bukan_sa_ditolak(dunia, api, target):
 
     assert resp.status_code == 400
     p = await ambil_proyek(dunia.db, proyek.id_project)
-    assert (p.status, p.assigned_sa) == ("Pending Assignment", None)
+    assert (p.status, p.assigned_sa) == ("Awaiting Assignment", None)
     assert await daftar_subtask(dunia.db, proyek.id_project) == []
 
 
@@ -299,7 +299,7 @@ async def test_assign_hak_akses_per_peran(dunia, api, monkeypatch, peran, diizin
         assert p.status == "Assigned"
     else:
         assert resp.status_code == 403
-        assert (p.status, p.assigned_sa) == ("Pending Assignment", None)
+        assert (p.status, p.assigned_sa) == ("Awaiting Assignment", None)
         assert await ambil_sla(dunia.db, proyek.id_project) is None
 
 
@@ -403,7 +403,7 @@ async def test_reassign_mengganti_sa_menotifikasi_sa_baru_tanpa_duplikasi_timer_
     assert (await ambil_sla(dunia.db, pid)).started_at == started_at
 
 
-@pytest.mark.parametrize("status", ["Ready", "Assigned"])
+@pytest.mark.parametrize("status", ["Submitted", "Assigned"])
 async def test_reassign_diizinkan_pada_assigned_dan_ready(dunia, api, status):
     proyek = await dunia.buat_proyek(status=status, assigned_sa=dunia.sa.id, assigned_at=None)
 
@@ -439,7 +439,7 @@ async def test_reassign_pada_pending_assignment_menjadikan_assigned_dan_seed_sub
 async def test_reassign_dari_pending_assignment_memulai_timer_sla_dan_provisioning_folder(
     dunia, api, fake_drive, monkeypatch
 ):
-    """#77: reassign dari Pending Assignment setara assign: tracker SLA + folder Drive dibuat."""
+    """#77: reassign dari Awaiting Assignment setara assign: tracker SLA + folder Drive dibuat."""
     proyek = await dunia.buat_proyek()
     pid = proyek.id_project
     tugas = rekam_background(monkeypatch)
@@ -570,7 +570,7 @@ async def test_reassign_sla_melanjutkan_hitungan_dan_subtask_tidak_dipindahkan(
 
 
 @pytest.mark.parametrize(
-    "status", ["Closed-Win", "Handover Complete", "Lost", "Need Clarification"]
+    "status", ["Won", "Handed Over", "Lost", "Intake"]
 )
 async def test_reassign_status_tidak_valid_ditolak(dunia, api, status):
     proyek = await dunia.buat_proyek(status=status, assigned_sa=dunia.sa.id)

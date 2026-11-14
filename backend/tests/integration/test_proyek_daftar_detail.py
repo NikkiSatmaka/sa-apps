@@ -1,7 +1,7 @@
 # ruff: noqa: F811  -- fixture bersama diimpor lalu dipakai sebagai argumen (pola pytest)
 """
 Integrasi (Postgres nyata): daftar proyek per peran, ringkasan status, detail proyek
-(qualification view baru/legacy/Scoring Pending), dan soft delete (tiket B8 #61).
+(qualification view baru/legacy/qualification_state Scoring), dan soft delete (tiket B8 #61).
 """
 
 import pytest
@@ -38,11 +38,13 @@ async def dunia(api, db_session):
     sa2 = await user_baru(db_session, "SA")
     lead = await user_baru(db_session, "Lead_SA")
     admin = await user_baru(db_session, "Admin")
-    a1 = bangun_project(sales_a.id, id_project="PRJ-A1", status="Need Clarification", bant_score=20)
+    a1 = bangun_project(sales_a.id, id_project="PRJ-A1", status="Intake",
+        qualification_state="Need Clarification", bant_score=20,
+    )
     b1 = bangun_project(
         sales_b.id, id_project="PRJ-B1", status="Assigned", assigned_sa=sa1.id, bant_score=80
     )
-    b2 = bangun_project(sales_b.id, id_project="PRJ-B2", status="Pending Assignment", bant_score=70)
+    b2 = bangun_project(sales_b.id, id_project="PRJ-B2", status="Awaiting Assignment", bant_score=70)
     await simpan(db_session, a1, b1, b2)
     await jadikan_kolaborator(db_session, "PRJ-B2", sa2, lead)
     await db_session.commit()
@@ -112,9 +114,9 @@ async def test_status_summary_semua_peran_melihat_semua_proyek_dan_penyempit(dun
     c = dunia.api.client
     lead = (await c.get(f"{URL}/status-summary", headers=bearer(dunia.lead))).json()["data"]
     assert {s["status"]: s["count"] for s in lead} == {
-        "Need Clarification": 1,
+        "Intake": 1,
         "Assigned": 1,
-        "Pending Assignment": 1,
+        "Awaiting Assignment": 1,
     }
     for aktor in (dunia.sa2, dunia.sales_a):
         data = (await c.get(f"{URL}/status-summary", headers=bearer(aktor))).json()["data"]
@@ -202,13 +204,14 @@ async def test_detail_proyek_baru_menampilkan_jawaban_subskor_dan_feedback(api):
     assert data["bant_score"] == sum(q["sub_scores"].values())
 
 
-async def test_detail_scoring_pending_menyembunyikan_skor_sementara(api, db_session):
+async def test_detail_qualification_state_scoring_menyembunyikan_skor_sementara(api, db_session):
     sales = await api.login_demo("Sales")
     id_project = (await buat_proyek(api, sales, jawaban_kuat())).json()["data"]["id_project"]
     await set_status(
         db_session,
         id_project,
-        "Scoring Pending",
+        "Intake",
+        qualification_state="Scoring",
         bant_detail={
             "budget": 25,
             "authority": 25,
@@ -220,7 +223,7 @@ async def test_detail_scoring_pending_menyembunyikan_skor_sementara(api, db_sess
 
     data = (await api.client.get(f"{URL}/{id_project}", headers=sales)).json()["data"]
 
-    assert data["status"] == "Scoring Pending"
+    assert (data["status"], data["qualification_state"]) == ("Intake", "Scoring")
     assert data["bant_score"] is None
     assert data["bant_detail"] == {"catatan": "meta"}  # sub-skor numerik disembunyikan
     q = data["qualification"]
@@ -233,7 +236,7 @@ async def test_detail_proyek_legacy_menampilkan_legacy_data(api, db_session):
     sales = await user_baru(db_session, "Sales")
     legacy = bangun_project(
         sales.id,
-        status="Pending Assignment",
+        status="Awaiting Assignment",
         bant_score=65,
         bant_detail={
             "budget_mrr": 1000,
@@ -329,4 +332,4 @@ async def test_proyek_terhapus_tidak_muncul_di_ringkasan_status(dunia):
 
     ringkas = (await c.get(f"{URL}/status-summary", headers=h)).json()["data"]
 
-    assert "Need Clarification" not in {s["status"] for s in ringkas}
+    assert "Intake" not in {s["status"] for s in ringkas}

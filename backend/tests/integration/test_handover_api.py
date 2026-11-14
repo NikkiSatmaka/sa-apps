@@ -34,7 +34,7 @@ MASTER = "folder-master"
 async def _proyek_siap(db, dunia: Dunia, *, hld: str | None = "Final", **o) -> Project:
     """Proyek yang memenuhi SEMUA prasyarat handover (dapat dirusak per kasus lewat `o`)."""
     kw = {
-        "status": "Closed-Win",
+        "status": "Won",
         "pmo_lead_email": PMO,
         "delivery_lead_email": DELIVERY,
         "gdrive_folder_id": MASTER,
@@ -158,7 +158,7 @@ async def test_kesiapan_semua_prasyarat_terpenuhi(api, db_session):
         "missing_items": [],
         "pmo_email": PMO,
         "delivery_email": DELIVERY,
-        "project_status": "Closed-Win",
+        "project_status": "Won",
         "hld_status": "Final",
     }
 
@@ -166,7 +166,7 @@ async def test_kesiapan_semua_prasyarat_terpenuhi(api, db_session):
 @pytest.mark.parametrize(
     ("ubah", "hld", "potongan"),
     [
-        ({"status": "Ready"}, "Final", "Closed-Win"),
+        ({"status": "Submitted"}, "Final", "Won"),
         ({}, None, "HLD belum dibuat"),
         ({}, "Draft", "Final"),
         ({}, "Reviewed", "Final"),
@@ -260,7 +260,7 @@ async def test_handover_sukses_membuat_final_deliverables_dengan_permission_pmo_
 
     assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
-    assert (data["old_status"], data["new_status"]) == ("Closed-Win", "Handover Complete")
+    assert (data["old_status"], data["new_status"]) == ("Won", "Handed Over")
     assert (data["pmo_email"], data["delivery_email"]) == (PMO, DELIVERY)
     folder_id = data["final_deliverables_folder_id"]
     assert fake_drive.folder[folder_id] == {"name": "Final_Deliverables", "parent": SOLUTIONS}
@@ -269,7 +269,7 @@ async def test_handover_sukses_membuat_final_deliverables_dengan_permission_pmo_
     assert fake_drive.peran(folder_id, dunia.user["Sales"].email) is None
     assert data["documents_handed_over"] == ["HLD"]
     baris = await muat(db_session, Project, id_project=proyek.id_project)
-    assert baris.status == "Handover Complete"
+    assert baris.status == "Handed Over"
 
 
 async def test_handover_sukses_mencatat_audit_log_lengkap(api, db_session, fake_drive):
@@ -285,8 +285,8 @@ async def test_handover_sukses_mencatat_audit_log_lengkap(api, db_session, fake_
     )
     assert audit.entity_id == proyek.id_project
     assert audit.performed_by == dunia.user["Admin"].id
-    assert audit.old_value == {"status": "Closed-Win"}
-    assert audit.new_value["status"] == "Handover Complete"
+    assert audit.old_value == {"status": "Won"}
+    assert audit.new_value["status"] == "Handed Over"
     assert audit.new_value["pmo_lead_email"] == PMO
     assert audit.new_value["delivery_lead_email"] == DELIVERY
     assert (
@@ -361,7 +361,7 @@ async def test_handover_pmo_delivery_belum_terdaftar_di_portal_tetap_selesai(
     folder_id = resp.json()["data"]["final_deliverables_folder_id"]
     assert fake_drive.peran(folder_id, PMO) == "reader"
     assert (await muat(db_session, Project, id_project=proyek.id_project)).status == (
-        "Handover Complete"
+        "Handed Over"
     )
 
 
@@ -461,7 +461,7 @@ async def test_handover_kedua_kali_ditolak_karena_status_sudah_selesai(api, db_s
     ulang = await _trigger(api, proyek.id_project, dunia.header["Lead_SA"])
 
     assert ulang.status_code == 400
-    assert "Closed-Win" in ulang.json()["message"]
+    assert "Won" in ulang.json()["message"]
     assert len(fake_drive.panggilan_operasi("provision_handover")) == 1
 
 
@@ -475,7 +475,7 @@ async def test_handover_hld_final_di_antara_beberapa_dokumen_hld_berhasil(
     resp = await _trigger(api, proyek.id_project, dunia.header["Lead_SA"])
 
     assert resp.status_code == 200, resp.text
-    assert resp.json()["data"]["new_status"] == "Handover Complete"
+    assert resp.json()["data"]["new_status"] == "Handed Over"
 
 
 # --------------------------------------------------------------------------- trigger: prasyarat
@@ -484,8 +484,8 @@ async def test_handover_hld_final_di_antara_beberapa_dokumen_hld_berhasil(
 @pytest.mark.parametrize(
     ("ubah", "hld", "potongan"),
     [
-        ({"status": "Ready"}, "Final", "Closed-Win"),
-        ({"status": "Lost"}, "Final", "Closed-Win"),
+        ({"status": "Submitted"}, "Final", "Won"),
+        ({"status": "Lost"}, "Final", "Won"),
         ({}, None, "HLD"),
         ({}, "Draft", "HLD"),
         ({}, "Reviewed", "HLD"),
@@ -532,7 +532,7 @@ async def test_handover_dapat_dipicu_lead_sa_admin_dan_sa_yang_ditugaskan(
 
     assert resp.status_code == 200, resp.text
     assert (await muat(db_session, Project, id_project=proyek.id_project)).status == (
-        "Handover Complete"
+        "Handed Over"
     )
 
 
@@ -571,7 +571,7 @@ async def test_handover_drive_gagal_status_tetap_dan_sa_serta_lead_sa_diberitahu
     assert "Status proyek tidak berubah" in resp.json()["message"]
     assert "Handover Failed" not in resp.json()["message"]
     baris = await muat(db_session, Project, id_project=proyek.id_project)
-    assert baris.status == "Closed-Win"
+    assert baris.status == "Won"
     assert (
         await db_session.execute(select(AuditLog).where(AuditLog.action == "handover"))
     ).scalars().all() == []
@@ -612,7 +612,7 @@ async def test_handover_drive_pulih_setelah_gagal_sekali_dapat_dicoba_ulang(
 
     assert (gagal.status_code, berhasil.status_code) == (400, 200)
     assert (await muat(db_session, Project, id_project=proyek.id_project)).status == (
-        "Handover Complete"
+        "Handed Over"
     )
     assert [p.berhasil for p in fake_drive.panggilan_operasi("provision_handover")] == [
         False,

@@ -41,7 +41,7 @@ def _make_user(role: str = "Lead_SA", user_id: uuid.UUID | None = None):
     return user
 
 
-def _make_project(status_value: str = "Pending Assignment"):
+def _make_project(status_value: str = "Awaiting Assignment"):
     """Buat mock Project dengan field yang dipakai endpoint assignment."""
     project = MagicMock()
     project.id_project = "PRJ-20250101-ABC123"
@@ -197,7 +197,7 @@ class TestAssignmentWiresStartTimer:
         mock_sla_timer.start_timer = AsyncMock(return_value=MagicMock())
 
         lead = _make_user(role="Lead_SA")
-        project = _make_project(status_value="Pending Assignment")
+        project = _make_project(status_value="Awaiting Assignment")
         sa = _make_sa()
 
         mock_session = AsyncMock()
@@ -238,7 +238,7 @@ class TestAssignmentWiresStartTimer:
         mock_sla_timer.start_timer = AsyncMock(side_effect=RuntimeError("boom"))
 
         lead = _make_user(role="Lead_SA")
-        project = _make_project(status_value="Pending Assignment")
+        project = _make_project(status_value="Awaiting Assignment")
         sa = _make_sa()
 
         mock_session = AsyncMock()

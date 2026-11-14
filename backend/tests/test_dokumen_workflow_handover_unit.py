@@ -22,16 +22,16 @@ from app.core.dependencies import TingkatAkses, ensure_project_access
 from app.services.handover_service import HandoverError, HandoverService, _generate_audit_id
 
 SEMUA_STATUS = [
-    "New",
-    "Pending Assignment",
+    "Intake",
+    "Awaiting Assignment",
     "Assigned",
-    "Ready",
-    "Closed-Win",
-    "Handover Complete",
+    "In Progress",
+    "Submitted",
+    "Won",
+    "Handed Over",
+    "Closed",
     "Lost",
-    "Need Clarification",
-    "Scoring Pending",
-    "Manual Review Required",
+    "On Hold",
 ]
 
 
@@ -60,7 +60,7 @@ def test_status_berikutnya_selalu_valid_dan_lost_hanya_privileged_non_terminal(s
 
     assert len(berikut) == len(set(berikut))
     assert set(berikut) <= set(SEMUA_STATUS)
-    boleh_lost = privileged and status not in ("Handover Complete", "Lost")
+    boleh_lost = privileged and status not in ("Handed Over", "Lost")
     assert ("Lost" in berikut) == boleh_lost
     forward = workflow.VALID_FORWARD_TRANSITIONS.get(status)
     assert (forward in berikut) == (forward is not None)
@@ -75,27 +75,27 @@ def test_transisi_valid_ekuivalen_dengan_keanggotaan_daftar_berikutnya(status, t
     )
 
 
-@pytest.mark.parametrize("terminal", ["Lost", "Handover Complete"])
+@pytest.mark.parametrize("terminal", ["Lost", "Handed Over"])
 @pytest.mark.parametrize("privileged", [True, False])
 def test_status_terminal_tanpa_lost(terminal, privileged):
     assert "Lost" not in workflow._get_valid_next_statuses(terminal, privileged)
 
 
-def test_rantai_forward_linear_tanpa_siklus_dan_berakhir_di_closed_win():
-    """`Closed-Win` → `Handover Complete` hanya lewat POST /handover (issue #76), bukan state machine ini."""
-    status, terlihat = "New", []
+def test_rantai_forward_linear_tanpa_siklus_dan_berakhir_di_won():
+    """`Won` → `Handed Over` hanya lewat POST /handover (issue #76), bukan state machine ini."""
+    status, terlihat = "Awaiting Assignment", []
     while status in workflow.VALID_FORWARD_TRANSITIONS:
         terlihat.append(status)
         status = workflow.VALID_FORWARD_TRANSITIONS[status]
-    assert status == "Closed-Win"
-    assert len(terlihat) == len(set(terlihat)) == 4
+    assert status == "Won"
+    assert len(terlihat) == len(set(terlihat)) == 3
 
 
 @pytest.mark.parametrize("status", SEMUA_STATUS)
 @pytest.mark.parametrize("privileged", [True, False])
 def test_handover_complete_tidak_pernah_menjadi_tujuan_valid_patch_status(status, privileged):
-    assert "Handover Complete" not in workflow._get_valid_next_statuses(status, privileged)
-    assert workflow._is_valid_transition(status, "Handover Complete", privileged) is False
+    assert "Handed Over" not in workflow._get_valid_next_statuses(status, privileged)
+    assert workflow._is_valid_transition(status, "Handed Over", privileged) is False
 
 
 def test_id_audit_berformat_tanggal_dan_acak_enam_karakter():
@@ -239,7 +239,7 @@ def test_kesiapan_hld_final_jika_dan_hanya_jika_ada_dokumen_hld_final(daftar_sta
 
 async def _cek_kesiapan_hld(daftar_status):
     proyek = SimpleNamespace(
-        status="Closed-Win",
+        status="Won",
         pmo_lead_email="p@x.id",
         delivery_lead_email="d@x.id",
         gdrive_folder_id="m",

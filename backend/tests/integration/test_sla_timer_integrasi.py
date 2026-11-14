@@ -300,7 +300,7 @@ async def test_dq_diinput_sebelum_lock_menghentikan_timer_dan_tidak_ada_aksi_lan
     assert resp.status_code == 200, resp.text
     sla = await ambil_sla(dunia.db, proyek.id_project)
     assert sla.stopped_at == T0 + timedelta(days=2) and sla.is_locked is False
-    assert (await ambil_proyek(dunia.db, proyek.id_project)).status == "Ready"
+    assert (await ambil_proyek(dunia.db, proyek.id_project)).status == "Assigned"
     jam.ke(T0 + timedelta(days=9))
     stats = await _proses(dunia.db)
     assert stats["total_checked"] == 0

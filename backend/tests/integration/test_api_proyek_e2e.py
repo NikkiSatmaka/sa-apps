@@ -37,7 +37,7 @@ async def test_demo_login_buat_proyek_lolos_gate_tersimpan_di_postgres(api, db_s
 
     assert resp.status_code == 201, resp.text
     data = resp.json()["data"]
-    assert data["status"] == "Pending Assignment"
+    assert data["status"] == "Awaiting Assignment"
     assert data["bant_score"] >= 60
 
     proyek = (
@@ -46,7 +46,7 @@ async def test_demo_login_buat_proyek_lolos_gate_tersimpan_di_postgres(api, db_s
     sales_user = (
         await db_session.execute(select(User).where(User.email == "demo-sales@portal-sa.local"))
     ).scalar_one()
-    assert proyek.status == "Pending Assignment"
+    assert proyek.status == "Awaiting Assignment"
     assert proyek.sales_pic == sales_user.id
     assert proyek.bant_score == data["bant_score"]
     assert proyek.qualification_answers["budget_dialokasikan"] == "Ya"
@@ -69,11 +69,11 @@ async def test_jawaban_lemah_need_clarification_tanpa_generate_requirement(api, 
 
     assert resp.status_code == 201, resp.text
     data = resp.json()["data"]
-    assert data["status"] == "Need Clarification"
+    assert (data["status"], data["qualification_state"]) == ("Intake", "Need Clarification")
     proyek = (
         await db_session.execute(select(Project).where(Project.id_project == data["id_project"]))
     ).scalar_one()
-    assert proyek.status == "Need Clarification"
+    assert (proyek.status, proyek.qualification_state) == ("Intake", "Need Clarification")
     assert proyek.requirement_generation_status is None
     api.generate_requirement.assert_not_awaited()
 

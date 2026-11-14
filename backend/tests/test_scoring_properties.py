@@ -124,9 +124,11 @@ def test_mrr_positif_tidak_menurunkan_skor_budget(jawaban, mrr):
 @RIBUAN
 @given(st.integers(min_value=-1000, max_value=1000))
 def test_gate_sesuai_ambang_untuk_semua_total(total):
-    status = bant_rubric.decide_status(total)
+    status_siklus, state = bant_rubric.decide_gate(total)
 
-    assert status == ("Pending Assignment" if total >= 60 else "Need Clarification")
+    assert (status_siklus, state) == (
+        ("Awaiting Assignment", "Qualified") if total >= 60 else ("Intake", "Need Clarification")
+    )
 
 
 @SEDANG

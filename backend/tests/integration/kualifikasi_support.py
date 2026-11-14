@@ -159,9 +159,16 @@ async def jadikan_kolaborator(
 
 
 async def set_status(db: AsyncSession, id_project: str, status: str, **kolom: Any) -> Project:
-    """Ubah status/kolom proyek langsung di DB (menyiapkan skenario pasca-gate)."""
+    """Ubah status/kolom proyek langsung di DB (menyiapkan skenario pasca-gate).
+
+    Selain `Intake`, `qualification_state` otomatis `Qualified` (ADR 0013) kecuali diberikan.
+    """
     proyek = await ambil_proyek(db, id_project)
     proyek.status = status
+    if status != "Intake":
+        kolom.setdefault("qualification_state", "Qualified")
+    if status == "Lost":
+        kolom.setdefault("lost_reason", "Alasan uji")
     for k, v in kolom.items():
         setattr(proyek, k, v)
     await db.commit()

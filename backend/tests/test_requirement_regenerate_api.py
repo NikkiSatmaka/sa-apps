@@ -38,7 +38,7 @@ def _user(role, uid=None):
 def _project(status="ready", assigned_sa=None):
     p = MagicMock()
     p.id_project = PRJ
-    p.status = "Pending Assignment"
+    p.status = "Awaiting Assignment"
     p.assigned_sa = assigned_sa
     p.sales_pic = uuid.uuid4()
     p.qualification_answers = {"masalah_bisnis": "Data center lama sering down"}

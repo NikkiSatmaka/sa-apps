@@ -1,7 +1,7 @@
 """
-Test notifikasi wajib buat HLD saat proyek menjadi Closed-Win (fix B14).
+Test notifikasi wajib buat HLD saat proyek menjadi Won (fix B14).
 
-Spec Flow 4 langkah 1: saat proyek Closed-Win, SA menerima notifikasi wajib
+Spec Flow 4 langkah 1: saat proyek Won, SA menerima notifikasi wajib
 membuat HLD. DB dan notification_service di-mock; tidak butuh Postgres live.
 """
 
@@ -76,14 +76,14 @@ def _patch_status_response():
 class TestClosedWinNotifikasiHLD:
     def test_closed_win_kirim_notifikasi_wajib_hld_ke_sa(self, client):
         sa = _user("SA")
-        project = _project("Ready", sa.id)
+        project = _project("Submitted", sa.id)
         lead = _user("Lead_SA")
         _setup(lead, [_scalar(project), _scalar(sa)])
 
         with _patch_status_response() as notify:
             resp = client.patch(
                 f"/api/v1/projects/{project.id_project}/status",
-                json={"new_status": "Closed-Win"},
+                json={"new_status": "Won"},
             )
 
         assert resp.status_code == 200
@@ -103,21 +103,21 @@ class TestClosedWinNotifikasiHLD:
         with _patch_status_response() as notify:
             resp = client.patch(
                 f"/api/v1/projects/{project.id_project}/status",
-                json={"new_status": "Ready"},
+                json={"new_status": "Submitted"},
             )
 
         assert resp.status_code == 200
         notify.assert_not_called()
 
     def test_tanpa_sa_transisi_tetap_berhasil_tanpa_notifikasi(self, client):
-        project = _project("Ready", None)
+        project = _project("Submitted", None)
         lead = _user("Lead_SA")
         _setup(lead, [_scalar(project)])
 
         with _patch_status_response() as notify:
             resp = client.patch(
                 f"/api/v1/projects/{project.id_project}/status",
-                json={"new_status": "Closed-Win"},
+                json={"new_status": "Won"},
             )
 
         assert resp.status_code == 200
@@ -125,7 +125,7 @@ class TestClosedWinNotifikasiHLD:
 
     def test_notifikasi_gagal_tidak_menggagalkan_transisi(self, client):
         sa = _user("SA")
-        project = _project("Ready", sa.id)
+        project = _project("Submitted", sa.id)
         lead = _user("Lead_SA")
         _setup(lead, [_scalar(project), _scalar(sa)])
 
@@ -133,7 +133,7 @@ class TestClosedWinNotifikasiHLD:
             notify.side_effect = RuntimeError("boom")
             resp = client.patch(
                 f"/api/v1/projects/{project.id_project}/status",
-                json={"new_status": "Closed-Win"},
+                json={"new_status": "Won"},
             )
 
         assert resp.status_code == 200

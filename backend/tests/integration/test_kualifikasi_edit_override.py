@@ -44,7 +44,7 @@ OVERRIDE_OK = {
 
 
 class Skenario:
-    """Proyek Need Clarification milik Sales demo + aktor lain."""
+    """Proyek Intake + Need Clarification milik Sales demo + aktor lain."""
 
     def __init__(self, api, id_project, sales, lead, admin, sa, db):
         self.api, self.id, self.db = api, id_project, db
@@ -73,7 +73,8 @@ async def skenario(api, db_session):
     await api.login_demo("Lead_SA")
     sales = await api.login_demo("Sales")
     resp = await buat_proyek(api, sales, jawaban_lemah())
-    assert resp.json()["data"]["status"] == "Need Clarification"
+    assert resp.json()["data"]["status"] == "Intake"
+    assert resp.json()["data"]["qualification_state"] == "Need Clarification"
     api.generate_requirement.reset_mock()
     return Skenario(
         api,
@@ -93,9 +94,9 @@ async def test_sales_pic_edit_saat_need_clarification_rescore_lolos_gate(skenari
     resp = await skenario.put(skenario.sales, jawaban_kuat())
 
     assert resp.status_code == 200, resp.text
-    assert resp.json()["data"]["status"] == "Pending Assignment"
+    assert resp.json()["data"]["status"] == "Awaiting Assignment"
     p = await skenario.proyek()
-    assert p.status == "Pending Assignment"
+    assert (p.status, p.qualification_state) == ("Awaiting Assignment", "Qualified")
     assert p.qualification_answers["budget_dialokasikan"] == "Ya"
     assert p.bant_score == resp.json()["data"]["total_score"] >= 60
     assert p.requirement_generation_status == "pending"
@@ -111,7 +112,7 @@ async def test_edit_yang_masih_lemah_tetap_need_clarification_tanpa_notifikasi(s
 
     assert resp.status_code == 200
     p = await skenario.proyek()
-    assert p.status == "Need Clarification"
+    assert (p.status, p.qualification_state) == ("Intake", "Need Clarification")
     assert p.bant_detail["budget"] == 5
     assert await notif_untuk(skenario.db, skenario.id) == []
     skenario.api.generate_requirement.assert_not_awaited()
@@ -122,7 +123,7 @@ async def test_lead_sa_dan_admin_diperlakukan_sama_saat_need_clarification(skena
     resp = await skenario.put(getattr(skenario, peran), jawaban_kuat())
 
     assert resp.status_code == 200
-    assert (await skenario.proyek()).status == "Pending Assignment"
+    assert (await skenario.proyek()).status == "Awaiting Assignment"
 
 
 async def test_rescore_tidak_menurunkan_di_bawah_override_tersimpan(skenario):
@@ -152,7 +153,7 @@ async def test_rescore_memakai_hasil_ai_tersimpan_sebagai_batas_bawah(skenario):
     resp = await skenario.put(skenario.sales, jawaban_lemah())
 
     assert resp.json()["data"]["total_score"] == 100
-    assert (await skenario.proyek()).status == "Pending Assignment"
+    assert (await skenario.proyek()).status == "Awaiting Assignment"
 
 
 @pytest.mark.parametrize("aktor", ["Sales lain", "SA", "kolaborator"])
@@ -191,7 +192,7 @@ async def test_edit_jawaban_invalid_422_dan_tidak_menyimpan(skenario):
     fields = {e["field"] for e in resp.json()["data"]}
     assert {"qualification_answers.bant_score", "qualification_answers.peran_pic"} <= fields
     p = await skenario.proyek()
-    assert p.qualification_answers["peran_pic"] == "Tidak tahu" and p.status == "Need Clarification"
+    assert p.qualification_answers["peran_pic"] == "Tidak tahu" and p.qualification_state == "Need Clarification"
 
 
 async def test_edit_body_bukan_objek_422(skenario):
@@ -200,7 +201,7 @@ async def test_edit_body_bukan_objek_422(skenario):
     assert resp.status_code in (400, 422)
 
 
-@pytest.mark.parametrize("status", ["Pending Assignment", "Assigned", "Ready", "Closed-Win"])
+@pytest.mark.parametrize("status", ["Awaiting Assignment", "Assigned", "Submitted", "Won"])
 async def test_sales_pic_tidak_boleh_edit_setelah_gate(skenario, status):
     await set_status(skenario.db, skenario.id, status)
 
@@ -210,7 +211,7 @@ async def test_sales_pic_tidak_boleh_edit_setelah_gate(skenario, status):
 
 
 @pytest.mark.parametrize("peran", ["lead", "admin"])
-@pytest.mark.parametrize("status", ["Pending Assignment", "Assigned"])
+@pytest.mark.parametrize("status", ["Awaiting Assignment", "Assigned"])
 async def test_koreksi_pasca_gate_tanpa_rescore(skenario, peran, status):
     await set_status(skenario.db, skenario.id, status, bant_score=61)
 
@@ -223,9 +224,9 @@ async def test_koreksi_pasca_gate_tanpa_rescore(skenario, peran, status):
     assert p.qualification_answers["budget_dialokasikan"] == "Ya"
 
 
-@pytest.mark.parametrize("status", ["New", "Scoring Pending", "Manual Review Required"])
-async def test_privileged_edit_sebelum_gate_selesai_400(skenario, status):
-    await set_status(skenario.db, skenario.id, status)
+@pytest.mark.parametrize("state", ["Scoring", "Manual Review"])
+async def test_privileged_edit_sebelum_gate_selesai_400(skenario, state):
+    await set_status(skenario.db, skenario.id, "Intake", qualification_state=state)
 
     resp = await skenario.put(skenario.lead, jawaban_kuat())
 
@@ -235,7 +236,9 @@ async def test_privileged_edit_sebelum_gate_selesai_400(skenario, status):
 async def test_edit_proyek_legacy_tanpa_jawaban_400(api, db_session):
     lead = await api.login_demo("Lead_SA")
     sales = await user_baru(db_session, "Sales")
-    legacy = bangun_project(sales.id, status="Need Clarification", bant_detail={"budget": 10})
+    legacy = bangun_project(
+        sales.id, qualification_state="Need Clarification", bant_detail={"budget": 10}
+    )
     await simpan(db_session, legacy)
     await db_session.commit()
 
@@ -259,7 +262,7 @@ async def test_override_lead_sa_lolos_gate_dengan_audit_log(skenario):
     assert resp.status_code == 200, resp.text
     assert resp.json()["data"]["total_score"] == 100
     p = await skenario.proyek()
-    assert p.status == "Pending Assignment"
+    assert p.status == "Awaiting Assignment"
     assert p.bant_score == 100
     assert p.override_sub_scores == {"budget": 25, "authority": 25, "need": 25, "timeline": 25}
     assert p.requirement_generation_status == "pending"
@@ -268,10 +271,16 @@ async def test_override_lead_sa_lolos_gate_dengan_audit_log(skenario):
     assert len(log) == 1
     assert log[0].entity_type == "project"
     assert log[0].old_value["bant_score"] == skor_lama
-    assert log[0].old_value["status"] == "Need Clarification"
+    assert (log[0].old_value["status"], log[0].old_value["qualification_state"]) == (
+        "Intake",
+        "Need Clarification",
+    )
     assert log[0].old_value["override_sub_scores"] is None
     assert log[0].new_value["bant_score"] == 100
-    assert log[0].new_value["status"] == "Pending Assignment"
+    assert (log[0].new_value["status"], log[0].new_value["qualification_state"]) == (
+        "Awaiting Assignment",
+        "Qualified",
+    )
     assert log[0].new_value["reason"] == "Konfirmasi telepon"
     assert log[0].new_value["override_sub_scores"]["need"] == 25
     assert len(await notif_untuk(skenario.db, skenario.id)) == 1
@@ -301,7 +310,7 @@ async def test_override_di_bawah_gate_tetap_need_clarification_dan_batas_bawah(s
 
     assert resp.status_code == 200
     p = await skenario.proyek()
-    assert p.status == "Need Clarification"
+    assert (p.status, p.qualification_state) == ("Intake", "Need Clarification")
     # Rubrik jawaban lemah (>3 pada beberapa kriteria) tidak diturunkan oleh override rendah.
     skor = p.bant_detail
     assert all(skor[k] >= 3 for k in ("budget", "authority", "need", "timeline"))
@@ -330,26 +339,42 @@ async def test_override_baru_menggantikan_override_lama_pada_audit(skenario):
     }
 
 
-async def test_override_manual_review_required_diizinkan(skenario):
-    await set_status(skenario.db, skenario.id, "Manual Review Required")
+async def test_override_manual_review_diizinkan(skenario):
+    await set_status(
+        skenario.db, skenario.id, "Intake", qualification_state="Manual Review"
+    )
 
     resp = await skenario.post_override(skenario.lead)
 
     assert resp.status_code == 200
-    assert (await skenario.proyek()).status == "Pending Assignment"
+    assert (await skenario.proyek()).status == "Awaiting Assignment"
 
 
 @pytest.mark.parametrize(
-    "status", ["New", "Scoring Pending", "Pending Assignment", "Assigned", "Ready", "Closed-Win"]
+    ("status", "state"),
+    [
+        ("Intake", "Scoring"),
+        ("Awaiting Assignment", "Qualified"),
+        ("Assigned", "Qualified"),
+        ("Submitted", "Qualified"),
+        ("Won", "Qualified"),
+    ],
 )
-async def test_override_hanya_untuk_need_clarification_dan_manual_review(skenario, status):
-    await set_status(skenario.db, skenario.id, status, bant_score=42)
+async def test_override_hanya_untuk_need_clarification_dan_manual_review(
+    skenario, status, state
+):
+    await set_status(skenario.db, skenario.id, status, bant_score=42, qualification_state=state)
 
     resp = await skenario.post_override(skenario.lead)
 
     assert resp.status_code == 400
     p = await skenario.proyek()
-    assert (p.status, p.bant_score, p.override_sub_scores) == (status, 42, None)
+    assert (p.status, p.qualification_state, p.bant_score, p.override_sub_scores) == (
+        status,
+        state,
+        42,
+        None,
+    )
     assert await audit_proyek(skenario.db, skenario.id) == []
 
 
@@ -370,7 +395,7 @@ async def test_override_ditolak_403_untuk_selain_lead_sa_admin(skenario, aktor):
 
     assert resp.status_code == 403
     p = await skenario.proyek()
-    assert p.status == "Need Clarification" and p.override_sub_scores is None
+    assert p.qualification_state == "Need Clarification" and p.override_sub_scores is None
     assert await audit_proyek(skenario.db, skenario.id) == []
 
 
@@ -421,7 +446,9 @@ async def test_override_menjadi_batas_bawah_saat_hasil_ai_datang_belakangan(sken
     await skenario.post_override(
         skenario.lead, {"budget": 25, "authority": 25, "need": 25, "timeline": 25, "reason": "a"}
     )
-    await set_status(skenario.db, skenario.id, "Need Clarification")
+    await set_status(
+        skenario.db, skenario.id, "Intake", qualification_state="Need Clarification"
+    )
     fake_llm.program("parse_document", respons_sukses(json.dumps(json_bant(0, 0, 0, 0))))
 
     await scoring_engine.score_documents(
@@ -429,12 +456,14 @@ async def test_override_menjadi_batas_bawah_saat_hasil_ai_datang_belakangan(sken
     )
 
     p = await skenario.proyek()
-    assert p.bant_score == 100 and p.status == "Pending Assignment"
+    assert p.bant_score == 100 and p.status == "Awaiting Assignment"
 
 
 async def test_fallback_after_failure_menghormati_override(skenario, fake_llm):
     await skenario.post_override(skenario.lead)
-    await set_status(skenario.db, skenario.id, "Need Clarification")
+    await set_status(
+        skenario.db, skenario.id, "Intake", qualification_state="Need Clarification"
+    )
     fake_llm.program("parse_document", *[respons_error()] * 3)
 
     await scoring_engine.score_documents(
@@ -460,7 +489,7 @@ async def test_patch_tidak_boleh_menimpa_sub_skor(skenario):
     fields = {e["field"] for e in resp.json()["data"]}
     assert fields == {"bant_detail.budget", "bant_detail.need"}
     p = await skenario.proyek()
-    assert p.bant_detail == sebelum and p.status == "Need Clarification"
+    assert p.bant_detail == sebelum and p.qualification_state == "Need Clarification"
 
 
 async def test_patch_bant_detail_bukan_objek_422(skenario):
@@ -486,7 +515,7 @@ async def test_patch_metadata_legacy_dimerge_tanpa_menyentuh_sub_skor(skenario):
 
 async def test_patch_field_umum_dan_validasi(skenario):
     """DIUBAH (review kebijakan akses): DQ lewat PATCH proyek kini mengikuti aturan
-    /dq-number, jadi proyek disiapkan di status "Assigned" (sebelumnya "Pending Assignment"
+    /dq-number, jadi proyek disiapkan di status "Assigned" (sebelumnya "Awaiting Assignment"
     menerima DQ -> kini 400) dan Sales PIC tidak lagi boleh MENGOSONGKAN DQ (-> 403; yang
     mengosongkan kini Lead_SA). Assertion field umum lain tidak berubah."""
     c = skenario.api.client
@@ -562,7 +591,7 @@ async def test_bant_result_proyek_skor_rendah_menyertakan_feedback(skenario):
 
     data = resp.json()["data"]
     assert resp.status_code == 200
-    assert data["status"] == "Need Clarification"
+    assert (data["status"], data["qualification_state"]) == ("Intake", "Need Clarification")
     assert data["total_score"] < 60
     assert data["feedback"].startswith("Kriteria berikut perlu dilengkapi")
     assert set(data["sub_scores"]) == {"budget", "authority", "need", "timeline"}
@@ -591,7 +620,7 @@ async def test_bant_result_dan_rekomendasi_404_proyek_tidak_ada(skenario):
         assert r.status_code == 404
 
 
-async def test_rekomendasi_proyek_closed_win_serupa_urut_tag_dan_maks_lima(skenario, db_session):
+async def test_rekomendasi_proyek_won_serupa_urut_tag_dan_maks_lima(skenario, db_session):
     sales = await user_baru(db_session, "Sales")
     await simpan(
         db_session,
@@ -599,7 +628,7 @@ async def test_rekomendasi_proyek_closed_win_serupa_urut_tag_dan_maks_lima(skena
             bangun_project(
                 sales.id,
                 id_project=f"PRJ-CW-{i}",
-                status="Closed-Win",
+                status="Won",
                 use_case_tags=["cloud", "migrasi", "dr"][: (i % 3) + 1] if i != 6 else ["lain"],
             )
             for i in range(7)
@@ -619,7 +648,7 @@ async def test_rekomendasi_proyek_closed_win_serupa_urut_tag_dan_maks_lima(skena
     assert len(data) == 5
     cocok = [d["matching_tags"] for d in data]
     assert cocok == sorted(cocok, reverse=True) and cocok[0] == 3
-    assert all(d["status"] == "Closed-Win" and d["id_project"] != skenario.id for d in data)
+    assert all(d["status"] == "Won" and d["id_project"] != skenario.id for d in data)
     assert "PRJ-LOST" not in {d["id_project"] for d in data}
 
 
@@ -644,7 +673,8 @@ async def test_bant_result_tanpa_kriteria_lemah_tidak_memberi_feedback(db_sessio
     sales = await user_baru(db_session, "Sales")
     p = bangun_project(
         sales.id,
-        status="Need Clarification",
+        status="Intake",
+        qualification_state="Need Clarification",
         bant_score=40,
         bant_detail={"budget": 20, "authority": 20, "need": 20, "timeline": 20},
     )

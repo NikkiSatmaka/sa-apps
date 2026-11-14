@@ -195,7 +195,7 @@ async def test_menambah_sa_utama_atau_anggota_yang_sudah_ada_409(dunia, api):
 
 
 async def test_menambah_ke_proyek_tanpa_sa_utama_409(dunia, api):
-    proyek = await dunia.buat_proyek()  # Pending Assignment, belum ada SA utama
+    proyek = await dunia.buat_proyek()  # Awaiting Assignment, belum ada SA utama
 
     resp = await api.client.post(
         TIM.format(proyek.id_project), json={"user_id": str(dunia.sa2.id)}, headers=dunia.h["lead"]

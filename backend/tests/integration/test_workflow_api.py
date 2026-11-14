@@ -1,6 +1,6 @@
 """
 Integrasi `api/workflow` terhadap Postgres nyata (tiket B6, #59, spec #49): transisi status proyek
-(forward, Lost, terminal, akses per peran), audit log, dan notifikasi wajib HLD saat Closed-Win.
+(forward, Lost, terminal, akses per peran), audit log, dan notifikasi wajib HLD saat Won.
 Pasangan unit: `tests/test_dokumen_workflow_handover_unit.py`.
 """
 
@@ -23,35 +23,32 @@ from tests.integration.b6_support import (  # noqa: F401
 
 pytestmark = pytest.mark.usefixtures("komit_sesi_request")
 
-# `Handover Complete` TIDAK dapat dicapai lewat endpoint ini (issue #76): hanya `POST /handover`
+# `Handed Over` TIDAK dapat dicapai lewat endpoint ini (issue #76): hanya `POST /handover`
 # yang memeriksa prasyarat (HLD Final, email PMO/Delivery, folder Drive). Lihat test khusus di bawah.
 FORWARD = [
-    ("New", "Pending Assignment"),
-    ("Pending Assignment", "Assigned"),
-    ("Assigned", "Ready"),
-    ("Ready", "Closed-Win"),
+    ("Awaiting Assignment", "Assigned"),
+    ("Assigned", "Submitted"),
+    ("Submitted", "Won"),
 ]
 SEMUA_STATUS = [
-    "New",
-    "Pending Assignment",
+    "Intake",
+    "Awaiting Assignment",
     "Assigned",
-    "Ready",
-    "Closed-Win",
-    "Handover Complete",
+    "In Progress",
+    "Submitted",
+    "Won",
+    "Handed Over",
+    "Closed",
     "Lost",
-    "Need Clarification",
-    "Scoring Pending",
-    "Manual Review Required",
+    "On Hold",
 ]
 BISA_LOST = [
-    "New",
-    "Pending Assignment",
+    "Intake",
+    "Awaiting Assignment",
     "Assigned",
-    "Ready",
-    "Closed-Win",
-    "Need Clarification",
-    "Scoring Pending",
-    "Manual Review Required",
+    "In Progress",
+    "Submitted",
+    "Won",
 ]
 
 
@@ -99,14 +96,14 @@ async def test_patch_ke_handover_complete_ditolak_dan_diarahkan_ke_endpoint_hand
 ):
     """#76: PATCH status tidak boleh melewati prasyarat handover. Status tetap, tanpa efek samping."""
     dunia = await siapkan_dunia(api, db_session)
-    proyek = await buat_proyek(db_session, dunia, status="Closed-Win")
+    proyek = await buat_proyek(db_session, dunia, status="Won")
 
-    resp = await _ubah(api, proyek.id_project, "Handover Complete", dunia.header[peran])
+    resp = await _ubah(api, proyek.id_project, "Handed Over", dunia.header[peran])
 
     assert resp.status_code == 400, resp.text
     pesan = resp.json()["message"]
-    assert "Handover Complete" in pesan and "/handover" in pesan
-    assert await _status(db_session, proyek.id_project) == "Closed-Win"
+    assert "Handed Over" in pesan and "/handover" in pesan
+    assert await _status(db_session, proyek.id_project) == "Won"
     assert await _audit(db_session, proyek.id_project) == []
     assert fake_drive.panggilan == [] and fake_gmail.percobaan == []
 
@@ -115,14 +112,14 @@ async def test_transisi_mencatat_audit_log_dengan_nilai_lama_dan_baru(api, db_se
     dunia = await siapkan_dunia(api, db_session)
     proyek = await buat_proyek(db_session, dunia, status="Assigned")
 
-    resp = await _ubah(api, proyek.id_project, "Ready", dunia.header["Lead_SA"])
+    resp = await _ubah(api, proyek.id_project, "Submitted", dunia.header["Lead_SA"])
 
     [audit] = await _audit(db_session, proyek.id_project)
     assert audit.action == "status_change"
     assert audit.entity_type == "project"
     assert audit.performed_by == dunia.user["Lead_SA"].id
     assert audit.old_value == {"status": "Assigned"}
-    assert audit.new_value == {"status": "Ready"}
+    assert audit.new_value == {"status": "Submitted"}
     respons_audit = resp.json()["data"]["audit_log"]
     assert respons_audit["id"] == audit.id
     assert respons_audit["performed_by"] == str(dunia.user["Lead_SA"].id)
@@ -130,17 +127,17 @@ async def test_transisi_mencatat_audit_log_dengan_nilai_lama_dan_baru(api, db_se
     assert audit.id.startswith("AUDIT-")
 
 
-async def test_rangkaian_forward_penuh_sampai_closed_win_dengan_satu_audit_per_langkah(
+async def test_rangkaian_forward_penuh_sampai_won_dengan_satu_audit_per_langkah(
     api, db_session
 ):
     dunia = await siapkan_dunia(api, db_session)
-    proyek = await buat_proyek(db_session, dunia, status="New")
+    proyek = await buat_proyek(db_session, dunia, status="Awaiting Assignment")
 
     for _, tujuan in FORWARD:
         resp = await _ubah(api, proyek.id_project, tujuan, dunia.header["Lead_SA"])
         assert resp.status_code == 200, (tujuan, resp.text)
 
-    assert await _status(db_session, proyek.id_project) == "Closed-Win"
+    assert await _status(db_session, proyek.id_project) == "Won"
     jejak = sorted(
         (a.old_value["status"], a.new_value["status"])
         for a in await _audit(db_session, proyek.id_project)
@@ -154,17 +151,16 @@ async def test_rangkaian_forward_penuh_sampai_closed_win_dengan_satu_audit_per_l
 @pytest.mark.parametrize(
     ("awal", "tujuan"),
     [
-        ("New", "Assigned"),  # loncat
-        ("New", "Closed-Win"),  # loncat jauh
-        ("Pending Assignment", "Ready"),  # loncat
-        ("Assigned", "New"),  # mundur
-        ("Ready", "Assigned"),  # mundur
-        ("Closed-Win", "Ready"),  # mundur
+        ("Intake", "Assigned"),  # loncat
+        ("Awaiting Assignment", "Won"),  # loncat jauh
+        ("Awaiting Assignment", "Submitted"),  # loncat
+        ("Assigned", "Awaiting Assignment"),  # mundur
+        ("Submitted", "Assigned"),  # mundur
+        ("Won", "Submitted"),  # mundur
         ("Assigned", "Assigned"),  # sama
         ("Assigned", "Status-Ngawur"),  # tidak dikenal
         ("Assigned", "Pending DQ"),  # bukan status proyek (ADR 0001, 2026-11-10)
-        ("Need Clarification", "Assigned"),  # status luar jalur linear hanya bisa Lost
-        ("Scoring Pending", "Pending Assignment"),
+        ("Intake", "Awaiting Assignment"),  # keluar dari Intake hanya oleh sistem (gate BANT)
     ],
 )
 async def test_transisi_tidak_valid_400_status_tetap_dan_tanpa_audit(api, db_session, awal, tujuan):
@@ -180,7 +176,7 @@ async def test_transisi_tidak_valid_400_status_tetap_dan_tanpa_audit(api, db_ses
 
 
 @pytest.mark.parametrize("peran", ["Sales", "SA", "Lead_SA", "Admin"])
-@pytest.mark.parametrize("terminal", ["Lost", "Handover Complete"])
+@pytest.mark.parametrize("terminal", ["Lost", "Handed Over"])
 async def test_status_terminal_tidak_bisa_diubah_siapa_pun(api, db_session, peran, terminal):
     dunia = await siapkan_dunia(api, db_session)
     proyek = await buat_proyek(db_session, dunia, status=terminal)
@@ -195,9 +191,9 @@ async def test_status_terminal_tidak_bisa_diubah_siapa_pun(api, db_session, pera
 
 async def test_pesan_transisi_tidak_valid_menyebut_status_terminal(api, db_session):
     dunia = await siapkan_dunia(api, db_session)
-    proyek = await buat_proyek(db_session, dunia, status="Handover Complete")
+    proyek = await buat_proyek(db_session, dunia, status="Handed Over")
 
-    resp = await _ubah(api, proyek.id_project, "Ready", dunia.header["Lead_SA"])
+    resp = await _ubah(api, proyek.id_project, "Submitted", dunia.header["Lead_SA"])
 
     assert resp.status_code == 400
     assert "status terminal" in resp.json()["message"]
@@ -218,11 +214,13 @@ async def test_lost_oleh_lead_sa_dan_admin_dari_status_non_terminal(api, db_sess
     assert await _status(db_session, proyek.id_project) == "Lost"
     [audit] = await _audit(db_session, proyek.id_project)
     assert audit.old_value == {"status": awal}
-    assert audit.new_value == {"status": "Lost"}
+    assert audit.new_value == {"status": "Lost", "lost_reason": "Kalah tender"}
+    baris = await muat(db_session, Project, id_project=proyek.id_project)
+    assert (baris.lost_reason, baris.previous_status) == ("Kalah tender", awal)
 
 
 @pytest.mark.parametrize("peran", ["Sales", "SA"])
-@pytest.mark.parametrize("awal", ["Assigned", "Ready", "Closed-Win"])
+@pytest.mark.parametrize("awal", ["Assigned", "Submitted", "Won"])
 async def test_lost_oleh_sales_atau_sa_ditolak_403_meski_pemilik_proyek(
     api, db_session, peran, awal
 ):
@@ -239,14 +237,14 @@ async def test_lost_oleh_sales_atau_sa_ditolak_403_meski_pemilik_proyek(
 
 async def test_lost_dari_handover_complete_dan_lost_ke_lost_ditolak(api, db_session):
     dunia = await siapkan_dunia(api, db_session)
-    selesai = await buat_proyek(db_session, dunia, status="Handover Complete")
+    selesai = await buat_proyek(db_session, dunia, status="Handed Over")
     kalah = await buat_proyek(db_session, dunia, status="Lost")
 
     r1 = await _ubah(api, selesai.id_project, "Lost", dunia.header["Admin"])
     r2 = await _ubah(api, kalah.id_project, "Lost", dunia.header["Admin"])
 
     assert (r1.status_code, r2.status_code) == (400, 400)
-    assert await _status(db_session, selesai.id_project) == "Handover Complete"
+    assert await _status(db_session, selesai.id_project) == "Handed Over"
     assert await _status(db_session, kalah.id_project) == "Lost"
 
 
@@ -259,8 +257,8 @@ async def test_sales_dan_sa_bukan_pemilik_proyek_ditolak_403(api, db_session):
     _, sales_lain = await user_baru(db_session, "Sales")
     _, sa_lain = await user_baru(db_session, "SA")
 
-    r_sales = await _ubah(api, proyek.id_project, "Ready", sales_lain)
-    r_sa = await _ubah(api, proyek.id_project, "Ready", sa_lain)
+    r_sales = await _ubah(api, proyek.id_project, "Submitted", sales_lain)
+    r_sa = await _ubah(api, proyek.id_project, "Submitted", sa_lain)
 
     assert (r_sales.status_code, r_sa.status_code) == (403, 403)
     assert "milik Anda" in r_sales.json()["message"]
@@ -271,27 +269,27 @@ async def test_sales_dan_sa_bukan_pemilik_proyek_ditolak_403(api, db_session):
 
 async def test_sa_tidak_ditugaskan_pada_proyek_tanpa_sa_ditolak(api, db_session):
     dunia = await siapkan_dunia(api, db_session)
-    proyek = await buat_proyek(db_session, dunia, status="New", sa=False)
+    proyek = await buat_proyek(db_session, dunia, status="Awaiting Assignment", sa=False)
 
-    resp = await _ubah(api, proyek.id_project, "Pending Assignment", dunia.header["SA"])
+    resp = await _ubah(api, proyek.id_project, "Assigned", dunia.header["SA"])
 
     assert resp.status_code == 403
-    assert await _status(db_session, proyek.id_project) == "New"
+    assert await _status(db_session, proyek.id_project) == "Awaiting Assignment"
 
 
 async def test_proyek_tidak_ada_404_tanpa_login_ditolak_dan_body_tidak_valid_422(api, db_session):
     dunia = await siapkan_dunia(api, db_session)
     proyek = await buat_proyek(db_session, dunia, status="Assigned")
 
-    tak_ada = await _ubah(api, "PRJ-TIDAK-ADA", "Ready", dunia.header["Lead_SA"])
+    tak_ada = await _ubah(api, "PRJ-TIDAK-ADA", "Submitted", dunia.header["Lead_SA"])
     anonim = await api.client.patch(
-        f"{API}/projects/{proyek.id_project}/status", json={"new_status": "Ready"}
+        f"{API}/projects/{proyek.id_project}/status", json={"new_status": "Submitted"}
     )
     tanpa_status = await api.client.patch(
         f"{API}/projects/{proyek.id_project}/status", json={}, headers=dunia.header["Lead_SA"]
     )
     alasan_panjang = await _ubah(
-        api, proyek.id_project, "Ready", dunia.header["Lead_SA"], reason="x" * 501
+        api, proyek.id_project, "Submitted", dunia.header["Lead_SA"], reason="x" * 501
     )
 
     assert tak_ada.status_code == 404
@@ -304,11 +302,11 @@ async def test_proyek_tidak_ada_404_tanpa_login_ditolak_dan_body_tidak_valid_422
 # --------------------------------------------------------------------------- notifikasi wajib HLD
 
 
-async def test_closed_win_mengirim_satu_notifikasi_wajib_hld_ke_sa(api, db_session):
+async def test_won_mengirim_satu_notifikasi_wajib_hld_ke_sa(api, db_session):
     dunia = await siapkan_dunia(api, db_session)
-    proyek = await buat_proyek(db_session, dunia, status="Ready")
+    proyek = await buat_proyek(db_session, dunia, status="Submitted")
 
-    resp = await _ubah(api, proyek.id_project, "Closed-Win", dunia.header["Lead_SA"])
+    resp = await _ubah(api, proyek.id_project, "Won", dunia.header["Lead_SA"])
 
     assert resp.status_code == 200, resp.text
     notif = await notifikasi(db_session, reference_id=proyek.id_project)
@@ -317,7 +315,7 @@ async def test_closed_win_mengirim_satu_notifikasi_wajib_hld_ke_sa(api, db_sessi
     assert notif[0].recipient_user_id == dunia.user["SA"].id
     meta = notif[0].notification_metadata
     assert meta["mandatory_hld"] is True
-    assert meta["new_status"] == "Closed-Win"
+    assert meta["new_status"] == "Won"
     assert "HLD" in meta["message"]
     assert meta["project_name"] == proyek.project_name
 
@@ -326,17 +324,17 @@ async def test_notifikasi_hld_tidak_terkirim_lagi_pada_transisi_berikutnya_yang_
     api, db_session
 ):
     dunia = await siapkan_dunia(api, db_session)
-    proyek = await buat_proyek(db_session, dunia, status="Ready")
-    await _ubah(api, proyek.id_project, "Closed-Win", dunia.header["Lead_SA"])
+    proyek = await buat_proyek(db_session, dunia, status="Submitted")
+    await _ubah(api, proyek.id_project, "Won", dunia.header["Lead_SA"])
 
-    ulang = await _ubah(api, proyek.id_project, "Closed-Win", dunia.header["Lead_SA"])
+    ulang = await _ubah(api, proyek.id_project, "Won", dunia.header["Lead_SA"])
 
     assert ulang.status_code == 400
     assert len(await notifikasi(db_session, reference_id=proyek.id_project)) == 1
 
 
-@pytest.mark.parametrize(("awal", "akhir"), [f for f in FORWARD if f[1] != "Closed-Win"])
-async def test_transisi_selain_closed_win_tidak_mengirim_notifikasi_hld(
+@pytest.mark.parametrize(("awal", "akhir"), [f for f in FORWARD if f[1] != "Won"])
+async def test_transisi_selain_won_tidak_mengirim_notifikasi_hld(
     api, db_session, awal, akhir
 ):
     dunia = await siapkan_dunia(api, db_session)
@@ -347,16 +345,16 @@ async def test_transisi_selain_closed_win_tidak_mengirim_notifikasi_hld(
     assert await notifikasi(db_session, reference_id=proyek.id_project) == []
 
 
-async def test_closed_win_tanpa_sa_ditugaskan_melewati_notifikasi_transisi_tetap_berhasil(
+async def test_won_tanpa_sa_ditugaskan_melewati_notifikasi_transisi_tetap_berhasil(
     api, db_session
 ):
     dunia = await siapkan_dunia(api, db_session)
-    proyek = await buat_proyek(db_session, dunia, status="Ready", sa=False)
+    proyek = await buat_proyek(db_session, dunia, status="Submitted", sa=False)
 
-    resp = await _ubah(api, proyek.id_project, "Closed-Win", dunia.header["Lead_SA"])
+    resp = await _ubah(api, proyek.id_project, "Won", dunia.header["Lead_SA"])
 
     assert resp.status_code == 200, resp.text
-    assert await _status(db_session, proyek.id_project) == "Closed-Win"
+    assert await _status(db_session, proyek.id_project) == "Won"
     assert await notifikasi(db_session, reference_id=proyek.id_project) == []
 
 
@@ -365,10 +363,10 @@ async def test_kegagalan_notifikasi_hld_tidak_menggagalkan_transisi(api, db_sess
         notification_service, "send_notification", AsyncMock(side_effect=RuntimeError("boom"))
     )
     dunia = await siapkan_dunia(api, db_session)
-    proyek = await buat_proyek(db_session, dunia, status="Ready")
+    proyek = await buat_proyek(db_session, dunia, status="Submitted")
 
-    resp = await _ubah(api, proyek.id_project, "Closed-Win", dunia.header["Lead_SA"])
+    resp = await _ubah(api, proyek.id_project, "Won", dunia.header["Lead_SA"])
 
     assert resp.status_code == 200, resp.text
-    assert await _status(db_session, proyek.id_project) == "Closed-Win"
+    assert await _status(db_session, proyek.id_project) == "Won"
     assert len(await _audit(db_session, proyek.id_project)) == 1

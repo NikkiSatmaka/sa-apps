@@ -171,7 +171,7 @@ RUTE_MIGRASI = [
     ("daftar-kolaborator", "GET", "/projects/{p}/collaborators", None, list(SEMUA_AKTOR), {200}),
     ("hapus-kolaborator", "DELETE", "/projects/{p}/collaborators/{kolab_lain_id}", None,
      ["sales_pic", "sa", "lead", "admin"], {200, 404}),
-    ("ubah-status", "PATCH", "/projects/{p}/status", {"new_status": "Ready"},
+    ("ubah-status", "PATCH", "/projects/{p}/status", {"new_status": "Submitted"},
      ["sales_pic", "sa", "lead", "admin"], {200}),
     ("status-handover", "GET", "/projects/{p}/handover-status", None,
      ["sa", "lead", "admin"], {200}),

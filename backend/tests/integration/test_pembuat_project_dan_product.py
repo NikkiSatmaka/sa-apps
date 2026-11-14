@@ -82,12 +82,12 @@ async def test_product_pic_boleh_ubah_status_proyek_miliknya_tapi_bukan_milik_la
 
     ok = await api.client.patch(
         f"{API}/projects/{miliknya.id_project}/status",
-        json={"new_status": "Ready"},
+        json={"new_status": "Submitted"},
         headers=h_produk,
     )
     ditolak = await api.client.patch(
         f"{API}/projects/{milik_lain.id_project}/status",
-        json={"new_status": "Ready"},
+        json={"new_status": "Submitted"},
         headers=h_produk,
     )
 

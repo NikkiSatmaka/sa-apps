@@ -2,9 +2,9 @@
 Unit tests untuk RAG Template Recommendation (Task 12.1).
 
 Memvalidasi:
-- search_similar_projects: pencarian proyek Closed-Win berdasarkan use_case_tags
+- search_similar_projects: pencarian proyek Won berdasarkan use_case_tags
 - Endpoint GET /api/v1/projects/{id}/recommendations
-- Edge cases: belum ada Closed-Win, proyek belum punya tags
+- Edge cases: belum ada Won, proyek belum punya tags
 """
 
 import pytest
@@ -66,48 +66,48 @@ def engine():
 
 @pytest.fixture
 def closed_win_projects():
-    """Proyek-proyek Closed-Win sebagai referensi."""
+    """Proyek-proyek Won sebagai referensi."""
     return [
         FakeProject(
             id_project="PRJ-001",
             project_name="Migrasi Data Warehouse",
             customer_name="PT ABC",
-            status="Closed-Win",
+            status="Won",
             use_case_tags=["data-warehouse", "etl", "redshift"],
         ),
         FakeProject(
             id_project="PRJ-002",
             project_name="Cloud Native App",
             customer_name="PT XYZ",
-            status="Closed-Win",
+            status="Won",
             use_case_tags=["kubernetes", "microservices", "ci-cd"],
         ),
         FakeProject(
             id_project="PRJ-003",
             project_name="Big Data Analytics",
             customer_name="PT DEF",
-            status="Closed-Win",
+            status="Won",
             use_case_tags=["data-warehouse", "spark", "etl", "datalake"],
         ),
         FakeProject(
             id_project="PRJ-004",
             project_name="ML Platform",
             customer_name="PT GHI",
-            status="Closed-Win",
+            status="Won",
             use_case_tags=["machine-learning", "data-warehouse", "etl"],
         ),
         FakeProject(
             id_project="PRJ-005",
             project_name="IoT Dashboard",
             customer_name="PT JKL",
-            status="Closed-Win",
+            status="Won",
             use_case_tags=["iot", "dashboard", "realtime"],
         ),
         FakeProject(
             id_project="PRJ-006",
             project_name="Data Lake Implementation",
             customer_name="PT MNO",
-            status="Closed-Win",
+            status="Won",
             use_case_tags=["datalake", "data-warehouse", "governance"],
         ),
     ]
@@ -115,7 +115,7 @@ def closed_win_projects():
 
 @pytest.fixture
 def sample_documents():
-    """Dokumen-dokumen dari proyek Closed-Win."""
+    """Dokumen-dokumen dari proyek Won."""
     return [
         FakeDocument(
             id_doc="DOC-001",
@@ -157,9 +157,9 @@ async def test_search_returns_empty_when_no_tags(engine):
 
 @pytest.mark.asyncio
 async def test_search_returns_empty_when_no_closed_win(engine):
-    """Jika tidak ada proyek Closed-Win, harus return list kosong."""
+    """Jika tidak ada proyek Won, harus return list kosong."""
     db = AsyncMock()
-    # Simulasi: query proyek Closed-Win return kosong
+    # Simulasi: query proyek Won return kosong
     db.execute.return_value = FakeExecuteResult([])
 
     result = await engine.search_similar_projects(
@@ -175,7 +175,7 @@ async def test_search_filters_by_matching_tags(engine, closed_win_projects, samp
     """Hanya proyek dengan minimal 1 tag cocok yang dikembalikan."""
     db = AsyncMock()
 
-    # First call: query proyek Closed-Win
+    # First call: query proyek Won
     # Second call: query dokumen
     db.execute.side_effect = [
         FakeExecuteResult(closed_win_projects),
@@ -227,13 +227,13 @@ async def test_search_orders_by_matching_count_descending(
 @pytest.mark.asyncio
 async def test_search_max_5_results(engine):
     """Hasil dibatasi maksimal 5 proyek."""
-    # Buat 7 proyek Closed-Win yang semuanya punya tag cocok
+    # Buat 7 proyek Won yang semuanya punya tag cocok
     many_projects = [
         FakeProject(
             id_project=f"PRJ-{i:03d}",
             project_name=f"Project {i}",
             customer_name=f"Customer {i}",
-            status="Closed-Win",
+            status="Won",
             use_case_tags=["common-tag"],
         )
         for i in range(7)
@@ -261,7 +261,7 @@ async def test_search_case_insensitive_matching(engine):
             id_project="PRJ-001",
             project_name="Test Project",
             customer_name="Test Customer",
-            status="Closed-Win",
+            status="Won",
             use_case_tags=["Data-Warehouse", "ETL"],
         ),
     ]
@@ -290,14 +290,14 @@ async def test_search_excludes_current_project(engine):
             id_project="PRJ-CURRENT",
             project_name="Current Project",
             customer_name="Customer",
-            status="Closed-Win",
+            status="Won",
             use_case_tags=["tag-a"],
         ),
         FakeProject(
             id_project="PRJ-OTHER",
             project_name="Other Project",
             customer_name="Customer B",
-            status="Closed-Win",
+            status="Won",
             use_case_tags=["tag-a"],
         ),
     ]
@@ -322,13 +322,13 @@ async def test_search_excludes_current_project(engine):
 
 @pytest.mark.asyncio
 async def test_search_includes_document_info(engine):
-    """Hasil harus menyertakan info dokumen dari proyek Closed-Win."""
+    """Hasil harus menyertakan info dokumen dari proyek Won."""
     projects = [
         FakeProject(
             id_project="PRJ-001",
             project_name="Data Project",
             customer_name="PT ABC",
-            status="Closed-Win",
+            status="Won",
             use_case_tags=["analytics"],
         ),
     ]
@@ -376,7 +376,7 @@ async def test_search_no_documents_returns_empty_list(engine):
             id_project="PRJ-001",
             project_name="Empty Project",
             customer_name="PT ABC",
-            status="Closed-Win",
+            status="Won",
             use_case_tags=["tag-x"],
         ),
     ]

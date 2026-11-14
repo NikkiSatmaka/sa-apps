@@ -59,7 +59,7 @@ def _make_sa():
     return sa
 
 
-def _make_project(status_value: str = "Pending Assignment"):
+def _make_project(status_value: str = "Awaiting Assignment"):
     project = MagicMock()
     project.id_project = PROJECT_ID
     project.project_name = "Proyek Uji"

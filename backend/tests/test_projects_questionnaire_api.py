@@ -139,14 +139,14 @@ def test_create_jawaban_kuat_lolos_gate_dan_notifikasi_lead_sa():
         resp = client.post(URL, data=_form(jawaban_kuat()))
     assert resp.status_code == 201
     d = resp.json()["data"]
-    assert d["status"] == "Pending Assignment"
+    assert d["status"] == "Awaiting Assignment"
     assert d["bant_score"] == 100
     assert d["sub_scores"] == {"budget": 25, "authority": 25, "need": 25, "timeline": 25}
     assert d["scoring_triggered"] is False
     assert "message_bant" not in d
 
     proyek = session.of_type(Project)[0]
-    assert proyek.status == "Pending Assignment"
+    assert proyek.status == "Awaiting Assignment"
     assert proyek.bant_score == 100
     assert proyek.qualification_schema_version == 1
     assert proyek.qualification_answers["budget_dialokasikan"] == "Ya"
@@ -160,12 +160,13 @@ def test_create_jawaban_lemah_need_clarification_dengan_feedback_tanpa_notifikas
         resp = client.post(URL, data=_form(jawaban_lemah()))
     assert resp.status_code == 201
     d = resp.json()["data"]
-    assert d["status"] == "Need Clarification"
+    assert (d["status"], d["qualification_state"]) == ("Intake", "Need Clarification")
     assert d["bant_score"] == 22  # budget 0 + authority 0 + need 12 + timeline 10
     assert "Budget" in d["feedback"] and "Authority" in d["feedback"]
     assert "Need" in d["feedback"] and "Timeline" in d["feedback"]
     assert session.of_type(NotificationLog) == []
-    assert session.of_type(Project)[0].status == "Need Clarification"
+    proyek = session.of_type(Project)[0]
+    assert (proyek.status, proyek.qualification_state) == ("Intake", "Need Clarification")
 
 
 def test_mrr_dinilai_tetapi_estimasi_nilai_tidak():
@@ -189,7 +190,8 @@ def test_skor_mentah_dari_klien_diabaikan_di_form_dan_ditolak_di_jawaban():
         )
     assert resp.status_code == 201
     assert resp.json()["data"]["bant_score"] == 22
-    assert resp.json()["data"]["status"] == "Need Clarification"
+    assert resp.json()["data"]["status"] == "Intake"
+    assert resp.json()["data"]["qualification_state"] == "Need Clarification"
     # Kunci tak dikenal di dalam jawaban ditolak
     with _api() as (client, session):
         resp = client.post(URL, data=_form({**jawaban_lemah(), "bant_score": 100}))
@@ -262,14 +264,14 @@ def test_error_header_dan_kuesioner_dilaporkan_bersama():
 
 
 # --------------------------------------------------------------------------- dengan file (perilaku file tidak berubah)
-def test_create_dengan_file_status_scoring_pending_trigger_scoring_dan_jawaban_tersimpan():
+def test_create_dengan_file_qualification_state_scoring_trigger_scoring_dan_jawaban_tersimpan():
     pdf = ("files", ("mom.pdf", BytesIO(b"%PDF-1.4 isi"), "application/pdf"))
     with patch("app.api.projects._trigger_scoring_engine", new=AsyncMock()) as trigger:
         with _api() as (client, session):
             resp = client.post(URL, data=_form(jawaban_kuat(), file_types=["MoM"]), files=[pdf])
     assert resp.status_code == 201
     d = resp.json()["data"]
-    assert d["status"] == "Scoring Pending"
+    assert (d["status"], d["qualification_state"]) == ("Intake", "Scoring")
     assert d["scoring_triggered"] is True
     trigger.assert_awaited_once()
     proyek = session.of_type(Project)[0]
@@ -290,7 +292,9 @@ AI_JSON = json.dumps(
 )
 
 
-def _jalankan_create_dengan_file_dan_scoring_ai(status_saat_hasil_tiba, bant_detail=None):
+def _jalankan_create_dengan_file_dan_scoring_ai(
+    status_saat_hasil_tiba, qualification_state="Qualified", bant_detail=None
+):
     """
     Create dengan file; saat background scoring AI selesai, proyek sudah berstatus
     `status_saat_hasil_tiba` (simulasi hasil terlambat). Return (proyek, sesi_background).
@@ -302,7 +306,8 @@ def _jalankan_create_dengan_file_dan_scoring_ai(status_saat_hasil_tiba, bant_det
         project_name="P",
         customer_name="C",
         status=status_saat_hasil_tiba,
-        bant_score=70 if status_saat_hasil_tiba != "New" else None,
+        qualification_state=qualification_state,
+        bant_score=70 if qualification_state != "Scoring" else None,
         bant_detail=bant_detail,
         sales_pic=uuid.uuid4(),
     )
@@ -337,25 +342,31 @@ def _jalankan_create_dengan_file_dan_scoring_ai(status_saat_hasil_tiba, bant_det
 
 
 @pytest.mark.parametrize(
-    "status", ["Assigned", "In Progress", "Pending Assignment", "Manual Review Required"]
+    ("status", "state"),
+    [
+        ("Assigned", "Qualified"),
+        ("In Progress", "Qualified"),
+        ("Awaiting Assignment", "Qualified"),
+        ("Intake", "Manual Review"),
+    ],
 )
-def test_hasil_scoring_terlambat_tidak_menimpa_status_lanjutan(status):
-    proyek, bg = _jalankan_create_dengan_file_dan_scoring_ai(status)
-    assert proyek.status == status
+def test_hasil_scoring_terlambat_tidak_menimpa_status_lanjutan(status, state):
+    proyek, bg = _jalankan_create_dengan_file_dan_scoring_ai(status, state)
+    assert (proyek.status, proyek.qualification_state) == (status, state)
     assert proyek.bant_score == 70  # skor lama tidak ditimpa
     assert bg.of_type(NotificationLog) == []
 
 
-def test_hasil_scoring_ai_pada_status_new_diterapkan_dan_lead_sa_dinotifikasi():
-    proyek, bg = _jalankan_create_dengan_file_dan_scoring_ai("New")
-    assert proyek.status == "Pending Assignment"
+def test_hasil_scoring_ai_pada_intake_scoring_diterapkan_dan_lead_sa_dinotifikasi():
+    proyek, bg = _jalankan_create_dengan_file_dan_scoring_ai("Intake", "Scoring")
+    assert (proyek.status, proyek.qualification_state) == ("Awaiting Assignment", "Qualified")
     assert proyek.bant_score == 100
     assert len(bg.of_type(NotificationLog)) == 1
 
 
 def test_scoring_ai_tidak_menimpa_metadata_legacy_di_bant_detail():
     proyek, _ = _jalankan_create_dengan_file_dan_scoring_ai(
-        "New", bant_detail={"budget_mrr": 123, "pic_name": "Lama"}
+        "Intake", "Scoring", bant_detail={"budget_mrr": 123, "pic_name": "Lama"}
     )
     assert proyek.bant_detail["budget_mrr"] == 123
     assert proyek.bant_detail["pic_name"] == "Lama"
@@ -368,7 +379,8 @@ def _patch(body):
         id_project="PRJ-20250101-ABC123",
         project_name="P",
         customer_name="C",
-        status="Need Clarification",
+        status="Intake",
+        qualification_state="Need Clarification",
         bant_score=22,
         bant_detail={"budget": 0, "authority": 0, "need": 12, "timeline": 10, "budget_mrr": 5},
         sales_pic=uuid.uuid4(),

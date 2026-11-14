@@ -48,7 +48,7 @@ def _proyek_baru(url: str, id_project: str, *, created_by: str, product_pic: str
         url,
         "INSERT INTO projects (id_project, project_name, customer_name, created_by, "
         "product_pic, sales_pic, target_submit, status) "
-        "VALUES (:id, 'P', 'C', :cb, :pp, :sp, :target, 'New')",
+        "VALUES (:id, 'P', 'C', :cb, :pp, :sp, :target, 'Intake')",
         {
             "id": id_project,
             "cb": created_by,
@@ -93,7 +93,7 @@ def test_head_product_pic_wajib_tetapi_sales_pic_dan_lead_sa_boleh_kosong(databa
         _sql(
             url,
             "INSERT INTO projects (id_project, project_name, customer_name, created_by, "
-            "target_submit, status) VALUES ('PRJ-X', 'P', 'C', :cb, :target, 'New')",
+            "target_submit, status) VALUES ('PRJ-X', 'P', 'C', :cb, :target, 'Intake')",
             {"cb": produk, "target": date(2030, 1, 1)},
         )
 
@@ -107,7 +107,7 @@ def test_head_created_by_wajib(database_kosong_url):
         _sql(
             url,
             "INSERT INTO projects (id_project, project_name, customer_name, product_pic, "
-            "target_submit, status) VALUES ('PRJ-Y', 'P', 'C', :pp, :target, 'New')",
+            "target_submit, status) VALUES ('PRJ-Y', 'P', 'C', :pp, :target, 'Intake')",
             {"pp": produk, "target": date(2030, 1, 1)},
         )
 
@@ -124,7 +124,7 @@ def test_head_kolom_orang_berfk_ke_users(database_kosong_url, kolom):
             url,
             f"INSERT INTO projects (id_project, project_name, customer_name, "
             f"{', '.join(nilai)}, target_submit, status) "
-            f"VALUES ('PRJ-FK', 'P', 'C', {', '.join(f':{k}' for k in nilai)}, :target, 'New')",
+            f"VALUES ('PRJ-FK', 'P', 'C', {', '.join(f':{k}' for k in nilai)}, :target, 'Intake')",
             {**nilai, "target": date(2030, 1, 1)},
         )
 

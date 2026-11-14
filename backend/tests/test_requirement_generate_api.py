@@ -124,7 +124,7 @@ def test_proyek_lolos_gate_memiliki_requirement_terstruktur():
     resp, session, bg, provider = _create(jawaban_kuat(), llm_ok())
     assert resp.status_code == 201
     proyek = session.of_type(Project)[0]
-    assert proyek.status == "Pending Assignment"
+    assert proyek.status == "Awaiting Assignment"
     assert proyek.requirement_generation_status == "ready"
     [doc] = _docs(bg)
     assert doc.doc_type == "Requirement"
@@ -154,7 +154,7 @@ def test_proyek_gagal_gate_tidak_punya_requirement_dan_llm_tidak_dipanggil():
     resp, session, bg, provider = _create(jawaban_lemah(), llm_ok())
     assert resp.status_code == 201
     proyek = session.of_type(Project)[0]
-    assert proyek.status == "Need Clarification"
+    assert (proyek.status, proyek.qualification_state) == ("Intake", "Need Clarification")
     assert proyek.requirement_generation_status is None
     assert _docs(bg) == []
     provider.complete_text.assert_not_called()
@@ -177,7 +177,7 @@ def test_keluaran_malformed_ditolak_tidak_tersimpan_dan_alur_proyek_utuh(respons
     resp, session, bg, provider = _create(jawaban_kuat(), respons)
     assert resp.status_code == 201  # alur proyek tidak rusak
     proyek = session.of_type(Project)[0]
-    assert proyek.status == "Pending Assignment"
+    assert proyek.status == "Awaiting Assignment"
     assert proyek.requirement_generation_status == "failed"
     assert _docs(bg) == []
     assert provider.complete_text.await_count == 3  # retry mengikuti pola panggilan LLM
@@ -253,9 +253,9 @@ def test_hash_tidak_bergantung_urutan_source_document():
     assert _docs(bg_a)[0].source_hash == _docs(bg_b)[0].source_hash
 
 
-# --------------------------------------------------------------------------- jalur lain menuju Pending Assignment
+# --------------------------------------------------------------------------- jalur lain menuju Awaiting Assignment
 def _put_rescore(jawaban_baru, llm):
-    """Sales mengedit jawaban saat Need Clarification → lolos gate → generate."""
+    """Sales mengedit jawaban saat qualification_state Need Clarification → lolos gate → generate."""
     from fastapi.testclient import TestClient
 
     from app.core.database import get_db
@@ -267,7 +267,8 @@ def _put_rescore(jawaban_baru, llm):
         id_project="PRJ-20250101-ABC123",
         project_name="P",
         customer_name="C",
-        status="Need Clarification",
+        status="Intake",
+        qualification_state="Need Clarification",
         sales_pic=user.id,
         target_submit=date.today() + timedelta(days=30),
         qualification_answers=jawaban_lemah(),
@@ -308,7 +309,7 @@ def _exec_req(lead, proyek):
 def test_rescore_edit_jawaban_yang_lolos_gate_men_generate_requirement():
     resp, proyek, bg, _ = _put_rescore(jawaban_kuat(), llm_ok())
     assert resp.status_code == 200
-    assert proyek.status == "Pending Assignment"
+    assert proyek.status == "Awaiting Assignment"
     assert proyek.requirement_generation_status == "ready"
     assert len(_docs(bg)) == 1
 
@@ -316,7 +317,7 @@ def test_rescore_edit_jawaban_yang_lolos_gate_men_generate_requirement():
 def test_rescore_yang_tetap_gagal_gate_tidak_men_generate():
     resp, proyek, bg, provider = _put_rescore(jawaban_lemah(), llm_ok())
     assert resp.status_code == 200
-    assert proyek.status == "Need Clarification"
+    assert (proyek.status, proyek.qualification_state) == ("Intake", "Need Clarification")
     assert proyek.requirement_generation_status is None
     assert _docs(bg) == []
     provider.complete_text.assert_not_called()
@@ -334,7 +335,8 @@ def test_override_skor_lead_sa_yang_lolos_gate_men_generate_requirement():
         id_project="PRJ-20250101-ABC123",
         project_name="P",
         customer_name="C",
-        status="Need Clarification",
+        status="Intake",
+        qualification_state="Need Clarification",
         sales_pic=uuid.uuid4(),
         target_submit=date.today() + timedelta(days=30),
         qualification_answers=jawaban_lemah(),
@@ -364,7 +366,7 @@ def test_override_skor_lead_sa_yang_lolos_gate_men_generate_requirement():
     finally:
         app.dependency_overrides.clear()
     assert resp.status_code == 200, resp.text
-    assert proyek.status == "Pending Assignment"
+    assert proyek.status == "Awaiting Assignment"
     assert proyek.requirement_generation_status == "ready"
     assert len(_docs(bg)) == 1
 
@@ -378,7 +380,8 @@ def test_jalur_dengan_file_scoring_ai_lolos_gate_men_generate_requirement():
         id_project="PRJ-20250101-ABC123",
         project_name="P",
         customer_name="C",
-        status="Scoring Pending",
+        status="Intake",
+        qualification_state="Scoring",
         sales_pic=uuid.uuid4(),
         target_submit=date.today() + timedelta(days=30),
         qualification_answers=jawaban_lemah(),
@@ -418,7 +421,7 @@ def test_jalur_dengan_file_scoring_ai_lolos_gate_men_generate_requirement():
                 files=[("files", ("rfp.pdf", BytesIO(b"%PDF-1.4 isi"), "application/pdf"))],
             )
     assert resp.status_code == 201
-    assert proyek.status == "Pending Assignment"
+    assert proyek.status == "Awaiting Assignment"
     assert proyek.requirement_generation_status == "ready"
     assert len(_docs(bg)) == 1
     assert "ISI-RFP-EKSTRAKSI" in provider.complete_text.call_args.args[0]

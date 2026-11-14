@@ -111,17 +111,30 @@ class TestUser:
 
 
 STATUS_VALID = [
+    "Intake",
+    "Awaiting Assignment",
+    "Assigned",
+    "In Progress",
+    "Submitted",
+    "Won",
+    "Handed Over",
+    "Closed",
+    "On Hold",
+]
+
+# Nama status lama (sebelum ADR 0013) tidak boleh lolos CHECK.
+STATUS_LAMA = [
     "New",
     "Pending Assignment",
-    "Assigned",
     "Ready",
     "Closed-Win",
     "Handover Complete",
-    "Lost",
     "Need Clarification",
     "Scoring Pending",
     "Manual Review Required",
 ]
+
+QUALIFICATION_STATE_VALID = ["Scoring", "Need Clarification", "Manual Review", "Qualified"]
 
 
 class TestProject:
@@ -133,11 +146,79 @@ class TestProject:
         await simpan(db_session, p)
         assert (await db_session.get(Project, p.id_project)).status == status
 
-    @pytest.mark.parametrize("status", ["Draft", "new", "", "Won", "Closed Win"])
+    @pytest.mark.parametrize("status", ["Draft", "intake", "", "Closed Won", *STATUS_LAMA])
     async def test_status_tidak_valid_ditolak(self, db_session, status):
         user = bangun_user()
         await simpan(db_session, user)
         await ditolak(db_session, "chk_projects_status", bangun_project(user.id, status=status))
+
+    async def test_status_lost_valid_dengan_lost_reason(self, db_session):
+        user = bangun_user()
+        await simpan(db_session, user)
+        p = bangun_project(user.id, status="Lost", lost_reason="Customer batal")
+        await simpan(db_session, p)
+        assert (await db_session.get(Project, p.id_project)).lost_reason == "Customer batal"
+
+    @pytest.mark.parametrize("alasan", [None, "", "   "])
+    async def test_status_lost_tanpa_lost_reason_ditolak(self, db_session, alasan):
+        user = bangun_user()
+        await simpan(db_session, user)
+        await ditolak(
+            db_session,
+            "chk_projects_lost_reason",
+            bangun_project(user.id, status="Lost", lost_reason=alasan),
+        )
+
+    async def test_lost_reason_boleh_ada_pada_status_lain(self, db_session):
+        user = bangun_user()
+        await simpan(db_session, user)
+        await simpan(db_session, bangun_project(user.id, status="Assigned", lost_reason="sisa"))
+
+    @pytest.mark.parametrize("nilai", QUALIFICATION_STATE_VALID)
+    async def test_qualification_state_valid_diterima(self, db_session, nilai):
+        user = bangun_user()
+        await simpan(db_session, user)
+        p = bangun_project(user.id, qualification_state=nilai)
+        await simpan(db_session, p)
+        assert (await db_session.get(Project, p.id_project)).qualification_state == nilai
+
+    @pytest.mark.parametrize("nilai", ["Manual Review Required", "scoring", "", "Intake"])
+    async def test_qualification_state_tidak_valid_ditolak(self, db_session, nilai):
+        user = bangun_user()
+        await simpan(db_session, user)
+        await ditolak(
+            db_session,
+            "chk_projects_qualification_state",
+            bangun_project(user.id, qualification_state=nilai),
+        )
+
+    async def test_default_status_intake_dan_qualification_state_scoring(self, db_session):
+        user = bangun_user()
+        await simpan(db_session, user)
+        p = bangun_project(user.id)
+        await simpan(db_session, p)
+        baris = await db_session.get(Project, p.id_project)
+        assert (baris.status, baris.qualification_state, baris.previous_status) == (
+            "Intake",
+            "Scoring",
+            None,
+        )
+
+    @pytest.mark.parametrize("nilai", ["Awaiting Assignment", "In Progress", "Submitted", "Won"])
+    async def test_previous_status_valid_diterima(self, db_session, nilai):
+        user = bangun_user()
+        await simpan(db_session, user)
+        await simpan(db_session, bangun_project(user.id, status="On Hold", previous_status=nilai))
+
+    @pytest.mark.parametrize("nilai", ["On Hold", "Lost", "Ready", "Pending Assignment", ""])
+    async def test_previous_status_tidak_valid_ditolak(self, db_session, nilai):
+        user = bangun_user()
+        await simpan(db_session, user)
+        await ditolak(
+            db_session,
+            "chk_projects_previous_status",
+            bangun_project(user.id, previous_status=nilai),
+        )
 
     async def test_status_pending_dq_ditolak_database(self, db_session):
         """
@@ -221,7 +302,7 @@ class TestProject:
         await simpan(db_session, user)
         await simpan(db_session, bangun_project(user.id, requirement_generation_status=nilai))
 
-    @pytest.mark.parametrize("nilai", ["done", "Ready", ""])
+    @pytest.mark.parametrize("nilai", ["done", "Submitted", ""])
     async def test_requirement_generation_status_tidak_valid(self, db_session, nilai):
         user = bangun_user()
         await simpan(db_session, user)

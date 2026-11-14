@@ -250,7 +250,7 @@ def _detail(user, proyek, docs):
 
 
 def _proyek(sales_pic):
-    return Project(id_project="PRJ-1", project_name="P", customer_name="C", status="New", sales_pic=sales_pic)
+    return Project(id_project="PRJ-1", project_name="P", customer_name="C", status="Intake", sales_pic=sales_pic)
 
 
 def test_detail_proyek_menampilkan_daftar_source_document_tanpa_teks_penuh():

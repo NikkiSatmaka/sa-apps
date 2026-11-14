@@ -4,7 +4,7 @@ Integration test wiring guardrail ke BANT scoring (``scoring_engine``).
 Memverifikasi (Req 8.1, 8.4, 8.5):
 - ``check_document_size`` dipanggil sebelum ``provider.parse_document``.
 - ``validate_llm_json`` dipakai pada response LLM.
-- Output invalid setelah retry → "Manual Review Required".
+- Output invalid setelah retry → Intake + qualification_state "Manual Review".
 
 Provider di-mock mengikuti pola test_gemini_adapter.py (unittest.mock), tanpa
 panggilan jaringan. Tidak menyentuh DB untuk jalur yang diuji.

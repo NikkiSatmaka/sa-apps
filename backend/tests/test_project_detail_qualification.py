@@ -51,7 +51,7 @@ def _project(**kw):
         id_project=PID,
         project_name="P",
         customer_name="C",
-        status="Pending Assignment",
+        status="Awaiting Assignment",
         target_submit=date.today() + timedelta(days=7),
         sales_pic=None,
         assigned_sa=None,
@@ -184,7 +184,7 @@ def test_proyek_lama_tanpa_bant_detail():
 
 
 def test_scoring_pending_tidak_menampilkan_skor_dan_feedback_sebagai_hasil_final():
-    p = _baru(score=40, status="Scoring Pending")
+    p = _baru(score=40, status="Intake", qualification_state="Scoring")
     p.bant_detail = {"budget": 5, "authority": 15, "need": 10, "timeline": 10}
     d = _get(p, _user("Admin")).json()["data"]
     assert d["bant_score"] is None

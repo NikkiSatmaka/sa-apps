@@ -80,7 +80,7 @@ async def test_sla_tanpa_tracker_404_untuk_semua_pihak(api, db_session, skenario
 
 
 async def test_rekomendasi_untuk_proyek_diminta_tetap_lintas_proyek(api, skenario_akses):
-    """Akses dicek ke proyek yang diminta; hasil RAG tetap proyek Closed-Win lain."""
+    """Akses dicek ke proyek yang diminta; hasil RAG tetap proyek Won lain."""
     resp = await api.client.get(
         _url("recommendations"), headers=skenario_akses.header("kolab_viewer")
     )

@@ -184,7 +184,7 @@ async def test_sa_tambahan_ubah_status_proyek_dan_cek_handover_diizinkan(
     h = skenario.header("sa_tambahan")
 
     status = await api.client.patch(
-        f"{API}/projects/{ID_PROYEK}/status", json={"new_status": "Ready"}, headers=h
+        f"{API}/projects/{ID_PROYEK}/status", json={"new_status": "Submitted"}, headers=h
     )
     cek = await api.client.get(f"{API}/projects/{ID_PROYEK}/handover-status", headers=h)
 

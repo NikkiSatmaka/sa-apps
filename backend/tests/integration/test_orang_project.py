@@ -270,7 +270,7 @@ async def test_product_pic_setara_sales_pic_walau_sales_pic_orang_lain(api, db_s
 
     ubah_status = await api.client.patch(
         f"{API}/projects/{proyek.id_project}/status",
-        json={"new_status": "Ready"},
+        json={"new_status": "Submitted"},
         headers=bearer(produk),
     )
     isi_dq = await api.client.patch(
@@ -353,7 +353,7 @@ async def test_proyek_tanpa_sales_dibuat_lalu_ditugaskan_sampai_assigned(
     assert dibuat.status_code == 201, dibuat.text
     pid = dibuat.json()["data"]["id_project"]
     proyek = await ambil_proyek(db_session, pid)
-    proyek.status = "Pending Assignment"  # lolos gate kualifikasi
+    proyek.status = "Awaiting Assignment"  # lolos gate kualifikasi
     await db_session.commit()
     rekam_background(monkeypatch)
 

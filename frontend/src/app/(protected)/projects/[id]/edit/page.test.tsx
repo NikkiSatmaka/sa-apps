@@ -254,33 +254,31 @@ describe("EditProjectPage — kunci edit jawaban kuesioner per peran dan status"
     expect(await screen.findByText(KUNCI)).toBeInTheDocument();
   });
 
-  it("Sales yang bukan PIC proyek saat Need Clarification: terkunci", async () => {
+  it("Sales yang bukan PIC proyek saat Need Clarification: tidak berhak (pesan akses)", async () => {
     arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }));
     render("other-sales");
-    await tungguHalaman();
-    expect(await screen.findByText(KUNCI)).toBeInTheDocument();
+    // Sejak #83 pengguna tanpa hak ubah proyek tidak mencapai form sama sekali.
+    expect(await screen.findByText("Anda tidak berhak mengubah data proyek ini.")).toBeInTheDocument();
     expect(screen.queryByLabelText(/Anggaran bulanan/)).not.toBeInTheDocument();
   });
 
-  it("Sales saat proyek tanpa PIC tercatat: terkunci", async () => {
+  it("Sales saat proyek tanpa PIC tercatat: tidak berhak (pesan akses)", async () => {
     arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification", sales_pic: undefined }));
     render("Sales");
-    await tungguHalaman();
-    expect(await screen.findByText(KUNCI)).toBeInTheDocument();
+    expect(await screen.findByText("Anda tidak berhak mengubah data proyek ini.")).toBeInTheDocument();
   });
 
-  it.each(["SA"] as Role[])("peran %s tidak bisa mengedit jawaban pada Need Clarification maupun setelah gate", async (role) => {
-    arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }));
+  it.each(["SA"] as Role[])("peran %s (SA utama proyek) tidak bisa mengedit jawaban pada Need Clarification", async (role) => {
+    arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification", assigned_sa: { id: users.SA.id } }));
     render(role);
     await tungguHalaman();
     expect(await screen.findByText(KUNCI)).toBeInTheDocument();
   });
 
-  it("tanpa pengguna ter-autentikasi: terkunci", async () => {
+  it("tanpa pengguna ter-autentikasi: tidak berhak (pesan akses)", async () => {
     arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }));
     render();
-    await tungguHalaman();
-    expect(await screen.findByText(KUNCI)).toBeInTheDocument();
+    expect(await screen.findByText("Anda tidak berhak mengubah data proyek ini.")).toBeInTheDocument();
   });
 
   it.each(["Lead_SA", "Admin"] as Role[])("%s pada Need Clarification: edit dengan hitung ulang skor", async (role) => {

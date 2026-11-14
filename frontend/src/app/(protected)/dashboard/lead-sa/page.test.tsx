@@ -467,3 +467,13 @@ describe("Dashboard Lead SA — error pemuatan dibedakan dari keadaan kosong (#8
     expect(await within(s).findByRole("link", { name: "Proyek Effort" })).toBeInTheDocument();
   });
 });
+
+describe("Dashboard Lead SA — tautan workload", () => {
+  it("menampilkan tautan ke halaman workload", async () => {
+    renderWithProviders(<LeadSADashboard />, { role: "Lead_SA" });
+    expect(screen.getByRole("link", { name: "Lihat Workload" })).toHaveAttribute(
+      "href",
+      "/dashboard/lead-sa/workload",
+    );
+  });
+});

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   aksiStatusTersedia,
+  bisaHandover,
   QUALIFICATION_STATE,
   qualificationBadgeClass,
   STATUS_PROYEK,
@@ -177,5 +178,31 @@ describe("aksiStatusTersedia — tanpa aktor", () => {
   it("tidak menampilkan aksi apa pun", () => {
     expect(kunci("Submitted", null)).toEqual([]);
     expect(kunci("Submitted", undefined)).toEqual([]);
+  });
+});
+
+describe("bisaHandover — hak tombol Handover (cermin TingkatAkses.HANDOVER di backend)", () => {
+  const ctx = (actor: KonteksAksi["actor"], status = "Won", saIds: string[] = [SA_ID, SA_TAMBAHAN_ID]) =>
+    bisaHandover({ actor, status, saIds });
+
+  it("tampil untuk SA utama, SA tambahan, Lead_SA, dan Admin pada Won", () => {
+    expect(ctx(PERAN.saUtama)).toBe(true);
+    expect(ctx(PERAN.saTambahan)).toBe(true);
+    expect(ctx(PERAN.lead)).toBe(true);
+    expect(ctx(PERAN.admin)).toBe(true);
+  });
+
+  it("tidak tampil untuk SA yang tidak ditugaskan, Sales/Product (termasuk PIC), dan tanpa aktor", () => {
+    expect(ctx(PERAN.saLain)).toBe(false);
+    expect(ctx(PERAN.salesPic)).toBe(false);
+    expect(ctx(PERAN.productPic)).toBe(false);
+    expect(ctx(PERAN.salesLain)).toBe(false);
+    expect(ctx(null)).toBe(false);
+    expect(ctx(undefined)).toBe(false);
+  });
+
+  it.each(STATUS_PROYEK.filter((s) => s !== "Won"))("tidak tampil pada status %s", (status) => {
+    expect(ctx(PERAN.lead, status)).toBe(false);
+    expect(ctx(PERAN.saUtama, status)).toBe(false);
   });
 });

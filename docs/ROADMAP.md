@@ -41,7 +41,7 @@ Dokumen pelacakan untuk fitur yang dibutuhkan agar mencapai MVP yang layak. Stat
 | 12 | SLA DQ Number & gating (Flow 2) | 🟡 Partial | **Baru ditambahkan 2026-10-20** (rekonsiliasi spec). Kode SLA ada (`backend/app/services/sla_timer.py`, `backend/app/api/sla.py`) dan read-gating DQ ada (`backend/app/api/dq_number.py`), **tapi tidak di-wire end-to-end**: SLA timer tidak pernah di-start (B11), tidak ada scheduler (B12), sehingga auto-lock folder Solutions / reminder H+3 / eskalasi H+5 mati end-to-end. Dilacak di Fase 2A. |
 | 13 | Role Product, flag `is_admin`, orang per project, multi-SA | 🔴 Belum ada | Fase 8A, 8B. Spec §2.0, §2.5; ADR 0012, 0014 |
 | 14 | Model status dua field | 🔴 Belum ada | Fase 8C. Spec §2.0; ADR 0013 |
-| 15 | Inti tracker: subtask kaya, komentar, "tugas saya", workload, dashboard requester | 🔴 Belum ada | Fase 9. Spec §2.5 |
+| 15 | Inti tracker: subtask kaya, komentar, "tugas saya", workload, dashboard requester | ✅ Selesai | Fase 9 (9.1–9.6). Spec §2.5; PR #146, #148, #150, #151, #152, #153 |
 
 > **Catatan penomoran:** fitur 1–11 dipertahankan apa adanya. Fitur **12 (SLA DQ Number & gating)** ditambahkan pada 2026-10-20 setelah audit rekonsiliasi menemukan Flow 2 (salah satu dari 4 flow inti spec) tidak punya "rumah" di daftar fitur, sehingga bug wiring SLA tidak punya tempat tercatat.
 

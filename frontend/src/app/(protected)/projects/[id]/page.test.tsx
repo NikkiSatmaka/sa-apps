@@ -327,6 +327,20 @@ describe("Detail proyek — subtask per peran", () => {
   });
 });
 
+describe("Detail proyek — Komentar (#125)", () => {
+  it.each(["Sales", "Product", "SA", "Lead_SA", "Admin"] as const)("%s melihat thread Komentar", async (role) => {
+    setup(role);
+    expect(await screen.findByRole("heading", { name: "Komentar" })).toBeInTheDocument();
+    expect(await screen.findByLabelText("Tulis komentar")).toBeInTheDocument();
+  });
+
+  it.each(["Closed", "Lost"])("proyek %s: thread tampil tetapi form komentar tidak", async (status) => {
+    setup("Admin", { status });
+    expect(await screen.findByRole("heading", { name: "Komentar" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Tulis komentar")).not.toBeInTheDocument();
+  });
+});
+
 describe("Detail proyek — Tim SA", () => {
   it.each(["Sales", "Product", "SA", "Lead_SA", "Admin"] as const)("%s melihat section Tim SA dengan SA utama", async (role) => {
     setup(role);

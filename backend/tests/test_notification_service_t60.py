@@ -297,3 +297,13 @@ async def test_dispatch_email_user_tanpa_email_dilewati(monkeypatch, svc, gmail_
     await svc.dispatch_email_for_user(NotificationEventType.HANDOVER, uuid.uuid4())
 
     assert not svc._background_tasks
+
+
+def test_event_komentar_punya_subject_default_sendiri():
+    """Issue #125: event `komentar` tidak jatuh ke subject generik."""
+    from app.services.notification_service import NotificationEventType, NotificationService
+
+    subject = NotificationService()._get_default_subject(NotificationEventType.KOMENTAR)
+
+    assert NotificationEventType.KOMENTAR.value == "komentar"
+    assert subject == "[Portal SA] Komentar baru di proyek"

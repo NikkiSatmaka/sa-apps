@@ -76,7 +76,7 @@ class NotificationLog(Base):
     __table_args__ = (
         CheckConstraint(
             "event_type IN ('assignment', 'status_change', 'sla_reminder', "
-            "'sla_escalation', 'handover', 'doc_ready')",
+            "'sla_escalation', 'handover', 'doc_ready', 'komentar')",
             name="chk_notification_logs_event_type",
         ),
         CheckConstraint(

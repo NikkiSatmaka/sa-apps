@@ -132,6 +132,8 @@ function getEventIconBg(eventType: NotificationEventType): string {
       return "bg-purple-100 text-purple-600";
     case "doc_ready":
       return "bg-indigo-100 text-indigo-600";
+    case "komentar":
+      return "bg-teal-100 text-teal-600";
     default:
       return "bg-neutral-100 text-neutral-600";
   }
@@ -150,6 +152,7 @@ function getNavigationUrl(notification: Notification): string {
       case "status_change":
       case "sla_reminder":
       case "sla_escalation":
+      case "komentar":
         return `/projects/${reference_id}`;
       case "doc_ready":
         // Cek metadata untuk document ID

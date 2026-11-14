@@ -9,6 +9,7 @@ export const projectDetailHandlers = [
   http.get(api("/projects/:id"), () => HttpResponse.json(successEnvelope(makeProjectDetail()))),
   http.get(api("/projects/:id/story"), () => HttpResponse.json(successEnvelope({ items: [], total: 0 }))),
   http.get(api("/projects/:id/subtasks"), () => HttpResponse.json(successEnvelope({ items: [], total: 0 }))),
+  http.get(api("/projects/:id/comments"), () => HttpResponse.json(successEnvelope({ items: [], total: 0 }))),
   http.get(api("/projects/:id/tim-sa"), () => HttpResponse.json(successEnvelope(makeTimSA()))),
   http.get(api("/projects/:id/handover-status"), () =>
     HttpResponse.json(successEnvelope(makeHandoverReadiness())),

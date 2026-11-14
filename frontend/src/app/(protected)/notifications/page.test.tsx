@@ -86,6 +86,7 @@ describe("Halaman Notifikasi — klik", () => {
     ["sla_reminder", "p1", null, "/projects/p1"],
     ["sla_escalation", "p1", null, "/projects/p1"],
     ["handover", "p1", null, "/projects/p1"],
+    ["komentar", "p1", null, "/projects/p1"],
     ["doc_ready", "p1", { document_id: "d1" }, "/projects/p1/documents"],
     ["doc_ready", "p1", null, "/projects/p1"],
     ["assignment", null, null, "/dashboard"],

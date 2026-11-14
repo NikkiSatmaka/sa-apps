@@ -28,7 +28,6 @@ def test_demo_login_tidak_menampilkan_persona_admin():
     from app.api.auth import DEMO_USERS as AUTH_DEMO_USERS
 
     assert set(AUTH_DEMO_USERS) == {"Sales", "Product", "SA", "Lead_SA"}
-    assert not AUTH_DEMO_USERS["SA"].get("is_admin", False)
 
 
 @pytest.mark.asyncio

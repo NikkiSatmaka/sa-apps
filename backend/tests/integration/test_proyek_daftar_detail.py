@@ -76,18 +76,26 @@ async def test_daftar_proyek_terlihat_semua_peran(dunia, aktor):
     assert await _ids(resp) == {"PRJ-A1", "PRJ-B1", "PRJ-B2"}
 
 
-async def test_param_sales_pic_dan_assigned_to_hanya_menyempit(dunia):
-    c, h = dunia.api.client, bearer(dunia.sales_b)
-    assert await _ids(await c.get(URL, params={"sales_pic": "me"}, headers=h)) == {
-        "PRJ-B1",
-        "PRJ-B2",
-    }
-    # Param assigned_to=me hanya menyempit
-    assert await _ids(await c.get(URL, params={"assigned_to": "me"}, headers=h)) == set()
-    lead = bearer(dunia.lead)
-    assert await _ids(await c.get(URL, params={"sales_pic": "me"}, headers=lead)) == set()
+@pytest.mark.parametrize("param", ["sales_pic", "assigned_to"])
+@pytest.mark.parametrize("path", ["", "/status-summary"])
+async def test_param_lama_me_ditolak_422(dunia, param, path):
+    """Alias `sales_pic=me` / `assigned_to=me` dipensiunkan (#155): klien lama mendapat 422 yang
+    jelas, bukan daftar penuh yang diam-diam salah arti sebagai "proyek saya"."""
+    resp = await dunia.api.client.get(
+        f"{URL}{path}", params={param: "me"}, headers=bearer(dunia.sales_b)
+    )
+
+    assert resp.status_code == 422
+    assert "involved=me" in str(resp.json())
+
+
+async def test_involved_me_menyempit_per_peran(dunia):
+    c = dunia.api.client
     assert await _ids(
-        await c.get(URL, params={"assigned_to": "me"}, headers=bearer(dunia.sa1))
+        await c.get(URL, params={"involved": "me"}, headers=bearer(dunia.sales_b))
+    ) == {"PRJ-B1", "PRJ-B2"}
+    assert await _ids(
+        await c.get(URL, params={"involved": "me"}, headers=bearer(dunia.sa1))
     ) == {"PRJ-B1"}
 
 
@@ -123,13 +131,13 @@ async def test_status_summary_semua_peran_melihat_semua_proyek_dan_penyempit(dun
         assert {s["status"]: s["count"] for s in data} == {s["status"]: s["count"] for s in lead}
     mine = (
         await c.get(
-            f"{URL}/status-summary", params={"sales_pic": "me"}, headers=bearer(dunia.sales_b)
+            f"{URL}/status-summary", params={"involved": "me"}, headers=bearer(dunia.sales_b)
         )
     ).json()["data"]
     assert sum(s["count"] for s in mine) == 2
     assigned = (
         await c.get(
-            f"{URL}/status-summary", params={"assigned_to": "me"}, headers=bearer(dunia.sa1)
+            f"{URL}/status-summary", params={"involved": "me"}, headers=bearer(dunia.sa1)
         )
     ).json()["data"]
     assert assigned == [{"status": "Assigned", "count": 1}]

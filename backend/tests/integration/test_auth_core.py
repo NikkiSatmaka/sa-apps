@@ -75,12 +75,19 @@ async def test_demo_login_diblok_di_produksi_dan_tidak_menulis_ke_db(api, db_ses
     monkeypatch.setattr(settings, "ENVIRONMENT", "production")
     monkeypatch.setattr(settings, "DEMO_MODE", True)
 
-    resp = await api.client.post(f"{AUTH}/demo-login", json={"role": "Admin"})
+    resp = await api.client.post(f"{AUTH}/demo-login", json={"role": "Sales"})
 
     assert resp.status_code == 403
     assert await _jumlah_user(db_session) == 0
     cfg = (await api.client.get(f"{AUTH}/config")).json()
     assert cfg["demo_mode"] is False
+
+
+async def test_demo_login_menolak_role_admin(api, db_session):
+    resp = await api.client.post(f"{AUTH}/demo-login", json={"role": "Admin"})
+
+    assert resp.status_code == 422
+    assert await _jumlah_user(db_session) == 0
 
 
 # --------------------------------------------------------------------------- OAuth Google

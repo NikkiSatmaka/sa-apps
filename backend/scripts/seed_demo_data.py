@@ -69,18 +69,23 @@ DEMO_USERS = [
         "role": "Sales",
         "google_id": "demo-google-id-sales",
     },
+    {"email": "demo-sales2@portal-sa.local", "name": "Demo Sales 2", "role": "Sales", "google_id": "demo-google-id-sales-2"},
+    {"email": "demo-product@portal-sa.local", "name": "Demo Product", "role": "Product", "google_id": "demo-google-id-product"},
+    {"email": "demo-product2@portal-sa.local", "name": "Demo Product 2", "role": "Product", "google_id": "demo-google-id-product-2"},
     {
         "email": "demo-sa@portal-sa.local",
         "name": "Demo SA",
         "role": "SA",
         "google_id": "demo-google-id-sa",
     },
+    {"email": "demo-sa2@portal-sa.local", "name": "Demo SA 2", "role": "SA", "google_id": "demo-google-id-sa-2"},
     {
         "email": "demo-lead@portal-sa.local",
         "name": "Demo Lead SA",
         "role": "Lead_SA",
         "google_id": "demo-google-id-lead-sa",
     },
+    {"email": "demo-lead2@portal-sa.local", "name": "Demo Lead SA 2", "role": "Lead_SA", "google_id": "demo-google-id-lead-sa-2"},
     {
         "email": "demo-admin@portal-sa.local",
         "name": "Demo Admin",
@@ -88,6 +93,7 @@ DEMO_USERS = [
         "is_admin": True,
         "google_id": "demo-google-id-admin",
     },
+    {"email": "demo-admin2@portal-sa.local", "name": "Demo Admin 2", "role": "SA", "is_admin": True, "google_id": "demo-google-id-admin-2"},
 ]
 
 
@@ -131,6 +137,7 @@ async def get_or_create_project(
     project_data: dict,
     sales_id: uuid.UUID,
     sa_id: uuid.UUID | None = None,
+    product_id: uuid.UUID | None = None,
 ) -> Project:
     """Cek proyek berdasarkan id_project, buat jika belum ada."""
     result = await db.execute(
@@ -139,6 +146,18 @@ async def get_or_create_project(
     existing = result.scalar_one_or_none()
 
     if existing:
+        # Hanya fixture demo bernama tetap yang ownership-nya disinkronkan saat rerun.
+        if project_data["id_project"].startswith("PRJ-DEMO-"):
+            ownership = {"sales_pic": sales_id, "assigned_sa": sa_id}
+            if product_id is not None:
+                ownership.update(created_by=product_id, product_pic=product_id)
+            changed = False
+            for field, value in ownership.items():
+                if getattr(existing, field, None) != value:
+                    setattr(existing, field, value)
+                    changed = True
+            if changed:
+                await db.flush()
         jawaban = project_data.get("qualification_answers")
         if jawaban is not None:
             versi = QUESTIONNAIRE_SCHEMA_VERSION
@@ -171,6 +190,8 @@ async def get_or_create_project(
         project_name=project_data["project_name"],
         customer_name=project_data["customer_name"],
         sales_pic=sales_id,
+        created_by=product_id or sales_id,
+        product_pic=product_id or sales_id,
         assigned_sa=sa_id,
         status=project_data["status"],
         qualification_state=project_data.get(
@@ -285,6 +306,8 @@ async def seed_all():
             sa2 = sa1
             sa3 = sa1
             lead_sa = users["demo-lead@portal-sa.local"]
+            product1 = users["demo-product@portal-sa.local"]
+            product2 = users["demo-product2@portal-sa.local"]
 
             # == 2. Buat Projects ==
             print("\n[2/4] Membuat demo projects...")
@@ -397,7 +420,7 @@ async def seed_all():
                 },
             ]
 
-            for proj_data in projects_data:
+            for index, proj_data in enumerate(projects_data):
                 sa = proj_data.pop("sa")
                 sales = proj_data.pop("sales")
                 detail = proj_data.pop("bant_detail")
@@ -413,6 +436,7 @@ async def seed_all():
                     proj_data,
                     sales_id=sales,
                     sa_id=sa,
+                    product_id=(product1 if index % 2 == 0 else product2).id,
                 )
 
             # == 3. Buat Documents ==

@@ -52,6 +52,14 @@ const DEMO_ROLES = [
   },
 ] as const;
 
+const DEMO_ACCOUNTS = [
+  { role: "Sales", persona: "Sales 2", label: "Sales 2 — Demo Sales 2", color: "bg-blue-600 hover:bg-blue-700 focus:ring-blue-500" },
+  { role: "Product", persona: "Product 2", label: "Product Manager 2 — Demo Product 2", color: "bg-cyan-600 hover:bg-cyan-700 focus:ring-cyan-500" },
+  { role: "SA", persona: "SA 2", label: "SA 2 — Demo SA 2", color: "bg-green-600 hover:bg-green-700 focus:ring-green-500" },
+  { role: "Lead_SA", persona: "Lead_SA 2", label: "Lead SA 2 — Demo Lead SA 2", color: "bg-purple-600 hover:bg-purple-700 focus:ring-purple-500" },
+  { role: "Admin", persona: "Admin 2", label: "Admin 2 — Demo Admin 2", color: "bg-red-600 hover:bg-red-700 focus:ring-red-500" },
+] as const;
+
 function DemoContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -81,8 +89,9 @@ function DemoContent() {
   /**
    * Handler demo login — POST ke backend lalu simpan token dan user info
    */
-  const handleDemoLogin = async (role: string) => {
-    setLoadingRole(role);
+  const handleDemoLogin = async (role: string, persona?: string) => {
+    const loadingKey = persona || role;
+    setLoadingRole(loadingKey);
     setLoginError(null);
 
     try {
@@ -92,7 +101,7 @@ function DemoContent() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role }),
+        body: JSON.stringify(persona ? { role, persona } : { role }),
       });
 
       if (!response.ok) {
@@ -222,6 +231,16 @@ function DemoContent() {
               ) : (
                 label
               )}
+            </button>
+          ))}
+          {DEMO_ACCOUNTS.map(({ role, persona, label, color }) => (
+            <button
+              key={persona}
+              onClick={() => handleDemoLogin(role, persona)}
+              disabled={loadingRole !== null}
+              className={`flex w-full items-center justify-center rounded-lg px-4 py-3 min-h-[44px] text-sm font-medium text-white shadow-sm transition-colors duration-100 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${color}`}
+            >
+              {loadingRole === persona ? "Memproses..." : label}
             </button>
           ))}
         </div>

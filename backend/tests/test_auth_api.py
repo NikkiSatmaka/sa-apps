@@ -142,8 +142,10 @@ class TestDemoLogin:
         assert body["user"]["role"] == role
         assert body["user"]["is_admin"] is is_admin
         assert body["user"]["id"] == str(uuid.UUID(hashlib.md5(email.encode()).hexdigest()))
-        assert len(db.ditambahkan) == 1 and db.jumlah_commit == 1
-        assert body["tokens"]["token_type"] == "bearer"
+        assert len(db.ditambahkan) == 2 and db.jumlah_commit == 2
+        assert body["tokens"]["expires_in"] == 900
+        assert "refresh_token" not in body["tokens"]
+        assert "HttpOnly" in resp.headers["set-cookie"]
         # token benar-benar bisa dipakai di endpoint terproteksi
         from app.services.auth_service import auth_service
 
@@ -157,7 +159,7 @@ class TestDemoLogin:
         resp = klien(db).post(f"{P}/demo-login", json={"role": "Admin"})
         assert resp.status_code == 200
         assert resp.json()["user"]["id"] == str(ada.id)
-        assert db.ditambahkan == [] and db.jumlah_commit == 0
+        assert len(db.ditambahkan) == 1 and db.jumlah_commit == 1
 
     def test_peran_tidak_dikenal_422(self, klien, monkeypatch):
         monkeypatch.setattr(settings, "DEMO_MODE", True)
@@ -199,17 +201,19 @@ class TestCallback:
 
         assert resp.status_code == 200
         body = resp.json()
-        assert body["user"]["email"] == "budi@perusahaan.id"
-        assert body["tokens"]["access_token"] and body["tokens"]["refresh_token"]
+        assert body["handoff_code"]
+        assert "access_token" not in body and "refresh_token" not in body
         assert "location" not in resp.headers
-        assert len(db.ditambahkan) == 1
+        assert len(db.ditambahkan) == 2  # user + handoff; token tidak dikirim lewat callback
         assert len(diterima) == 2  # tukar kode + ambil profil
 
     def test_peran_user_baru_mengikuti_role_mapping(self, klien, monkeypatch):
         pasang_google(monkeypatch)
         monkeypatch.setattr(settings, "ROLE_MAPPING", '{"*@perusahaan.id": "Sales"}')
-        resp = klien().get(f"{P}/callback", params={"code": "k"})
-        assert resp.json()["user"]["role"] == "Sales"
+        db = SesiPalsu(None)
+        resp = klien(db).get(f"{P}/callback", params={"code": "k"})
+        assert resp.json()["handoff_code"]
+        assert db.ditambahkan[0].role == "Sales"
 
     def test_domain_ditolak_403_dan_tanpa_user(self, klien, monkeypatch):
         pasang_google(monkeypatch, profil={"id": "g", "email": "x@gmail.com", "name": "X"})
@@ -250,7 +254,7 @@ class TestCallbackCalendar:
     def _state(self, url: str) -> str:
         return f"calendar_auth|{url}"
 
-    def test_sukses_redirect_ke_frontend_dengan_token_di_fragment(self, klien, monkeypatch):
+    def test_sukses_redirect_ke_frontend_dengan_kode_tanpa_token(self, klien, monkeypatch):
         monkeypatch.setattr(settings, "FRONTEND_URL", "http://localhost:3000")
         pasang_google(monkeypatch, token_body={"access_token": "tok-kalender"})
         db = SesiPalsu(None)
@@ -265,10 +269,10 @@ class TestCallbackCalendar:
 
         assert resp.status_code in (302, 307)
         loc = resp.headers["location"]
-        assert loc == "http://localhost:3000/activity-logs/calendar#gcal_token=tok-kalender"
-        # fragment tidak dikirim ke server: tidak ada token di query string
+        assert loc.startswith("http://localhost:3000/activity-logs/calendar#gcal_code=")
+        assert "tok-kalender" not in loc
         assert urlparse(loc).query == ""
-        assert db.ditambahkan == []  # flow kalender tidak membuat/login user
+        assert db.ditambahkan[0].purpose == "calendar"
 
     def test_gagal_tukar_kode_redirect_dengan_penanda_error(self, klien, monkeypatch):
         monkeypatch.setattr(settings, "FRONTEND_URL", "http://localhost:3000")
@@ -311,17 +315,20 @@ class TestCallbackCalendar:
 
 
 class TestRefresh:
-    def test_refresh_valid_memberi_pasangan_baru(self, klien):
-        user = user_palsu("Lead_SA")
-        resp = klien(SesiPalsu(user)).post(
-            f"{P}/refresh", json={"refresh_token": buat_token(user.id, tipe="refresh")}
-        )
-        assert resp.status_code == 200
-        body = resp.json()
-        assert set(body) >= {"access_token", "refresh_token", "token_type", "expires_in"}
+    def test_refresh_cookie_valid_memberi_access_dan_rotasi_cookie(self, klien, monkeypatch):
+        from unittest.mock import AsyncMock
+
+        from app.schemas.auth import TokenPair
         from app.services.auth_service import auth_service
 
-        assert auth_service.verify_access_token(body["access_token"])["role"] == "Lead_SA"
+        monkeypatch.setattr(auth_service, "refresh_token", AsyncMock(return_value=TokenPair(
+            access_token="new-access", refresh_token="new-refresh", expires_in=900
+        )))
+        resp = klien().post(f"{P}/refresh", cookies={"refresh_token": "old-refresh"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body == {"access_token": "new-access", "expires_in": 900}
+        assert "new-refresh" in resp.headers["set-cookie"]
 
     @pytest.mark.parametrize(
         "token",
@@ -345,26 +352,16 @@ class TestRefresh:
         )
         assert resp.status_code == 401
 
-    def test_body_tanpa_refresh_token_422(self, klien):
-        assert klien().post(f"{P}/refresh", json={}).status_code == 422
+    def test_tanpa_cookie_refresh_401(self, klien):
+        assert klien().post(f"{P}/refresh").status_code == 401
 
 
 class TestLogout:
     def test_logout_dengan_token_valid(self, klien):
-        resp = klien().post(f"{P}/logout", headers=_auth(buat_token(uuid.uuid4())))
+        resp = klien().post(f"{P}/logout", cookies={"refresh_token": "opaque"})
         assert resp.status_code == 200
         assert resp.json() == {"message": "Logout berhasil."}
-
-    @pytest.mark.parametrize(
-        "headers",
-        [{}, {"Authorization": "Token abc"}, {"Authorization": "bearer abc"}],
-        ids=["tanpa-header", "skema-salah", "huruf-kecil"],
-    )
-    def test_header_tidak_valid_401(self, klien, headers):
-        assert klien().post(f"{P}/logout", headers=headers).status_code == 401
-
-    def test_token_rusak_401(self, klien):
-        assert klien().post(f"{P}/logout", headers=_auth("rusak")).status_code == 401
+        assert 'refresh_token=""' in resp.headers["set-cookie"]
 
 
 class TestMe:
@@ -409,13 +406,11 @@ class TestTokenTidakBocor:
 
         resp = klien(SesiPalsu(None)).get(f"{P}/callback", params={"code": "kode-rahasia"})
 
-        tokens = resp.json()["tokens"]
+        assert resp.json()["handoff_code"]
         assert "location" not in resp.headers
-        assert str(resp.url).count(tokens["access_token"]) == 0
+        assert "tok-google-rahasia" not in resp.text
         log = _log_aplikasi(caplog)
         for rahasia in (
-            tokens["access_token"],
-            tokens["refresh_token"],
             "tok-google-rahasia",
             settings.JWT_SECRET_KEY,
         ):
@@ -440,7 +435,6 @@ class TestTokenTidakBocor:
         token = buat_token(uuid.uuid4(), secret="q" * 40)
         for resp in (
             klien().get(f"{P}/me", headers=_auth(token)),
-            klien().post(f"{P}/logout", headers=_auth(token)),
         ):
             assert resp.status_code == 401
             assert token not in resp.text

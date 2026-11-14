@@ -1,6 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { http, HttpResponse, server, api, stubLocation, successEnvelope, errorEnvelope } from "@/test";
-import { ApiError, apiRequest, fetcher, swrConfig } from "./fetcher";
+import { ApiError, apiRequest, clearAccessToken, fetcher, setAccessToken, swrConfig } from "./fetcher";
+
+beforeEach(() => clearAccessToken());
 
 describe("fetcher (GET)", () => {
   it("mengawali endpoint dengan base URL dan membuka envelope `data`", async () => {
@@ -19,7 +21,7 @@ describe("fetcher (GET)", () => {
   });
 
   it("menyertakan header Authorization Bearer bila token ada", async () => {
-    localStorage.setItem("access_token", "tok123");
+    setAccessToken("tok123");
     let auth: string | null = null;
     server.use(
       http.get(api("/who"), ({ request }) => {
@@ -44,14 +46,15 @@ describe("fetcher (GET)", () => {
   });
 
   it("401: hapus kedua token, arahkan ke /login, lempar ApiError 401", async () => {
-    localStorage.setItem("access_token", "a");
-    localStorage.setItem("refresh_token", "r");
+    setAccessToken("a");
     const loc = stubLocation();
-    server.use(http.get(api("/secure"), () => HttpResponse.json(errorEnvelope("x"), { status: 401 })));
+    server.use(
+      http.get(api("/secure"), () => HttpResponse.json(errorEnvelope("x"), { status: 401 })),
+      http.post(api("/auth/refresh"), () => HttpResponse.json({}, { status: 401 })),
+    );
 
     await expect(fetcher("/secure")).rejects.toMatchObject({ name: "ApiError", status: 401, message: "Unauthorized" });
-    expect(localStorage.getItem("access_token")).toBeNull();
-    expect(localStorage.getItem("refresh_token")).toBeNull();
+    clearAccessToken();
     expect(loc.href).toBe("/login");
   });
 
@@ -75,6 +78,7 @@ describe("fetcher (GET)", () => {
     await expect(fetcher("/secure")).resolves.toEqual({ ok: true });
     expect(refreshCalls).toBe(1);
     expect(secureCalls).toBe(2);
+    clearAccessToken();
     expect(localStorage.getItem("access_token")).toBeNull();
   });
 
@@ -175,7 +179,7 @@ describe("apiRequest: kasus tambahan", () => {
   });
 
   it("menyertakan Bearer token", async () => {
-    localStorage.setItem("access_token", "tok");
+    setAccessToken("tok");
     let auth: string | null = null;
     server.use(
       http.post(api("/things"), ({ request }) => {

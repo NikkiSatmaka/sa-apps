@@ -4,6 +4,7 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { useAuthStore } from "@/store/auth";
 import { api, http, HttpResponse, renderWithProviders, router, seedAuth, server } from "@/test";
 import { backendUser, type Role } from "@/test/fixtures/users";
+import { clearAccessToken, setAccessToken } from "@/lib/fetcher";
 
 const renderGuard = () =>
   renderWithProviders(
@@ -23,7 +24,7 @@ describe("AuthGuard", () => {
   });
 
   it("memuat: menampilkan 'Memuat...' selagi token divalidasi, lalu konten setelah /auth/me sukses", async () => {
-    localStorage.setItem("access_token", "access-SA");
+    setAccessToken("access-SA");
     renderGuard();
     expect(screen.getByText("Memuat...")).toBeInTheDocument();
     expect(screen.queryByText("Konten rahasia")).not.toBeInTheDocument();
@@ -41,14 +42,14 @@ describe("AuthGuard", () => {
         return HttpResponse.json(backendUser("SA"));
       }),
     );
-    localStorage.setItem("access_token", "access-SA");
+    setAccessToken("access-SA");
     renderGuard();
     await screen.findByText("Konten rahasia");
     expect(auth).toBe("Bearer access-SA");
   });
 
   it.each(roles)("peran %s: store terisi dari /auth/me (field name → full_name) dan konten tampil", async (role) => {
-    localStorage.setItem("access_token", `access-${role}`);
+    setAccessToken(`access-${role}`);
     renderGuard();
     expect(await screen.findByText("Konten rahasia")).toBeInTheDocument();
     const { user, isAuthenticated, isLoading } = useAuthStore.getState();
@@ -66,7 +67,7 @@ describe("AuthGuard", () => {
     // Tiket meminta "pengalihan saat peran tidak berhak", tetapi AuthGuard hanya memeriksa keberadaan
     // & validitas token. Otorisasi per peran, bila ada, dilakukan di halaman masing-masing.
     for (const role of roles) {
-      localStorage.setItem("access_token", `access-${role}`);
+      setAccessToken(`access-${role}`);
       const { unmount } = renderGuard();
       expect(await screen.findByText("Konten rahasia")).toBeInTheDocument();
       unmount();
@@ -76,19 +77,18 @@ describe("AuthGuard", () => {
   });
 
   it("token ditolak backend (401): token dihapus dan dialihkan ke /login", async () => {
-    localStorage.setItem("access_token", "kedaluwarsa");
-    localStorage.setItem("refresh_token", "refresh-lama");
+    setAccessToken("kedaluwarsa");
     renderGuard();
     await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
     expect(localStorage.getItem("access_token")).toBeNull();
-    expect(localStorage.getItem("refresh_token")).toBeNull(); // tidak ada alur refresh: langsung logout
+    expect(localStorage.getItem("refresh_token")).toBeNull();
     expect(screen.queryByText("Konten rahasia")).not.toBeInTheDocument();
     expect(screen.queryByText("Memuat...")).not.toBeInTheDocument();
   });
 
   it("backend error 500 diperlakukan sama seperti token tidak valid", async () => {
     server.use(http.get(api("/auth/me"), () => HttpResponse.json({}, { status: 500 })));
-    localStorage.setItem("access_token", "access-SA");
+    setAccessToken("access-SA");
     renderGuard();
     await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
     expect(localStorage.getItem("access_token")).toBeNull();
@@ -96,8 +96,7 @@ describe("AuthGuard", () => {
 
   it("error jaringan: token dihapus dan dialihkan ke /login", async () => {
     server.use(http.get(api("/auth/me"), () => HttpResponse.error()));
-    localStorage.setItem("access_token", "access-SA");
-    localStorage.setItem("refresh_token", "r");
+    setAccessToken("access-SA");
     renderGuard();
     await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
     expect(localStorage.getItem("access_token")).toBeNull();
@@ -122,6 +121,7 @@ describe("AuthGuard", () => {
   it("store terautentikasi tetapi token hilang dari localStorage: dialihkan ke /login dan konten disembunyikan", async () => {
     seedAuth("SA");
     localStorage.clear();
+    clearAccessToken();
     renderGuard();
     await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
     expect(screen.queryByText("Konten rahasia")).not.toBeInTheDocument();

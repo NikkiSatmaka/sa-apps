@@ -178,25 +178,45 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
   }, []);
 
   /**
-   * Baca #gcal_token / #gcal_error dari URL hash setelah redirect OAuth.
+   * Tukar kode sekali pakai hasil redirect OAuth Calendar; Google token tidak pernah ada di Location.
    */
   useEffect(() => {
     if (typeof window === "undefined") return;
     const hash = window.location.hash;
     if (!hash) return;
 
-    const tokenMatch = hash.match(/gcal_token=([^&]+)/);
-    const errorMatch = hash.match(/gcal_error=([^&]+)/);
+    const params = new URLSearchParams(hash.slice(1));
+    const code = params.get("gcal_code");
+    const error = params.get("gcal_error");
+    const legacyToken = params.has("gcal_token");
+    if (!code && !error && !legacyToken) return;
 
-    if (tokenMatch) {
-      localStorage.setItem("google_calendar_token", decodeURIComponent(tokenMatch[1]));
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
-      showToast("success", "Google Calendar terhubung. Klik Sync Calendar untuk memuat event.");
-    } else if (errorMatch) {
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    if (legacyToken && !code && !error) {
       localStorage.removeItem("google_calendar_token");
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
-      showToast("error", "Otorisasi Google Calendar gagal. Silakan coba lagi.");
+      showToast("error", "Otorisasi Google Calendar perlu diulang.");
+      return;
     }
+    if (error) {
+      localStorage.removeItem("google_calendar_token");
+      showToast("error", "Otorisasi Google Calendar gagal. Silakan coba lagi.");
+      return;
+    }
+
+    void fetch(`${process.env.NEXT_PUBLIC_API_URL || "/api/v1"}/auth/calendar/exchange`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    }).then(async (response) => {
+      if (!response.ok) throw new Error("Kode kalender tidak valid");
+      const result = await response.json();
+      localStorage.setItem("google_calendar_token", result.access_token);
+      showToast("success", "Google Calendar terhubung. Klik Sync Calendar untuk memuat event.");
+    }).catch(() => {
+      localStorage.removeItem("google_calendar_token");
+      showToast("error", "Otorisasi Google Calendar gagal. Silakan coba lagi.");
+    });
   }, [showToast]);
 
   /**

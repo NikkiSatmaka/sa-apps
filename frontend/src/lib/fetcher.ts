@@ -14,6 +14,57 @@
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 
+let accessToken: string | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
+
+export function setAccessToken(token: string | null): void {
+  accessToken = token;
+}
+
+export function clearAccessToken(): void {
+  accessToken = null;
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
+  }
+}
+
+export function getAccessToken(): string | null {
+  return accessToken;
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+    })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const result = await response.json();
+        accessToken = result.access_token;
+        return accessToken;
+      })
+      .catch(() => null)
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
+
+async function authenticatedFetch(url: string, init: RequestInit): Promise<Response> {
+  const headers = new Headers(init.headers);
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  const response = await fetch(url, { ...init, headers, credentials: "include" });
+  if (response.status !== 401 || url.endsWith("/auth/refresh")) return response;
+
+  const renewed = await refreshAccessToken();
+  if (!renewed) return response;
+  headers.set("Authorization", `Bearer ${renewed}`);
+  return fetch(url, { ...init, headers, credentials: "include" });
+}
+
 /**
  * Error class khusus untuk API errors
  * Menyimpan status code dan response data untuk handling di UI
@@ -42,19 +93,13 @@ export async function fetcher<T>(endpoint: string): Promise<T> {
     ? endpoint
     : `${API_BASE_URL}${endpoint}`;
 
-  // Ambil token dari localStorage (akan diganti cookie di production)
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-
-  const headers: HeadersInit = {
+  const headers = new Headers({
     "Content-Type": "application/json",
-  };
+  });
 
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
 
-  const response = await fetch(url, { headers });
+  const response = await authenticatedFetch(url, { headers });
 
   // Handle response sesuai standard format API:
   // { status: "success|error", data: {...}, message: "..." }
@@ -62,8 +107,7 @@ export async function fetcher<T>(endpoint: string): Promise<T> {
     // Handle 401 — hapus token dan redirect ke login
     if (response.status === 401) {
       if (typeof window !== "undefined") {
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("refresh_token");
+        clearAccessToken();
         window.location.href = "/login";
       }
       throw new ApiError("Unauthorized", 401);
@@ -97,18 +141,11 @@ export async function apiRequest<T>(
     ? endpoint
     : `${API_BASE_URL}${endpoint}`;
 
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-
   const headers: HeadersInit = {
     "Content-Type": "application/json",
   };
 
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(url, {
+  const response = await authenticatedFetch(url, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -143,7 +180,7 @@ export interface ApiCallOptions {
 }
 
 /**
- * Request ke API dengan token dari localStorage dan `ApiError` standar.
+ * Request ke API dengan access token memory, refresh cookie HttpOnly, dan `ApiError` standar.
  *
  * Penanganan 401 mengikuti pola yang sudah ada: GET seperti `fetcher` (hapus token, ke /login),
  * mutasi seperti `apiRequest` (hanya `ApiError`, tanpa logout otomatis).
@@ -152,15 +189,11 @@ export interface ApiCallOptions {
 export async function apiCall(endpoint: string, opsi: ApiCallOptions): Promise<any> {
   const { method = "GET", body, pesanGagal, ambilPesan, terimaStatus, tanpaBody } = opsi;
   const url = endpoint.startsWith("http") ? endpoint : `${API_BASE_URL}${endpoint}`;
-  const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-
   const multipart = typeof FormData !== "undefined" && body instanceof FormData;
   const headers: Record<string, string> = {};
   // Multipart: jangan set Content-Type, browser menambahkan boundary.
   if (!multipart) headers["Content-Type"] = "application/json";
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  const response = await fetch(url, {
+  const response = await authenticatedFetch(url, {
     method,
     headers,
     body: body === undefined ? undefined : multipart ? (body as FormData) : JSON.stringify(body),
@@ -171,8 +204,7 @@ export async function apiCall(endpoint: string, opsi: ApiCallOptions): Promise<a
 
     if (response.status === 401 && method === "GET") {
       if (typeof window !== "undefined") {
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("refresh_token");
+        clearAccessToken();
         window.location.href = "/login";
       }
       throw new ApiError("Unauthorized", 401);

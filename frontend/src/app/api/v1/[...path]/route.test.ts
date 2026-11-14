@@ -151,12 +151,12 @@ describe("proxy — auth/callback", () => {
     server.use(
       http.get(
         `${BACKEND}/auth/callback`,
-        () => new HttpResponse(null, { status: 302, headers: { Location: "http://localhost:3000/#gcal_token=g" } }),
+          () => new HttpResponse(null, { status: 302, headers: { Location: "http://localhost:3000/#gcal_code=once" } }),
       ),
     );
     const res = await callback();
     expect(res.status).toBe(307);
-    expect(res.headers.get("location")).toBe("http://localhost:3000/#gcal_token=g");
+    expect(res.headers.get("location")).toBe("http://localhost:3000/#gcal_code=once");
   });
 
   it("callback menolak Location yang memuat Google access token mentah", async () => {
@@ -230,23 +230,23 @@ describe("proxy — tidak membocorkan rahasia ke log server (#80)", () => {
 
   const callback = (query = "?code=abc") => GET(req(`/api/v1/auth/callback${query}`), ctx("auth", "callback"));
 
-  it("calendar flow: nilai gcal_token di header Location tidak ada di log, tetap diteruskan ke browser", async () => {
+  it("calendar flow: kode handoff diteruskan, token mentah tidak muncul di Location atau log", async () => {
     server.use(
       http.get(
         `${BACKEND}/auth/callback`,
         () =>
           new HttpResponse(null, {
             status: 302,
-            headers: { Location: "http://localhost:3000/#gcal_token=GCAL-RAHASIA-123" },
+            headers: { Location: "http://localhost:3000/#gcal_code=KODE-TERBATAS" },
           }),
       ),
     );
 
     const res = await callback();
 
-    expect(res.headers.get("location")).toContain("GCAL-RAHASIA-123");
-    expect(keluaran()).not.toContain("GCAL-RAHASIA-123");
-    expect(keluaran()).not.toContain("gcal_token");
+    expect(res.headers.get("location")).toContain("KODE-TERBATAS");
+    expect(res.headers.get("location")).not.toContain("gcal_token");
+    expect(keluaran()).not.toContain("KODE-TERBATAS");
   });
 
   it("login sukses: access/refresh token tidak ada di log atau Location", async () => {

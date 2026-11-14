@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { api, http, HttpResponse, renderWithProviders, router, server } from "@/test";
 import type { Role } from "@/test/fixtures/users";
+import { setAccessToken } from "@/lib/fetcher";
 import ProtectedLayout from "./layout";
 
 const renderLayout = (role?: Role) =>
@@ -22,7 +23,7 @@ describe("layout (protected)", () => {
   });
 
   it("token ditolak: shell tidak pernah dirender", async () => {
-    localStorage.setItem("access_token", "kedaluwarsa");
+    setAccessToken("kedaluwarsa");
     renderLayout();
     expect(screen.getByText("Memuat...")).toBeInTheDocument();
     await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
@@ -46,7 +47,7 @@ describe("layout (protected)", () => {
         return HttpResponse.json({ id: "1", email: "sa@example.com", name: "SA Demo", role: "SA", avatar_url: null });
       }),
     );
-    localStorage.setItem("access_token", "access-SA");
+    setAccessToken("access-SA");
     renderLayout();
     expect(await screen.findByRole("main")).toBeInTheDocument();
     expect(calls).toBe(1);

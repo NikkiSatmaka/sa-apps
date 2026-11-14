@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 
 class TokenPair(BaseModel):
@@ -52,9 +52,15 @@ class LoginResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    """Request untuk refresh token."""
+    """Dibiarkan kompatibel untuk klien lama; refresh baru memakai cookie saja."""
 
-    refresh_token: str
+    refresh_token: Optional[str] = None
+
+
+class HandoffRequest(BaseModel):
+    """Kode sekali pakai dari OAuth redirect."""
+
+    code: str
 
 
 class OAuthError(BaseModel):

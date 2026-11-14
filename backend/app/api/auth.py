@@ -9,8 +9,8 @@ from datetime import datetime, timezone
 from typing import Literal
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,10 +19,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User
 from app.schemas.auth import (
-    LoginResponse,
-    OAuthError,
-    RefreshRequest,
-    TokenPair,
+    HandoffRequest,
     UserResponse,
 )
 from app.services.auth_service import (
@@ -38,6 +35,28 @@ from app.services.auth_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        "refresh_token", token, httponly=True,
+        secure=settings.ENVIRONMENT == "production", samesite="lax",
+        max_age=7 * 24 * 60 * 60, path="/api/v1/auth",
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        "refresh_token", httponly=True,
+        secure=settings.ENVIRONMENT == "production", samesite="lax",
+        path="/api/v1/auth",
+    )
+
+
+def _tolak_origin_silang(request: Request) -> None:
+    origin = request.headers.get("origin")
+    if origin and _origin(origin) != _origin(settings.FRONTEND_URL):
+        raise HTTPException(status_code=403, detail="Origin tidak diizinkan.")
 
 
 @router.get("/config", summary="Auth Configuration Status")
@@ -161,12 +180,16 @@ async def demo_login(
         await db.refresh(user)
 
     # Generate JWT token pair — menggunakan method yang sama dengan OAuth flow
-    tokens = auth_service._create_token_pair(user)
-
-    return LoginResponse(
-        user=UserResponse.model_validate(user),
-        tokens=tokens,
+    tokens = auth_service._create_token_pair(user, db)
+    await db.commit()
+    response = JSONResponse(
+        {
+            "user": UserResponse.model_validate(user).model_dump(mode="json"),
+            "tokens": {"access_token": tokens.access_token, "expires_in": tokens.expires_in},
+        }
     )
+    _set_refresh_cookie(response, tokens.refresh_token)
+    return response
 
 
 def _get_token_from_header(request: Request) -> str:
@@ -232,11 +255,13 @@ async def callback(
         try:
             google_tokens = await auth_service._exchange_code(code)
             gcal_token = google_tokens.get("access_token", "")
-            # Redirect ke frontend dengan token di URL hash (tidak dikirim ke server)
-            redirect_url = f"{frontend_url}#gcal_token={gcal_token}"
+            handoff_code = await auth_service.create_handoff(
+                db, purpose="calendar", value=gcal_token
+            )
+            redirect_url = f"{frontend_url}#gcal_code={handoff_code}"
             return RedirectResponse(url=redirect_url)
-        except Exception as e:
-            logger.error(f"Calendar OAuth token exchange failed: {e}")
+        except Exception:
+            logger.error("Calendar OAuth token exchange failed")
             redirect_url = f"{frontend_url}#gcal_error=token_exchange_failed"
             return RedirectResponse(url=redirect_url)
 
@@ -250,41 +275,93 @@ async def callback(
     except AuthServiceError as e:
         raise HTTPException(status_code=400, detail=e.detail)
 
-    return LoginResponse(
-        user=UserResponse.model_validate(user),
-        tokens=tokens,
-    )
+    handoff_code = await auth_service.create_handoff(db, purpose="login", user_id=user.id)
+    return {"handoff_code": handoff_code}
 
 
-@router.post("/refresh", summary="Refresh Access Token", response_model=TokenPair)
+@router.post("/callback/exchange", summary="Tukar kode OAuth sekali pakai")
+async def exchange_callback(
+    body: HandoffRequest,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
+    _tolak_origin_silang(request)
+    try:
+        handoff = await auth_service.consume_handoff(db, body.code, "login")
+        user = await db.get(User, handoff.user_id)
+        if user is None:
+            raise TokenError("User tidak ditemukan.")
+        tokens = auth_service._create_token_pair(user, db)
+        await db.commit()
+    except TokenError as e:
+        raise HTTPException(status_code=401, detail=e.detail)
+    _set_refresh_cookie(response, tokens.refresh_token)
+    return {
+        "user": UserResponse.model_validate(user),
+        "access_token": tokens.access_token,
+        "expires_in": tokens.expires_in,
+    }
+
+
+@router.post("/calendar/exchange", summary="Tukar kode Calendar sekali pakai")
+async def exchange_calendar(
+    body: HandoffRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    _tolak_origin_silang(request)
+    try:
+        handoff = await auth_service.consume_handoff(db, body.code, "calendar")
+        if not handoff.encrypted_value:
+            raise TokenError("Kode kalender tidak valid.")
+        token = auth_service._fernet().decrypt(handoff.encrypted_value.encode()).decode()
+        await db.commit()
+        return {"access_token": token}
+    except TokenError as e:
+        raise HTTPException(status_code=401, detail=e.detail)
+
+
+@router.post("/refresh", summary="Refresh Access Token")
 async def refresh(
-    body: RefreshRequest,
+    request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Refresh access token menggunakan refresh token yang masih valid.
     Mengembalikan token pair baru (access + refresh).
     """
+    _tolak_origin_silang(request)
     try:
-        tokens = await auth_service.refresh_token(body.refresh_token, db)
+        token = request.cookies.get("refresh_token")
+        if not token:
+            raise TokenError("Refresh cookie tidak ditemukan.")
+        tokens = await auth_service.refresh_token(token, db)
     except TokenError as e:
-        raise HTTPException(status_code=401, detail=e.detail)
+        _clear_refresh_cookie(response)
+        response.status_code = 401
+        return {"detail": e.detail}
 
-    return tokens
+    _set_refresh_cookie(response, tokens.refresh_token)
+    return {"access_token": tokens.access_token, "expires_in": tokens.expires_in}
 
 
 @router.post("/logout", summary="Logout / Revoke Session")
-async def logout(request: Request):
+async def logout(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
     """
     Revoke session user (logout).
     Client harus menghapus token dari storage setelah endpoint ini dipanggil.
     """
-    token = _get_token_from_header(request)
-
-    try:
-        auth_service.revoke_session(token)
-    except TokenError as e:
-        raise HTTPException(status_code=401, detail=e.detail)
+    _tolak_origin_silang(request)
+    refresh_token = request.cookies.get("refresh_token")
+    if refresh_token:
+        await auth_service.revoke_refresh_token(refresh_token, db)
+    _clear_refresh_cookie(response)
 
     return {"message": "Logout berhasil."}
 

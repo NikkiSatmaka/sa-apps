@@ -32,7 +32,7 @@ function capturePost(respond: () => Response | Promise<Response>) {
  * bukan bug aplikasi. Permintaan lain tetap diteruskan ke MSW.
  */
 function captureFetchPost(response: unknown) {
-  const captured: { form?: FormData; headers?: Record<string, string> } = {};
+  const captured: { form?: FormData; headers?: HeadersInit } = {};
   const asli = globalThis.fetch;
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -355,9 +355,9 @@ describe("NewProjectPage — pengiriman", () => {
     });
     expect((form.getAll("files") as File[]).map((f) => f.name)).toEqual(["mom.pdf", "rfp.pdf"]);
     expect(form.getAll("file_types")).toEqual(["MoM", "RFP"]);
-    expect(captured.headers?.Authorization).toBe("Bearer access-Sales");
+    expect(new Headers(captured.headers).get("Authorization")).toBe("Bearer access-Sales");
     // multipart: Content-Type tidak boleh diset manual agar browser menambahkan boundary
-    expect(captured.headers).not.toHaveProperty("Content-Type");
+    expect(new Headers(captured.headers).has("Content-Type")).toBe(false);
   });
 
   it("tanpa DQ Number dan tanpa file: field opsional tidak dikirim", async () => {

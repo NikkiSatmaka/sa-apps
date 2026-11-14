@@ -4,6 +4,7 @@ import { useAuthStore } from "@/store/auth";
 import { api, http, HttpResponse, renderWithProviders, router, server, setSearchParams } from "@/test";
 import { loginResponse, backendUser } from "@/test/fixtures/users";
 import AuthCallbackPage from "./page";
+import { getAccessToken } from "@/lib/fetcher";
 
 /** Bentuk fragment persis seperti yang dibuat proxy `api/v1/[...path]`. */
 function proxyFragment(role: "SA" | "Admin" | "Product" = "SA") {
@@ -20,43 +21,35 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/auth/callback");
 });
 
-describe("halaman /auth/callback — token dari fragment (alur proxy)", () => {
-  it("menampilkan 'Memproses login...' lalu menyimpan token, mengisi store, dan menuju /", async () => {
+describe("halaman /auth/callback — menolak token fragment legacy", () => {
+  it("tidak mempercayai access/refresh token pada fragment", async () => {
     window.location.hash = proxyFragment("SA");
     renderWithProviders(<AuthCallbackPage />);
     expect(screen.getByText("Memproses login...")).toBeInTheDocument();
 
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/"));
-    expect(localStorage.getItem("access_token")).toBe("access-SA");
-    expect(localStorage.getItem("refresh_token")).toBe("refresh-SA");
-    expect(useAuthStore.getState()).toMatchObject({
-      isAuthenticated: true,
-      isLoading: false,
-      user: {
-        role: "SA",
-        is_admin: false,
-        email: backendUser("SA").email,
-        full_name: backendUser("SA").name,
-      },
-    });
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login?error=auth_failed"));
+    expect(getAccessToken()).toBeNull();
+    expect(localStorage.getItem("access_token")).toBeNull();
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
 
   it("token dibersihkan dari URL (hash dihapus) setelah diproses", async () => {
     window.location.hash = proxyFragment("Admin");
     renderWithProviders(<AuthCallbackPage />);
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/"));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login?error=auth_failed"));
     expect(window.location.hash).toBe("");
     expect(window.location.href).not.toContain("access-Admin");
     // Persona Admin = SA dengan is_admin (ADR 0012)
-    expect(useAuthStore.getState().user).toMatchObject({ role: "SA", is_admin: true });
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
 
-  it("tanpa refresh_token: access token tetap tersimpan, refresh tidak", async () => {
+  it("tanpa handoff code tidak memproses token fragment", async () => {
     const { user } = loginResponse("SA");
     window.location.hash = `#${new URLSearchParams({ access_token: "solo", user: encodeURIComponent(JSON.stringify(user)) })}`;
     renderWithProviders(<AuthCallbackPage />);
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/"));
-    expect(localStorage.getItem("access_token")).toBe("solo");
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login?error=auth_failed"));
+    expect(getAccessToken()).toBeNull();
+    expect(localStorage.getItem("access_token")).toBeNull();
     expect(localStorage.getItem("refresh_token")).toBeNull();
   });
 
@@ -68,12 +61,12 @@ describe("halaman /auth/callback — token dari fragment (alur proxy)", () => {
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
 
-  it("user memakai field full_name (bukan name) tetap diterima", async () => {
+  it("tidak menerima user yang ditanam di fragment", async () => {
     const user = { id: "u", email: "x@y.z", full_name: "Nama Penuh", role: "SA" };
     window.location.hash = `#${new URLSearchParams({ access_token: "a", user: encodeURIComponent(JSON.stringify(user)) })}`;
     renderWithProviders(<AuthCallbackPage />);
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/"));
-    expect(useAuthStore.getState().user?.full_name).toBe("Nama Penuh");
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login?error=auth_failed"));
+    expect(useAuthStore.getState().user).toBeNull();
   });
 });
 
@@ -117,12 +110,12 @@ describe("halaman /auth/callback — jalur fallback ?code=", () => {
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
   });
 
-  it("code valid: menukar ke backend, menyimpan token, mengisi store, menuju /", async () => {
+  it("code valid: POST handoff exchange, memasang token memory, mengisi store, menuju /", async () => {
     setSearchParams({ code: "kode-ok" });
     renderWithProviders(<AuthCallbackPage />);
     await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/"));
-    expect(localStorage.getItem("access_token")).toBe("access-SA");
-    expect(localStorage.getItem("refresh_token")).toBe("refresh-SA");
+    expect(getAccessToken()).toBe("access-SA");
+    expect(localStorage.getItem("access_token")).toBeNull();
     expect(useAuthStore.getState().user).toMatchObject({ role: "SA", full_name: backendUser("SA").name });
   });
 
@@ -141,7 +134,7 @@ describe("halaman /auth/callback — jalur fallback ?code=", () => {
   });
 
   it("respons sukses berbentuk aneh (tanpa tokens) → auth_failed, bukan crash", async () => {
-    server.use(http.get(api("/auth/callback"), () => HttpResponse.json({ foo: 1 })));
+    server.use(http.post(api("/auth/callback/exchange"), () => HttpResponse.json({ foo: 1 })));
     setSearchParams({ code: "apa-saja" });
     renderWithProviders(<AuthCallbackPage />);
     await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login?error=auth_failed"));
@@ -149,7 +142,7 @@ describe("halaman /auth/callback — jalur fallback ?code=", () => {
   });
 
   it("error jaringan → auth_failed", async () => {
-    server.use(http.get(api("/auth/callback"), () => HttpResponse.error()));
+    server.use(http.post(api("/auth/callback/exchange"), () => HttpResponse.error()));
     setSearchParams({ code: "x" });
     renderWithProviders(<AuthCallbackPage />);
     await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login?error=auth_failed"));

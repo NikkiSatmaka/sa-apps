@@ -3,6 +3,8 @@ import { http, HttpResponse, server, api, successEnvelope, errorEnvelope, stubLo
 import { makeCreateProjectResponse } from "@/test/fixtures/projects";
 import { makeQualificationSchema, makeQuestion } from "@/test/fixtures/qualification";
 import { ApiError } from "../fetcher";
+import { setAccessToken } from "../fetcher";
+import { getAccessToken } from "../fetcher";
 import { createProject, extractFieldErrors, getBANTResult, updateQualificationAnswers } from "./projects";
 
 describe("extractFieldErrors", () => {
@@ -26,7 +28,7 @@ describe("extractFieldErrors", () => {
 
 describe("createProject", () => {
   it("mengirim multipart tanpa Content-Type manual (boundary dari browser) dan token", async () => {
-    localStorage.setItem("access_token", "tok");
+    setAccessToken("tok");
     let contentType: string | null = null;
     let auth: string | null = null;
     let nama: FormDataEntryValue | null = null;
@@ -100,7 +102,7 @@ describe("getBANTResult", () => {
   });
 
   it("menyertakan Bearer token bila ada", async () => {
-    localStorage.setItem("access_token", "tok");
+    setAccessToken("tok");
     let auth: string | null = null;
     server.use(
       http.get(api("/projects/:id/bant-result"), ({ request }) => {
@@ -146,24 +148,24 @@ describe("updateQualificationAnswers", () => {
 
 describe("projects: penanganan 401 lewat fetcher (#83)", () => {
   it("GET 401: hapus kedua token, arahkan ke /login, lempar ApiError 401 (sama dengan fetcher)", async () => {
-    localStorage.setItem("access_token", "a");
+    setAccessToken("a");
     localStorage.setItem("refresh_token", "r");
     const loc = stubLocation();
     server.use(http.get(api("/projects/p1/bant-result"), () => HttpResponse.json(errorEnvelope("Token kadaluarsa"), { status: 401 })));
 
     await expect(getBANTResult("p1")).rejects.toMatchObject({ name: "ApiError", status: 401, message: "Unauthorized" });
-    expect(localStorage.getItem("access_token")).toBeNull();
+    expect(getAccessToken()).toBeNull();
     expect(localStorage.getItem("refresh_token")).toBeNull();
     expect(loc.href).toBe("/login");
   });
 
   it("mutasi 401: hanya ApiError dengan pesan backend, token tetap (sama dengan apiRequest)", async () => {
-    localStorage.setItem("access_token", "a");
+    setAccessToken("a");
     const loc = stubLocation();
     server.use(http.post(api("/projects"), () => HttpResponse.json(errorEnvelope("Token kadaluarsa"), { status: 401 })));
 
     await expect(createProject(new FormData())).rejects.toMatchObject({ status: 401, message: "Token kadaluarsa" });
-    expect(localStorage.getItem("access_token")).toBe("a");
+    expect(getAccessToken()).toBe("a");
     expect(loc.href).toBe("http://localhost/");
   });
 });

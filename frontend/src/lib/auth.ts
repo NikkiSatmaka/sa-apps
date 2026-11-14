@@ -10,31 +10,23 @@
  * memanggil ini, atau di-reset otomatis karena hard redirect.
  */
 
+import { clearAccessToken } from "@/lib/fetcher";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 
 export async function logout(): Promise<void> {
   if (typeof window === "undefined") return;
 
-  const token = localStorage.getItem("access_token");
-
-  // Best-effort revoke session di backend — jangan blokir logout bila gagal
-  if (token) {
-    try {
-      await fetch(`${API_BASE_URL}/auth/logout`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
-    } catch {
-      // Abaikan error jaringan — tetap lanjut membersihkan sesi lokal
-    }
+  try {
+    await fetch(`${API_BASE_URL}/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch {
+    // Abaikan error jaringan — tetap lanjut membersihkan sesi lokal.
   }
 
-  // Bersihkan token lokal
-  localStorage.removeItem("access_token");
-  localStorage.removeItem("refresh_token");
+  clearAccessToken();
 
   // Hard redirect ke login (reset seluruh in-memory state)
   window.location.href = "/login";

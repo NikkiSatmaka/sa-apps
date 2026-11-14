@@ -4,6 +4,8 @@ Re-export semua model agar bisa diimport langsung dari app.models.
 """
 
 from app.models.activity_log import ActivityLog
+from app.models.auth_handoff import AuthHandoff
+from app.models.auth_refresh_token import AuthRefreshToken
 from app.models.audit_log import AuditLog
 from app.models.document import Document
 from app.models.notification_log import NotificationLog
@@ -18,6 +20,8 @@ from app.models.user import User
 
 __all__ = [
     "User",
+    "AuthHandoff",
+    "AuthRefreshToken",
     "Project",
     "ProjectAssignment",
     "ProjectCollaborator",

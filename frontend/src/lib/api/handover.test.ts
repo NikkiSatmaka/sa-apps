@@ -9,6 +9,8 @@ import {
   type HandoverReadiness,
   type HandoverResponse,
 } from "./handover";
+import { setAccessToken } from "@/lib/fetcher";
+import { getAccessToken } from "@/lib/fetcher";
 
 /** Fixture bertipe: bentuk harus sama dengan skema backend (backend/app/schemas/handover.py). */
 const KESIAPAN: HandoverReadiness = {
@@ -40,7 +42,7 @@ const KONFIG: HandoverConfigResponse = {
 
 describe("handover API", () => {
   it("getRecommendations membuka envelope dan mengirim Bearer token", async () => {
-    localStorage.setItem("access_token", "tok");
+    setAccessToken("tok");
     let auth: string | null = null;
     const rec = { id_project: "p2", project_name: "X", doc_type: "HLD", use_case_tags: ["a"], gdrive_link: null, match_count: 2 };
     server.use(
@@ -157,7 +159,7 @@ describe("handover API: respons tanpa envelope", () => {
   });
 
   it("mengirim token untuk semua endpoint", async () => {
-    localStorage.setItem("access_token", "tok");
+    setAccessToken("tok");
     const auths: (string | null)[] = [];
     const rekam = ({ request }: { request: Request }) => {
       auths.push(request.headers.get("Authorization"));
@@ -177,24 +179,24 @@ describe("handover API: respons tanpa envelope", () => {
 
 describe("handover: penanganan 401 lewat fetcher (#83)", () => {
   it("GET 401: hapus kedua token, arahkan ke /login, lempar ApiError 401 (sama dengan fetcher)", async () => {
-    localStorage.setItem("access_token", "a");
+    setAccessToken("a");
     localStorage.setItem("refresh_token", "r");
     const loc = stubLocation();
     server.use(http.get(api("/projects/p1/recommendations"), () => HttpResponse.json(errorEnvelope("Token kadaluarsa"), { status: 401 })));
 
     await expect(getRecommendations("p1")).rejects.toMatchObject({ name: "ApiError", status: 401, message: "Unauthorized" });
-    expect(localStorage.getItem("access_token")).toBeNull();
+    expect(getAccessToken()).toBeNull();
     expect(localStorage.getItem("refresh_token")).toBeNull();
     expect(loc.href).toBe("/login");
   });
 
   it("mutasi 401: hanya ApiError dengan pesan backend, token tetap (sama dengan apiRequest)", async () => {
-    localStorage.setItem("access_token", "a");
+    setAccessToken("a");
     const loc = stubLocation();
     server.use(http.post(api("/projects/p1/handover"), () => HttpResponse.json(errorEnvelope("Token kadaluarsa"), { status: 401 })));
 
     await expect(triggerHandover("p1")).rejects.toMatchObject({ status: 401, message: "Token kadaluarsa" });
-    expect(localStorage.getItem("access_token")).toBe("a");
+    expect(getAccessToken()).toBe("a");
     expect(loc.href).toBe("http://localhost/");
   });
 });

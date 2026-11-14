@@ -35,7 +35,7 @@ function setup(
 }
 
 async function openFormAndSearch(user: ReturnType<typeof setup>["user"], q: string) {
-  await user.click(screen.getByRole("button", { name: "+ Tambah" }));
+  await user.click(await screen.findByRole("button", { name: "+ Tambah" }));
   await user.type(screen.getByPlaceholderText("Ketik minimal 2 karakter..."), q);
 }
 
@@ -112,8 +112,8 @@ describe("CollaboratorSection — hak akses per peran", () => {
   it.each<Role>(["SA", "Sales", "Product", "Lead_SA", "Admin"])("%s melihat tombol tambah dan hapus", async (role) => {
     setup(role);
     await screen.findByText("Citra Dewi");
-    expect(screen.getByRole("button", { name: "+ Tambah" })).toBeInTheDocument();
-    expect(screen.getByTitle("Hapus kolaborator")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "+ Tambah" })).toBeInTheDocument();
+    expect(await screen.findByTitle("Hapus kolaborator")).toBeInTheDocument();
   });
 
   // Hak tambah/hapus kolaborator = TingkatAkses.TAMBAH_/HAPUS_KOLABORATOR (#154): SA ditugaskan
@@ -189,7 +189,7 @@ describe("CollaboratorSection — hak akses per peran", () => {
 describe("CollaboratorSection — tambah kolaborator", () => {
   it("tombol toggle berganti Batal / + Tambah dan menutup form", async () => {
     const { user } = setup();
-    await user.click(screen.getByRole("button", { name: "+ Tambah" }));
+    await user.click(await screen.findByRole("button", { name: "+ Tambah" }));
     expect(screen.getByText("Cari user (nama atau email):")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Batal" }));
     expect(screen.queryByText("Cari user (nama atau email):")).not.toBeInTheDocument();
@@ -197,7 +197,7 @@ describe("CollaboratorSection — tambah kolaborator", () => {
 
   it("tombol 'Tambah Kolaborator' nonaktif sebelum ada user terpilih", async () => {
     const { user } = setup();
-    await user.click(screen.getByRole("button", { name: "+ Tambah" }));
+    await user.click(await screen.findByRole("button", { name: "+ Tambah" }));
     expect(screen.getByRole("button", { name: "Tambah Kolaborator" })).toBeDisabled();
   });
 
@@ -367,7 +367,7 @@ describe("CollaboratorSection — hapus kolaborator", () => {
     server.use(http.delete(api("/projects/:id/collaborators/:userId"), ({ request }) => { path = new URL(request.url).pathname; return HttpResponse.json(successEnvelope(null)); }));
     const { user, onMutate } = setup("SA");
     await screen.findByText("Citra Dewi");
-    await user.click(screen.getByTitle("Hapus kolaborator"));
+    await user.click(await screen.findByTitle("Hapus kolaborator"));
     expect(window.confirm).toHaveBeenCalledWith("Hapus Citra Dewi dari kolaborator proyek ini?");
     await waitFor(() => expect(onMutate).toHaveBeenCalledTimes(1));
     expect(path).toBe("/api/v1/projects/p-1/collaborators/u-collab-1");
@@ -379,7 +379,7 @@ describe("CollaboratorSection — hapus kolaborator", () => {
     server.use(http.delete(api("/projects/:id/collaborators/:userId"), () => { del(); return HttpResponse.json(successEnvelope(null)); }));
     const { user, onMutate } = setup("SA");
     await screen.findByText("Citra Dewi");
-    await user.click(screen.getByTitle("Hapus kolaborator"));
+    await user.click(await screen.findByTitle("Hapus kolaborator"));
     expect(del).not.toHaveBeenCalled();
     expect(onMutate).not.toHaveBeenCalled();
   });
@@ -388,7 +388,7 @@ describe("CollaboratorSection — hapus kolaborator", () => {
     server.use(http.delete(api("/projects/:id/collaborators/:userId"), () => HttpResponse.json(errorEnvelope("Tidak berhak menghapus"), { status: 403 })));
     const { user, onMutate } = setup("SA");
     const row = (await screen.findByText("Citra Dewi")).closest("div.flex")!.parentElement as HTMLElement;
-    await user.click(within(row).getByTitle("Hapus kolaborator"));
+    await user.click(await within(row).findByTitle("Hapus kolaborator"));
     expect(await screen.findByText("Tidak berhak menghapus")).toBeInTheDocument();
     expect(onMutate).not.toHaveBeenCalled();
   });

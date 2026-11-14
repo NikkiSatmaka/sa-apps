@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse, api, gagalLaluBerhasil, renderWithProviders, router, selaluGagal, server, successEnvelope } from "@/test";
+import { makeTugasSaya } from "@/test/fixtures/project-detail";
 import { makeSAProject } from "@/test/fixtures/shell";
 import SADashboard from "./page";
 
@@ -145,5 +146,18 @@ describe("Dashboard SA", () => {
 
     await waitFor(() => expect(screen.getAllByRole("alert")).toHaveLength(2));
     expect(screen.queryByText(/Belum ada proyek/)).not.toBeInTheDocument();
+  });
+
+  it("menampilkan section 'Tugas saya' dengan subtask lintas project", async () => {
+    projects([]);
+    server.use(
+      http.get(api("/projects/status-summary"), () => HttpResponse.json(successEnvelope([]))),
+      http.get(api("/subtasks/saya"), () =>
+        HttpResponse.json(successEnvelope({ items: [makeTugasSaya({ title: "Tugas dari dashboard" })], total: 1 })),
+      ),
+    );
+    renderWithProviders(<SADashboard />, { role: "SA" });
+    expect(await screen.findByRole("heading", { name: "Tugas Saya" })).toBeInTheDocument();
+    expect(await screen.findByText("Tugas dari dashboard")).toBeInTheDocument();
   });
 });

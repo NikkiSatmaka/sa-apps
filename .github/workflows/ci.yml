@@ -4,7 +4,9 @@
 # #71 (job frontend + gerbang). Job `cakupan-gabungan` MEMBLOK bila cakupan gabungan
 # unit + integrasi backend: baris < 90% atau cabang < 80%. Job `frontend` MEMBLOK bila
 # cakupan total frontend di bawah ambang yang sama (coverage.thresholds di
-# frontend/vitest.config.mts) atau tsc/test/build gagal (CONSTRAINTS.md).
+# frontend/vitest.config.mts) atau tsc/test/build gagal (CONSTRAINTS.md). Job `cakupan-diff`
+# (#98, hanya pull_request) MEMBLOK bila baris yang diubah PR tercakup < 90% (cabang < 80%
+# untuk backend).
 name: CI
 
 on:
@@ -196,8 +198,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
+      # Diunggah juga saat gerbang total gagal agar job `cakupan-diff` tetap bisa menilai diff.
       - name: Unggah coverage.xml gabungan
-        if: ${{ hashFiles('backend/coverage.xml') != '' }}
+        if: ${{ !cancelled() && hashFiles('backend/coverage.xml') != '' }}
         uses: actions/upload-artifact@v7
         with:
           name: coverage-xml-gabungan
@@ -222,6 +225,72 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: python3 backend/scripts/gerbang_pelemahan.py --base "origin/$BASE_REF"
+
+  # Gerbang cakupan diff (#98, CONSTRAINTS.md bagian 1): hanya baris yang DIUBAH/DITAMBAH PR
+  # yang dinilai (diff-cover), memakai artifact cakupan job lain. Hanya pada pull_request: pada
+  # push tidak ada base PR yang pasti, dan push ke branch fitur selalu diikuti PR. Sisi tanpa
+  # perubahan kode produk dilewati otomatis; label PR `cakupan-dikecualikan` (disetujui pemilik)
+  # melewati gerbang ini saja. Label dibaca saat job berjalan, jadi setelah label dipasang cukup
+  # "Re-run" job ini. Logika ada di backend/scripts/gerbang_cakupan_diff.py (teruji).
+  cakupan-diff:
+    name: Gerbang cakupan diff (baris yang diubah)
+    if: ${{ github.event_name == 'pull_request' && !cancelled() }}
+    needs: [cakupan-gabungan, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read # membaca label PR
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      # fetch-depth: 0 agar merge-base terhadap branch dasar PR bisa dihitung.
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Pasang uv (dengan cache dependensi)
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.13"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Pasang dependensi
+        run: uv sync --frozen
+
+      # Artifact bisa tidak ada bila job sumbernya gagal lebih awal; skrip yang memutuskan
+      # (gagal hanya bila sisi itu punya perubahan kode produk).
+      - name: Unduh coverage.xml gabungan backend
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: coverage-xml-gabungan
+          path: backend
+
+      - name: Unduh laporan cakupan frontend (lcov)
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: cakupan-frontend
+          path: frontend/coverage
+
+      - name: Gerbang cakupan diff (baris >= 90%, cabang >= 80%)
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          nama_label="$(gh api "repos/$REPO/issues/$PR/labels" --jq '.[].name')"
+          label=()
+          while IFS= read -r l; do
+            if [ -n "$l" ]; then label+=(--label "$l"); fi
+          done <<< "$nama_label"
+          uv run python -m scripts.gerbang_cakupan_diff --base "origin/$BASE_REF" \
+            --backend-xml coverage.xml --frontend-lcov ../frontend/coverage/lcov.info \
+            --ringkasan "$GITHUB_STEP_SUMMARY" "${label[@]}"
 
   frontend:
     name: Frontend — tsc, test + cakupan, build

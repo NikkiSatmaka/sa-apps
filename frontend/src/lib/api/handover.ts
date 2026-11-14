@@ -10,11 +10,7 @@
  * Requirements: 15.1, 15.3, 15.4, 17.1, 17.6
  */
 
-import { ApiError } from "../fetcher";
-
-// Base URL API backend
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "/api/v1";
+import { apiCall } from "../fetcher";
 
 /** Satu item rekomendasi dokumen dari RAG */
 export interface Recommendation {
@@ -72,14 +68,6 @@ export interface HandoverResponse {
 }
 
 /**
- * Helper untuk mendapatkan auth token
- */
-function getAuthToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("access_token");
-}
-
-/**
  * Ambil rekomendasi dokumen serupa berdasarkan use_case_tags proyek
  * Endpoint: GET /api/v1/projects/{id}/recommendations
  *
@@ -89,31 +77,9 @@ function getAuthToken(): string | null {
 export async function getRecommendations(
   projectId: string
 ): Promise<Recommendation[]> {
-  const token = getAuthToken();
-
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(
-    `${API_BASE_URL}/projects/${projectId}/recommendations`,
-    { headers }
-  );
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
-    throw new ApiError(
-      errorData?.message ||
-        `Gagal mengambil rekomendasi (status ${response.status})`,
-      response.status,
-      errorData
-    );
-  }
-
-  const json = await response.json();
+  const json = await apiCall(`/projects/${projectId}/recommendations`, {
+    pesanGagal: "Gagal mengambil rekomendasi",
+  });
   return json.data ?? json;
 }
 
@@ -127,34 +93,10 @@ export async function getRecommendations(
 export async function triggerHandover(
   projectId: string
 ): Promise<HandoverResponse> {
-  const token = getAuthToken();
-
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(
-    `${API_BASE_URL}/projects/${projectId}/handover`,
-    {
-      method: "POST",
-      headers,
-    }
-  );
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
-    throw new ApiError(
-      errorData?.message ||
-        `Gagal memproses handover (status ${response.status})`,
-      response.status,
-      errorData
-    );
-  }
-
-  const json = await response.json();
+  const json = await apiCall(`/projects/${projectId}/handover`, {
+    method: "POST",
+    pesanGagal: "Gagal memproses handover",
+  });
   return json.data ?? json;
 }
 
@@ -168,31 +110,9 @@ export async function triggerHandover(
 export async function getHandoverStatus(
   projectId: string
 ): Promise<HandoverReadiness> {
-  const token = getAuthToken();
-
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(
-    `${API_BASE_URL}/projects/${projectId}/handover-status`,
-    { headers }
-  );
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
-    throw new ApiError(
-      errorData?.message ||
-        `Gagal mengecek status handover (status ${response.status})`,
-      response.status,
-      errorData
-    );
-  }
-
-  const json = await response.json();
+  const json = await apiCall(`/projects/${projectId}/handover-status`, {
+    pesanGagal: "Gagal mengecek status handover",
+  });
   return json.data ?? json;
 }
 
@@ -210,37 +130,13 @@ export async function setHandoverConfig(
   pmoEmail: string,
   deliveryEmail: string
 ): Promise<HandoverConfigResponse> {
-  const token = getAuthToken();
-
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(
-    `${API_BASE_URL}/projects/${projectId}/handover-config`,
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        pmo_email: pmoEmail,
-        delivery_email: deliveryEmail,
-      } satisfies HandoverConfigInput),
-    }
-  );
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
-    throw new ApiError(
-      errorData?.message ||
-        `Gagal menyimpan konfigurasi handover (status ${response.status})`,
-      response.status,
-      errorData
-    );
-  }
-
-  const json = await response.json();
+  const json = await apiCall(`/projects/${projectId}/handover-config`, {
+    method: "POST",
+    body: {
+      pmo_email: pmoEmail,
+      delivery_email: deliveryEmail,
+    } satisfies HandoverConfigInput,
+    pesanGagal: "Gagal menyimpan konfigurasi handover",
+  });
   return json.data ?? json;
 }

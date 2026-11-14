@@ -9,11 +9,7 @@
  * Requirements: 14.7, 14.8
  */
 
-import { ApiError } from "../fetcher";
-
-// Base URL API backend
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "/api/v1";
+import { apiCall } from "../fetcher";
 
 /** Tipe notifikasi event */
 export type NotificationEventType =
@@ -54,14 +50,6 @@ export interface UnreadCountResponse {
 }
 
 /**
- * Helper untuk mendapatkan auth token
- */
-function getAuthToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("access_token");
-}
-
-/**
  * Ambil riwayat notifikasi user (paginated, 20/page)
  *
  * @param page - Nomor halaman (1-based)
@@ -70,31 +58,9 @@ function getAuthToken(): string | null {
 export async function getNotifications(
   page: number = 1
 ): Promise<PaginatedNotifications> {
-  const token = getAuthToken();
-
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(
-    `${API_BASE_URL}/notifications?page=${page}&per_page=20`,
-    { headers }
-  );
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
-    throw new ApiError(
-      errorData?.message ||
-        `Gagal mengambil notifikasi (status ${response.status})`,
-      response.status,
-      errorData
-    );
-  }
-
-  const json = await response.json();
+  const json = await apiCall(`/notifications?page=${page}&per_page=20`, {
+    pesanGagal: "Gagal mengambil notifikasi",
+  });
   return json.data ?? json;
 }
 
@@ -104,32 +70,11 @@ export async function getNotifications(
  * @param notificationId - ID notifikasi
  */
 export async function markAsRead(notificationId: string): Promise<void> {
-  const token = getAuthToken();
-
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(
-    `${API_BASE_URL}/notifications/${notificationId}/read`,
-    {
-      method: "PATCH",
-      headers,
-    }
-  );
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
-    throw new ApiError(
-      errorData?.message ||
-        `Gagal menandai notifikasi (status ${response.status})`,
-      response.status,
-      errorData
-    );
-  }
+  await apiCall(`/notifications/${notificationId}/read`, {
+    method: "PATCH",
+    pesanGagal: "Gagal menandai notifikasi",
+    tanpaBody: true,
+  });
 }
 
 /**
@@ -138,29 +83,8 @@ export async function markAsRead(notificationId: string): Promise<void> {
  * @returns Objek dengan field count
  */
 export async function getUnreadCount(): Promise<UnreadCountResponse> {
-  const token = getAuthToken();
-
-  const headers: HeadersInit = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${API_BASE_URL}/notifications/unread-count`, {
-    headers,
+  const json = await apiCall("/notifications/unread-count", {
+    pesanGagal: "Gagal mengambil unread count",
   });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
-    throw new ApiError(
-      errorData?.message ||
-        `Gagal mengambil unread count (status ${response.status})`,
-      response.status,
-      errorData
-    );
-  }
-
-  const json = await response.json();
   return json.data ?? json;
 }

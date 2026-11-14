@@ -6,7 +6,10 @@
 #   mise run verify-backend                         # suite unit
 #   mise run verify-backend tests/test_x.py::test_y # satu test (loop merah/hijau)
 #   mise run verify-backend --integration [target]  # suite integrasi di Postgres 18 sementara
-#   mise run verify-backend --full                  # unit + integrasi + cakupan gabungan (gerbang CI)
+#   mise run verify-backend --full                  # unit + integrasi + cakupan gabungan + cakupan diff (gerbang CI)
+#
+# --full juga menjalankan gerbang cakupan diff (#98) terhadap DIFF_BASE (default origin/main;
+# jalankan `git fetch origin` dulu agar base terbaru). Perubahan belum di-commit ikut dinilai.
 #
 # Output penuh ditulis ke log; layar hanya menampilkan ringkasan atau ekor kegagalan.
 # Postgres sementara memakai nama dan port acak, jadi aman dijalankan paralel dari
@@ -67,5 +70,11 @@ case "$mode" in
     uv run coverage combine --keep coverage-unit.data coverage-integration.data >/dev/null 2>&1
     uv run coverage json -o coverage.json >/dev/null 2>&1
     uv run python scripts/cakupan_gerbang.py coverage.json
-    exit $? ;;
+    total=$?
+    # Gerbang cakupan diff, setara job CI `cakupan-diff` untuk sisi backend.
+    uv run coverage xml -o coverage.xml >/dev/null 2>&1
+    uv run python -m scripts.gerbang_cakupan_diff --base "${DIFF_BASE:-origin/main}" \
+      --sisi backend --backend-xml coverage.xml
+    diff=$?
+    exit $(( total != 0 ? total : diff )) ;;
 esac

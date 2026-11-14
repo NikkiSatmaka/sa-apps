@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { http, HttpResponse, server, api, successEnvelope, errorEnvelope } from "@/test";
+import { http, HttpResponse, server, api, successEnvelope, errorEnvelope, stubLocation } from "@/test";
 import { makeCreateProjectResponse } from "@/test/fixtures/projects";
 import { makeQualificationSchema, makeQuestion } from "@/test/fixtures/qualification";
 import { ApiError } from "../fetcher";
@@ -141,5 +141,29 @@ describe("updateQualificationAnswers", () => {
   it("menolak dengan pesan backend (mis. status terkunci)", async () => {
     server.use(http.put(api("/projects/:id/qualification-answers"), () => HttpResponse.json(errorEnvelope("Status terkunci"), { status: 409 })));
     await expect(updateQualificationAnswers("p1", schema, {})).rejects.toMatchObject({ status: 409, message: "Status terkunci" });
+  });
+});
+
+describe("projects: penanganan 401 lewat fetcher (#83)", () => {
+  it("GET 401: hapus kedua token, arahkan ke /login, lempar ApiError 401 (sama dengan fetcher)", async () => {
+    localStorage.setItem("access_token", "a");
+    localStorage.setItem("refresh_token", "r");
+    const loc = stubLocation();
+    server.use(http.get(api("/projects/p1/bant-result"), () => HttpResponse.json(errorEnvelope("Token kadaluarsa"), { status: 401 })));
+
+    await expect(getBANTResult("p1")).rejects.toMatchObject({ name: "ApiError", status: 401, message: "Unauthorized" });
+    expect(localStorage.getItem("access_token")).toBeNull();
+    expect(localStorage.getItem("refresh_token")).toBeNull();
+    expect(loc.href).toBe("/login");
+  });
+
+  it("mutasi 401: hanya ApiError dengan pesan backend, token tetap (sama dengan apiRequest)", async () => {
+    localStorage.setItem("access_token", "a");
+    const loc = stubLocation();
+    server.use(http.post(api("/projects"), () => HttpResponse.json(errorEnvelope("Token kadaluarsa"), { status: 401 })));
+
+    await expect(createProject(new FormData())).rejects.toMatchObject({ status: 401, message: "Token kadaluarsa" });
+    expect(localStorage.getItem("access_token")).toBe("a");
+    expect(loc.href).toBe("http://localhost/");
   });
 });

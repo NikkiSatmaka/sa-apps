@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
+import { bisaMembuatProyek } from "@/lib/roles";
 import { useAuthStore } from "@/store/auth";
 import { FileUpload, FileItem } from "@/components/FileUpload";
 import { QualificationForm } from "@/components/QualificationForm";
@@ -100,14 +101,16 @@ export default function NewProjectPage() {
   const currentUser = useAuthStore((state) => state.user);
 
   // ADR 0014: pembuat Product otomatis jadi Product PIC; pembuat Sales otomatis jadi Sales PIC.
+  // Hanya Sales/Product/Lead_SA/Admin yang boleh membuat project (spec §2.0); SA melihat pesan akses.
+  const bolehMembuat = bisaMembuatProyek(currentUser);
   const perluPilihProduct = currentUser?.role !== "Product";
   const bolehPilihSales = currentUser?.role !== "Sales";
   const { data: daftarProduct } = useSWR<OrangOption[]>(
-    perluPilihProduct ? "/projects/users/search?role=Product&limit=50" : null,
+    bolehMembuat && perluPilihProduct ? "/projects/users/search?role=Product&limit=50" : null,
     fetcher
   );
   const { data: daftarSales } = useSWR<OrangOption[]>(
-    bolehPilihSales ? "/projects/users/search?role=Sales&limit=50" : null,
+    bolehMembuat && bolehPilihSales ? "/projects/users/search?role=Sales&limit=50" : null,
     fetcher
   );
 
@@ -332,9 +335,11 @@ export default function NewProjectPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form, answers, schema, validFiles, router, showToast, perluPilihProduct, bolehPilihSales]);
 
-  // Scoring berjalan (ada file): arahkan ke detail proyek setelah 2 detik. Timer dibersihkan saat
-  // unmount agar berpindah halaman lebih dulu tidak memicu navigasi paksa.
-  const redirectProjectId = createdProject?.scoring_triggered ? createdProject.id_project : null;
+  // Proyek sudah dibuat dan tidak ada layar hasil BANT (scoring berjalan, atau skor tanpa sub-skor):
+  // arahkan ke detail proyek setelah 2 detik. Timer dibersihkan saat unmount agar berpindah halaman
+  // lebih dulu tidak memicu navigasi paksa.
+  const adaLayarHasilBant = createdProject?.bant_score != null && !!createdProject.sub_scores;
+  const redirectProjectId = createdProject && !adaLayarHasilBant ? createdProject.id_project : null;
   useEffect(() => {
     if (!redirectProjectId) return;
     const timer = setTimeout(() => router.push(`/projects/${redirectProjectId}`), 2000);
@@ -357,6 +362,10 @@ export default function NewProjectPage() {
   );
 
   // ==================== Render ====================
+
+  if (!bolehMembuat) {
+    return <p className="text-neutral-600">Halaman ini hanya untuk Sales, Product, Lead_SA, atau Admin.</p>;
+  }
 
   // Jika sudah submit dan skor langsung tersedia (tanpa file) → tampilkan feedback
   if (createdProject && createdProject.bant_score !== null && createdProject.sub_scores) {
@@ -788,8 +797,8 @@ function ProjectCreatedNotice({
   const detail = result.scoring_triggered
     ? "File sedang dianalisis AI untuk scoring. Anda akan diarahkan ke detail proyek."
     : result.status === "Awaiting Assignment"
-      ? `BANT Score ${result.bant_score} — proyek masuk antrian assignment.`
-      : `BANT Score ${result.bant_score} — perlu klarifikasi tambahan.`;
+      ? `BANT Score ${result.bant_score} — proyek masuk antrian assignment. Anda akan diarahkan ke detail proyek.`
+      : `BANT Score ${result.bant_score} — perlu klarifikasi tambahan. Anda akan diarahkan ke detail proyek.`;
 
   return (
     <div className="space-y-4 rounded-lg border border-neutral-200 bg-white p-8 text-center">

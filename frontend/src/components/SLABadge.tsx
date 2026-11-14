@@ -54,17 +54,18 @@ function LockIcon() {
   );
 }
 
-export function SLABadge({ daysElapsed, isLocked }: SLABadgeProps) {
+export function SLABadge({ daysElapsed, isLocked, isPaused = false }: SLABadgeProps) {
   const badgeStyle = getBadgeStyle(daysElapsed);
 
   return (
     <span
       className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${badgeStyle}`}
-      title={`SLA DQ Number: H+${daysElapsed} hari${isLocked ? " (folder terkunci)" : ""}`}
-      aria-label={`SLA countdown: H+${daysElapsed} hari${isLocked ? ", folder terkunci" : ""}`}
+      title={`SLA DQ Number: H+${daysElapsed} hari${isLocked ? " (folder terkunci)" : ""}${isPaused ? " (timer dijeda)" : ""}`}
+      aria-label={`SLA countdown: H+${daysElapsed} hari${isLocked ? ", folder terkunci" : ""}${isPaused ? ", timer dijeda" : ""}`}
     >
       {isLocked && <LockIcon />}
       <span>H+{daysElapsed}</span>
+      {isPaused && <span className="ml-1">Dijeda</span>}
     </span>
   );
 }

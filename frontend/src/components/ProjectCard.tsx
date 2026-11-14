@@ -1,6 +1,7 @@
 "use client";
 
 import { SLABadge } from "@/components/SLABadge";
+import { StatusBadge } from "@/components/StatusBadge";
 
 /**
  * Komponen Project Card — reusable card untuk menampilkan ringkasan proyek
@@ -44,30 +45,6 @@ export interface ProjectCardProps {
 }
 
 /**
- * Warna badge berdasarkan status proyek
- */
-function getStatusBadgeStyle(status: string): string {
-  switch (status) {
-    case "New":
-      return "bg-neutral-100 text-neutral-700";
-    case "Pending Assignment":
-      return "bg-yellow-100 text-yellow-800";
-    case "Assigned":
-      return "bg-blue-100 text-blue-800";
-    case "Ready":
-      return "bg-green-100 text-green-800";
-    case "Closed-Win":
-      return "bg-emerald-100 text-emerald-800";
-    case "Lost":
-      return "bg-red-100 text-red-800";
-    case "Need Clarification":
-      return "bg-orange-100 text-orange-800";
-    default:
-      return "bg-neutral-100 text-neutral-700";
-  }
-}
-
-/**
  * Format tanggal ke format lokal Indonesia
  */
 function formatDate(dateStr: string): string {
@@ -92,6 +69,8 @@ export function ProjectCard({
   bantScore,
   slaDaysElapsed,
   slaIsLocked = false,
+  qualificationState,
+  slaIsPaused = false,
   onClick,
 }: ProjectCardProps) {
   return (
@@ -117,11 +96,7 @@ export function ProjectCard({
         </h3>
         <div className="flex flex-col items-end gap-1 shrink-0">
           {/* Badge Status */}
-          <span
-            className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${getStatusBadgeStyle(status)}`}
-          >
-            {status}
-          </span>
+          <StatusBadge status={status} qualificationState={qualificationState} />
 
           {/* Badge "Menunggu DQ" */}
           {dqNumber === null && (
@@ -132,7 +107,7 @@ export function ProjectCard({
 
           {/* SLA Badge — ditampilkan jika DQ belum diinput dan SLA aktif */}
           {slaDaysElapsed != null && dqNumber === null && (
-            <SLABadge daysElapsed={slaDaysElapsed} isLocked={slaIsLocked} />
+            <SLABadge daysElapsed={slaDaysElapsed} isLocked={slaIsLocked} isPaused={slaIsPaused} />
           )}
         </div>
       </div>

@@ -467,6 +467,26 @@ describe("NewProjectPage — pengiriman", () => {
     expect(screen.getByRole("button", { name: "Lihat Proyek" })).toBeInTheDocument();
   });
 
+  it.each([
+    ["Awaiting Assignment", 65],
+    ["Need Clarification", 30],
+  ])("scoring tidak berjalan dan tanpa sub-skor (%s): setelah 2 detik diarahkan ke detail proyek yang baru dibuat (#83)", async (status, bant) => {
+    useSchema();
+    capturePost(() => created({ status, bant_score: bant, sub_scores: null, scoring_triggered: false }));
+    const user = setup({ fake: true });
+    await isiLangkah1(user);
+    await lanjut(user);
+    await isiKuesioner(user);
+    await user.click(screen.getByRole("button", { name: "Submit Request" }));
+    await screen.findByRole("heading", { name: "Request SA terkirim" });
+    expect(router.push).not.toHaveBeenCalled();
+
+    await act(() => vi.advanceTimersByTimeAsync(2500));
+
+    expect(router.push).toHaveBeenCalledTimes(1);
+    expect(router.push).toHaveBeenCalledWith("/projects/11111111-1111-4111-8111-111111111111");
+  });
+
   it("dengan file (scoring berjalan): selama jeda sebelum redirect, form sudah tidak bisa dikirim ulang (#83)", async () => {
     useSchema();
     capturePost(() => created({ scoring_triggered: true, bant_score: null, sub_scores: null, status: "Intake", qualification_state: "Scoring" }));

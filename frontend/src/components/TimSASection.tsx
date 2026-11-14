@@ -276,6 +276,7 @@ export function TimSASection({ projectId }: TimSASectionProps) {
                         onChange={(e) => setPertahankan(e.target.checked)}
                         disabled={sibuk}
                         aria-label={`Pertahankan ${utama.name} sebagai SA tambahan`}
+                        className="h-[18px] w-[18px] min-h-[18px] min-w-[18px] shrink-0 accent-primary-600"
                       />
                       Pertahankan {utama.name} sebagai SA tambahan
                     </label>

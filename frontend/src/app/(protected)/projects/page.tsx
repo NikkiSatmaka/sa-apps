@@ -100,7 +100,7 @@ export default function ProjectsPage() {
           type="checkbox"
           checked={hanyaSaya}
           onChange={(e) => setHanyaSaya(e.target.checked)}
-          className="rounded border-neutral-300"
+          className="h-[18px] w-[18px] min-h-[18px] min-w-[18px] shrink-0 rounded border-neutral-300 accent-primary-600"
         />
         Hanya proyek saya
       </label>

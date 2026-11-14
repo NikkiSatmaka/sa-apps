@@ -110,6 +110,7 @@ export function TugasSayaSection() {
               type="checkbox"
               checked={sertakanSelesai}
               onChange={(e) => setSertakanSelesai(e.target.checked)}
+              className="h-[18px] w-[18px] min-h-[18px] min-w-[18px] shrink-0 accent-primary-600"
             />
             Sertakan project Closed/Lost
           </label>

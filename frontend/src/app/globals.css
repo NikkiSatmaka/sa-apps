@@ -35,16 +35,6 @@
     min-height: 44px;
   }
 
-  /* Checkbox visual 18px; label pembungkus menyediakan target sentuh 44px. */
-  input[type="checkbox"] {
-    width: 18px;
-    height: 18px;
-    min-width: 18px;
-    min-height: 18px;
-    flex: none;
-    accent-color: #2563eb;
-  }
-
   /* Exception: tombol kecil di dalam komponen dense (misal: close icon di toast) */
   .btn-compact {
     min-width: 28px;

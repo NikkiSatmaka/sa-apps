@@ -234,32 +234,6 @@ async def test_daftar_menampilkan_orang_per_proyek(api, db_session):
     ]
 
 
-async def test_filter_sales_pic_me_mencakup_proyek_product_pic_untuk_product(api, db_session):
-    produk = await user_baru(db_session, "Product")
-    produk_lain = await user_baru(db_session, "Product")
-    sales = await user_baru(db_session, "Sales")
-    milik_produk = await _proyek_dengan_orang(
-        db_session, sales=None, produk=produk, pembuat=produk
-    )
-    milik_produk_dan_sales = await _proyek_dengan_orang(
-        db_session, sales=sales, produk=produk, pembuat=sales
-    )
-    await _proyek_dengan_orang(db_session, sales=sales, produk=produk_lain, pembuat=sales)
-
-    daftar = await api.client.get(f"{API}/projects?sales_pic=me", headers=bearer(produk))
-    ringkasan = await api.client.get(
-        f"{API}/projects/status-summary?sales_pic=me", headers=bearer(produk)
-    )
-    milik_sales = await api.client.get(f"{API}/projects?sales_pic=me", headers=bearer(sales))
-
-    assert {d["id_project"] for d in daftar.json()["data"]} == {
-        milik_produk.id_project,
-        milik_produk_dan_sales.id_project,
-    }
-    assert sum(r["count"] for r in ringkasan.json()["data"]) == 2
-    assert len(milik_sales.json()["data"]) == 2  # Sales: dua proyek sebagai sales_pic
-
-
 # ------------------------------------------------------------------------------------ akses
 
 

@@ -18,7 +18,7 @@ describe("Dashboard SA", () => {
     expect(screen.queryByText(/Belum ada proyek yang ditugaskan/)).not.toBeInTheDocument();
   });
 
-  it("meminta proyek yang ditugaskan ke SA (assigned_to=me, terbaru dulu)", async () => {
+  it("meminta proyek yang melibatkan SA (involved=me, terbaru dulu)", async () => {
     const urls: string[] = [];
     server.use(
       http.get(api("/projects"), ({ request }) => {
@@ -32,8 +32,8 @@ describe("Dashboard SA", () => {
     );
     renderWithProviders(<SADashboard />, { role: "SA" });
     await screen.findByText(/Belum ada proyek yang ditugaskan/);
-    expect(urls).toContain("?assigned_to=me&sort=-updated_at");
-    expect(urls).toContain("?assigned_to=me");
+    expect(urls).toContain("?involved=me&sort=-updated_at");
+    expect(urls).toContain("?involved=me");
   });
 
   it("kosong: pesan belum ada proyek dan ringkasan kosong", async () => {

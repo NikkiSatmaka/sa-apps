@@ -29,7 +29,7 @@ export function makeSalesProject(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** Item GET /projects?assigned_to=me untuk dashboard SA (ada hitungan dokumen). */
+/** Item GET /projects?involved=me untuk dashboard SA (ada hitungan dokumen). */
 export function makeSAProject(overrides: Record<string, unknown> = {}) {
   return {
     id_project: "22222222-2222-4222-8222-222222222222",

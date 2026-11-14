@@ -64,7 +64,7 @@ export default function SADashboard() {
 
   // Fetch proyek yang ditugaskan ke SA yang login
   const { data: projects, isLoading, error: projectsError, mutate: mutateProjects } = useSWR<SAProject[]>(
-    "/projects?assigned_to=me&sort=-updated_at",
+    "/projects?involved=me&sort=-updated_at",
     fetcher
   );
 
@@ -75,7 +75,7 @@ export default function SADashboard() {
     error: statusError,
     mutate: mutateStatus,
   } = useSWR<StatusCount[]>(
-    "/projects/status-summary?assigned_to=me",
+    "/projects/status-summary?involved=me",
     fetcher
   );
 

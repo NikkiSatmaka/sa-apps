@@ -51,9 +51,9 @@ flag "--no-install" help="lewati uv sync dan pnpm install"
 run = "./scripts/new-worktree.sh ${usage_type} ${usage_slug} ${usage_no_install:+--no-install}"
 
 [tasks.verify-backend]
-description = "Verifikasi backend ringkas: unit (default), --integration (Postgres sementara), atau --full (gerbang cakupan gabungan)"
+description = "Verifikasi backend ringkas: unit (default), --integration (Postgres sementara), atau --full (gerbang cakupan gabungan + cakupan diff)"
 run = "./scripts/verify-backend.sh"
 
 [tasks.verify-frontend]
-description = "Verifikasi frontend ringkas: tsc + test (default) atau --full (cakupan + build)"
+description = "Verifikasi frontend ringkas: tsc + test (default) atau --full (cakupan + cakupan diff + build)"
 run = "./scripts/verify-frontend.sh"

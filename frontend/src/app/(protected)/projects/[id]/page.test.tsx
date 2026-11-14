@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  api, errorEnvelope, gagalLaluBerhasil, http, HttpResponse, renderWithProviders, router, server, setParams, stubLocation,
+  api, errorEnvelope, gagalLaluBerhasil, http, HttpResponse, pasangHubungan, renderWithProviders, router, server, setParams, stubLocation,
   successEnvelope, type Role,
 } from "@/test";
 import { makeHandoverReadiness } from "@/test/fixtures/operations";
@@ -250,7 +250,9 @@ describe("Detail proyek — kontrol per peran dan status", () => {
     expect(screen.queryByRole("button", { name: "Assign SA" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reassign SA" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Override skor BANT" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    // #154: pengguna tak terkait (default fixture) tidak berhak mengubah proyek; hak per hubungan
+    // diuji di page.hak-tulis.test.tsx.
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 
   it("tanpa user terautentikasi: tidak ada kontrol privileged", async () => {
@@ -308,7 +310,8 @@ describe("Detail proyek — kontrol per peran dan status", () => {
   });
 
   it("Edit menavigasi ke halaman edit", async () => {
-    const { user } = setup("Sales");
+    pasangHubungan("Sales", "sales_pic");
+    const { user } = renderWithProviders(<ProjectDetailPage />, { role: "Sales" });
     await user.click(await screen.findByRole("button", { name: "Edit" }));
     expect(router.push).toHaveBeenCalledWith(`/projects/${DETAIL_ID}/edit`);
   });
@@ -484,7 +487,8 @@ describe("Detail proyek — handover Won", () => {
 
   it("SA melihat modal handover pada Won dan dapat menutupnya", async () => {
     serveHandover({ pmo_email: "pmo@x", delivery_email: "d@x" });
-    const { user } = setup("SA", { status: "Won" });
+    pasangHubungan("SA", "sa_utama", { status: "Won" });
+    const { user } = renderWithProviders(<ProjectDetailPage />, { role: "SA" });
     const modal = await screen.findByRole("dialog", { name: "stub handover" });
     expect(modal).toHaveTextContent("Handover Migrasi Cloud ACME");
     await user.click(within(modal).getByRole("button", { name: "Ack handover" }));

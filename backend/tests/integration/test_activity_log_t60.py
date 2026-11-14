@@ -784,3 +784,18 @@ async def test_service_story_membatasi_page_size_maksimal_20(db_session):
     hasil = await ActivityLogger(db_session).get_project_story(proyek.id_project, page_size=500)
 
     assert (hasil["page_size"], len(hasil["items"]), hasil["total_pages"]) == (20, 20, 2)
+
+
+async def test_polish_log_proyek_soft_deleted_404_tanpa_panggil_llm(api, db_session, fake_llm):
+    """#96: log milik proyek yang sudah soft-deleted tidak boleh di-polish ulang (404)."""
+    _, sa, proyek = await _siap(db_session)
+    log = await _tambah_log(db_session, sa, proyek.id_project, jam_lalu=1)
+    proyek.deleted_at = datetime.now(timezone.utc)
+    await db_session.commit()
+
+    resp = await api.client.post(f"{LOGS}/{log.id_log}/polish", headers=bearer(sa))
+
+    assert resp.status_code == 404, resp.text
+    assert fake_llm.jumlah() == 0
+    await db_session.refresh(log)
+    assert log.ai_polished_notes is None

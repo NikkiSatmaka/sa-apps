@@ -25,6 +25,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 from sqlalchemy import asc, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,6 +45,7 @@ from app.models.project_collaborator import ProjectCollaborator
 from app.models.sla_tracking import SLATracking
 from app.models.source_document import DOC_TYPES, SourceDocument
 from app.models.user import User
+from app.schemas.dq_number import DQNumberInput
 from app.schemas.project import FileUploadResult, ProjectResponse
 from app.schemas.qualification import parse_answers, validate_answers
 from app.schemas.response import error_response, success_response
@@ -777,6 +779,16 @@ async def update_project(
     if "dq_number" in body:
         dq_baru = body["dq_number"] or None  # "" dan None sama-sama berarti tidak terisi
         if dq_baru != project.dq_number:
+            if dq_baru is not None:
+                # Format divalidasi dengan schema yang sama dengan /dq-number (satu sumber);
+                # tanpa ini nilai tidak valid menabrak CHECK chk_dq_number_format (500).
+                try:
+                    DQNumberInput(dq_number=dq_baru)
+                except ValidationError as exc:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=exc.errors()[0]["msg"].removeprefix("Value error, "),
+                    ) from exc
             perubahan_dq = await terapkan_dq(db, project, current_user, dq_baru)
 
     # Update fields yang dikirim

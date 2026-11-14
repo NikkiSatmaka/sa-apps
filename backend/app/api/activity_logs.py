@@ -205,6 +205,17 @@ async def retry_polish_notes(
         await db.execute(select(ActivityLog).where(ActivityLog.id_log == id_log))
     ).scalar_one_or_none()
     if log is not None and log.sa_id == current_user.id:
+        # Proyek soft-deleted tersaring filter global (select(Project) → None), padahal log
+        # masih menunjuknya (FK): tolak 404 seperti endpoint proyek lain, sebelum LLM dipanggil.
+        if log.id_project is not None:
+            proyek = (
+                await db.execute(select(Project).where(Project.id_project == log.id_project))
+            ).scalar_one_or_none()
+            if proyek is None:
+                return JSONResponse(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    content=error_response(message="Proyek untuk log ini tidak ditemukan."),
+                )
         await _periksa_akses_proyek(db, log.id_project, current_user, TingkatAkses.TULIS)
 
     try:

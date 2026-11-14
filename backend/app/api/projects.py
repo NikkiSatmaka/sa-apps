@@ -70,6 +70,22 @@ def _sa_ditugaskan_ke(user_id: uuid.UUID):
         ),
     )
 
+def _terlibat(user_id: uuid.UUID):
+    """Kriteria `involved=me` (ADR 0014): user adalah `created_by`, `sales_pic`, `product_pic`,
+    `lead_sa`, SA utama/tambahan, atau collaborator. Memakai subquery `IN` (bukan join), jadi
+    project dengan banyak hubungan tidak menghasilkan baris ganda."""
+    return or_(
+        Project.created_by == user_id,
+        Project.sales_pic == user_id,
+        Project.product_pic == user_id,
+        Project.lead_sa == user_id,
+        _sa_ditugaskan_ke(user_id),
+        Project.id_project.in_(
+            select(ProjectCollaborator.id_project).where(ProjectCollaborator.user_id == user_id)
+        ),
+    )
+
+
 # Konstanta file upload
 MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024  # 20MB
 MAX_FILES = 5
@@ -298,6 +314,9 @@ async def list_projects(
     assigned_to: Optional[str] = Query(
         None, description="Filter: 'me' untuk proyek yang ditugaskan ke user login"
     ),
+    involved: Optional[str] = Query(
+        None, description="Filter: 'me' untuk proyek yang melibatkan user login (semua peran)"
+    ),
     status_filter: Optional[str] = Query(
         None, alias="status", description="Filter berdasarkan status proyek"
     ),
@@ -311,6 +330,7 @@ async def list_projects(
     Ambil daftar proyek dengan filter berdasarkan role.
 
     Filter:
+    - involved=me → proyek yang melibatkan user saat ini (semua peran, ADR 0014)
     - sales_pic=me → proyek yang dibuat oleh user saat ini
     - assigned_to=me → proyek yang ditugaskan ke user saat ini
     - status=<value> → filter berdasarkan status
@@ -325,8 +345,11 @@ async def list_projects(
     # Semua proyek dapat dilihat semua pengguna terautentikasi (keputusan 2026-11-10); hanya akses
     # TULIS yang dibatasi. Query param sales_pic=me / assigned_to=me hanyalah penyempit opsional.
     # Penyempit opsional dari query param (hanya mempersempit, tidak memperluas akses)
-    if sales_pic == "me":
-        # Product PIC setara Sales PIC (ADR 0012/0014); `involved=me` menggantikan ini di #109.
+    if involved == "me":
+        query = query.where(_terlibat(current_user.id))
+    elif sales_pic == "me":
+        # Product PIC setara Sales PIC (ADR 0012/0014). Dipertahankan untuk kompatibilitas;
+        # UI memakai `involved=me` (#109).
         query = query.where(
             or_(Project.sales_pic == current_user.id, Project.product_pic == current_user.id)
         )
@@ -403,6 +426,9 @@ async def get_status_summary(
     assigned_to: Optional[str] = Query(
         None, description="Filter: 'me' untuk proyek yang ditugaskan ke user login"
     ),
+    involved: Optional[str] = Query(
+        None, description="Filter: 'me' untuk proyek yang melibatkan user login (semua peran)"
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -411,8 +437,10 @@ async def get_status_summary(
 
     # Semua proyek dapat dilihat semua pengguna terautentikasi (sama seperti list_projects).
     # Penyempit opsional dari query param
-    if sales_pic == "me":
-        # Product PIC setara Sales PIC (ADR 0012/0014); `involved=me` menggantikan ini di #109.
+    if involved == "me":
+        query = query.where(_terlibat(current_user.id))
+    elif sales_pic == "me":
+        # Product PIC setara Sales PIC (ADR 0012/0014); dipertahankan untuk kompatibilitas.
         query = query.where(
             or_(Project.sales_pic == current_user.id, Project.product_pic == current_user.id)
         )

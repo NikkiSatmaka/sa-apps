@@ -55,6 +55,29 @@ describe("fetcher (GET)", () => {
     expect(loc.href).toBe("/login");
   });
 
+  it("401: refresh sekali lalu ulangi request dengan access token memory baru", async () => {
+    let secureCalls = 0;
+    let refreshCalls = 0;
+    server.use(
+      http.post(api("/auth/refresh"), () => {
+        refreshCalls += 1;
+        return HttpResponse.json({ access_token: "baru", expires_in: 900 });
+      }),
+      http.get(api("/secure"), ({ request }) => {
+        secureCalls += 1;
+        if (secureCalls === 1) return HttpResponse.json({}, { status: 401 });
+        return request.headers.get("Authorization") === "Bearer baru"
+          ? HttpResponse.json(successEnvelope({ ok: true }))
+          : HttpResponse.json({}, { status: 401 });
+      }),
+    );
+
+    await expect(fetcher("/secure")).resolves.toEqual({ ok: true });
+    expect(refreshCalls).toBe(1);
+    expect(secureCalls).toBe(2);
+    expect(localStorage.getItem("access_token")).toBeNull();
+  });
+
   it("error non-401: pakai message backend dan simpan data/status", async () => {
     const body = errorEnvelope("Proyek tidak ditemukan");
     server.use(http.get(api("/missing"), () => HttpResponse.json(body, { status: 404 })));

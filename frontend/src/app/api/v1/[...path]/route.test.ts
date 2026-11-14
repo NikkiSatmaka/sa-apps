@@ -130,26 +130,21 @@ describe("proxy — auth/callback", () => {
   const tokens = { access_token: "AT.secret", refresh_token: "RT.secret", token_type: "bearer" };
   const callback = (query = "?code=abc") => GET(req(`/api/v1/auth/callback${query}`), ctx("auth", "callback"));
 
-  it("sukses: redirect ke /auth/callback dengan token di FRAGMENT, bukan di query string", async () => {
-    server.use(http.get(`${BACKEND}/auth/callback`, () => HttpResponse.json({ user, tokens })));
+  it("sukses: menukar respons callback menjadi redirect dengan authorization code sekali pakai", async () => {
+    server.use(http.get(`${BACKEND}/auth/callback`, () => HttpResponse.json({ handoff_code: "handoff-123" })));
     const res = await callback();
     expect(res.status).toBe(307);
     const loc = new URL(res.headers.get("location")!);
     expect(loc.origin + loc.pathname).toBe(`${FRONTEND}/auth/callback`);
-    expect(loc.search).toBe(""); // token tidak ada di query → tidak masuk access log server
-    expect(loc.hash).toContain("access_token=AT.secret");
-    const frag = new URLSearchParams(loc.hash.slice(1));
-    expect(frag.get("refresh_token")).toBe("RT.secret");
-    expect(JSON.parse(decodeURIComponent(frag.get("user")!))).toEqual(user);
+    expect(loc.searchParams.get("code")).toBe("handoff-123");
+    expect(loc.hash).toBe("");
+    expect(loc.href).not.toMatch(/AT\.secret|RT\.secret/);
   });
 
-  it("DIVERGENSI: token tetap ada di URL (fragment) dan di header Location response", async () => {
-    // Fragment memang tidak dikirim browser ke server, tetapi proxy ini sendiri memancarkan
-    // token di header `Location` (terlihat oleh log reverse-proxy/CDN di depan Next). Tercatat
-    // sebagai perilaku nyata; bukan "token tidak pernah muncul di URL" seperti bunyi tiket.
+  it("tidak pernah menaruh token di header Location", async () => {
     server.use(http.get(`${BACKEND}/auth/callback`, () => HttpResponse.json({ user, tokens })));
     const res = await callback();
-    expect(res.headers.get("location")).toContain("AT.secret");
+    expect(res.headers.get("location")).not.toMatch(/AT\.secret|RT\.secret/);
   });
 
   it("calendar flow: 3xx + Location backend diteruskan apa adanya", async () => {
@@ -243,7 +238,7 @@ describe("proxy — tidak membocorkan rahasia ke log server (#80)", () => {
     expect(keluaran()).not.toContain("gcal_token");
   });
 
-  it("login sukses: access/refresh token tidak ada di log", async () => {
+  it("login sukses: access/refresh token tidak ada di log atau Location", async () => {
     server.use(
       http.get(`${BACKEND}/auth/callback`, () =>
         HttpResponse.json({ user, tokens: { access_token: "AT-RAHASIA", refresh_token: "RT-RAHASIA" } }),
@@ -252,7 +247,7 @@ describe("proxy — tidak membocorkan rahasia ke log server (#80)", () => {
 
     const res = await callback();
 
-    expect(res.headers.get("location")).toContain("AT-RAHASIA");
+    expect(res.headers.get("location")).not.toMatch(/AT-RAHASIA|RT-RAHASIA/);
     expect(keluaran()).not.toMatch(/AT-RAHASIA|RT-RAHASIA/);
   });
 

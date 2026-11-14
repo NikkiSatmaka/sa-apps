@@ -119,14 +119,14 @@ describe("HandoverAction — dialog kesiapan dan submit", () => {
   });
 
   it("belum siap: missing_items ditampilkan dan submit ditahan (tidak ada POST)", async () => {
-    serveKesiapan(kesiapan({ ready: false, missing_items: ["HLD berstatus Final", "Email Delivery Lead"], delivery_email: null, hld_status: "Draft" }));
+    serveKesiapan(kesiapan({ ready: false, missing_items: ["HLD berstatus Final", "Email Delivery Lead belum dikonfigurasi"], delivery_email: null, hld_status: "Draft" }));
     let dipanggil = 0;
     server.use(http.post(api(`/projects/${PID}/handover`), () => { dipanggil += 1; return HttpResponse.json(successEnvelope({})); }));
     const { user, onDone } = setup("SA");
     await user.click(await screen.findByRole("button", { name: "Handover" }));
     const dialog = await screen.findByRole("dialog", { name: "Handover Proyek" });
     expect(await within(dialog).findByText("HLD berstatus Final")).toBeInTheDocument();
-    expect(within(dialog).getByText("Email Delivery Lead")).toBeInTheDocument();
+    expect(within(dialog).getByText("Email Delivery Lead belum dikonfigurasi")).toBeInTheDocument();
     const kirim = within(dialog).getByRole("button", { name: "Konfirmasi Handover" });
     expect(kirim).toBeDisabled();
     await user.click(kirim);

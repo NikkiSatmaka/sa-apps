@@ -26,20 +26,49 @@ export interface Recommendation {
   match_count: number;
 }
 
-/** Status kesiapan handover */
-export interface HandoverStatus {
-  is_ready: boolean;
-  has_hld_final: boolean;
-  is_closed_win: boolean;
+/**
+ * Kesiapan handover. Sama dengan `HandoverReadiness` di `backend/app/schemas/handover.py`
+ * (respons `GET /projects/{id}/handover-status`).
+ */
+export interface HandoverReadiness {
+  ready: boolean;
+  /** Prasyarat yang belum terpenuhi (kosong bila `ready`). */
+  missing_items: string[];
   pmo_email: string | null;
   delivery_email: string | null;
+  project_status: string | null;
+  /** Status dokumen HLD; `null` bila belum ada HLD. */
+  hld_status: string | null;
 }
 
-/** Response setelah trigger handover */
-export interface HandoverResult {
-  status: string;
-  message: string;
-  handover_folder_id?: string;
+/** Input `POST /projects/{id}/handover-config` (`HandoverConfigInput` backend). */
+export interface HandoverConfigInput {
+  pmo_email: string;
+  delivery_email: string;
+}
+
+/** Respons `POST /projects/{id}/handover-config` (data proyek yang dikonfigurasi). */
+export interface HandoverConfigResponse {
+  id_project: string;
+  project_name: string;
+  pmo_lead_email: string;
+  delivery_lead_email: string;
+}
+
+/** Respons `POST /projects/{id}/handover` (`HandoverResponse` backend). */
+export interface HandoverResponse {
+  id_project: string;
+  project_name: string;
+  customer_name: string;
+  old_status: string;
+  new_status: string;
+  pmo_email: string;
+  delivery_email: string;
+  final_deliverables_folder_id: string | null;
+  /** Tipe dokumen berstatus Final yang di-handover. */
+  documents_handed_over: string[];
+  /** Waktu handover (ISO 8601). */
+  handover_at: string;
 }
 
 /**
@@ -93,11 +122,11 @@ export async function getRecommendations(
  * Endpoint: POST /api/v1/projects/{id}/handover
  *
  * @param projectId - ID proyek yang akan di-handover
- * @returns Hasil handover (status + message)
+ * @returns Hasil handover (`HandoverResponse`)
  */
 export async function triggerHandover(
   projectId: string
-): Promise<HandoverResult> {
+): Promise<HandoverResponse> {
   const token = getAuthToken();
 
   const headers: HeadersInit = {
@@ -134,11 +163,11 @@ export async function triggerHandover(
  * Endpoint: GET /api/v1/projects/{id}/handover-status
  *
  * @param projectId - ID proyek
- * @returns Status kesiapan (HLD final? Won? Email configured?)
+ * @returns Kesiapan handover (`ready` dan `missing_items`)
  */
 export async function getHandoverStatus(
   projectId: string
-): Promise<HandoverStatus> {
+): Promise<HandoverReadiness> {
   const token = getAuthToken();
 
   const headers: HeadersInit = {
@@ -174,13 +203,13 @@ export async function getHandoverStatus(
  * @param projectId - ID proyek
  * @param pmoEmail - Email PMO Lead
  * @param deliveryEmail - Email Delivery Lead
- * @returns Konfirmasi sukses
+ * @returns Data proyek yang dikonfigurasi
  */
 export async function setHandoverConfig(
   projectId: string,
   pmoEmail: string,
   deliveryEmail: string
-): Promise<{ message: string }> {
+): Promise<HandoverConfigResponse> {
   const token = getAuthToken();
 
   const headers: HeadersInit = {
@@ -198,7 +227,7 @@ export async function setHandoverConfig(
       body: JSON.stringify({
         pmo_email: pmoEmail,
         delivery_email: deliveryEmail,
-      }),
+      } satisfies HandoverConfigInput),
     }
   );
 

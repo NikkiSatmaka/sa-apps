@@ -331,8 +331,17 @@ describe("Detail proyek — subtask per peran", () => {
 });
 
 describe("Detail proyek — Komentar (#125)", () => {
-  it.each(["Sales", "Product", "SA", "Lead_SA", "Admin"] as const)("%s melihat thread Komentar", async (role) => {
-    setup(role);
+  // #154: form hanya untuk yang berhak menulis (PIC, SA ditugaskan, Lead_SA, Admin); hak per
+  // hubungan diuji lengkap di ProjectComments.test.tsx.
+  it.each([
+    ["Sales", "sales_pic"],
+    ["Product", "product_pic"],
+    ["SA", "sa_utama"],
+    ["Lead_SA", "tak_terkait"],
+    ["Admin", "tak_terkait"],
+  ] as const)("%s (%s) melihat thread dan form Komentar", async (role, hubungan) => {
+    pasangHubungan(role, hubungan);
+    renderWithProviders(<ProjectDetailPage />, { role });
     expect(await screen.findByRole("heading", { name: "Komentar" })).toBeInTheDocument();
     expect(await screen.findByLabelText("Tulis komentar")).toBeInTheDocument();
   });

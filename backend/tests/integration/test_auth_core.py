@@ -71,6 +71,20 @@ async def test_demo_login_berulang_tidak_menggandakan_user(api, db_session):
     assert await _jumlah_user(db_session) == 1
 
 
+async def test_login_demo_admin_membuat_identitas_lead_admin_terpisah(api):
+    from app.services.auth_service import auth_service
+
+    lead = await api.login_demo("Lead_SA")
+    admin = await api.login_demo("Admin")
+    klaim_lead = auth_service.verify_access_token(lead["Authorization"][7:])
+    klaim_admin = auth_service.verify_access_token(admin["Authorization"][7:])
+
+    assert klaim_lead["role"] == klaim_admin["role"] == "Lead_SA"
+    assert klaim_lead["is_admin"] is True
+    assert klaim_admin["is_admin"] is True
+    assert klaim_lead["sub"] != klaim_admin["sub"]
+
+
 async def test_demo_login_diblok_di_produksi_dan_tidak_menulis_ke_db(api, db_session, monkeypatch):
     monkeypatch.setattr(settings, "ENVIRONMENT", "production")
     monkeypatch.setattr(settings, "DEMO_MODE", True)

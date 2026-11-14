@@ -51,7 +51,6 @@ async def test_proyek_existing_tidak_diubah_oleh_seed_kualifikasi():
         {
             "id_project": "PRJ-EXISTING",
             "project_name": "Existing",
-            "qualification_answers": {"mrr": 1},
         },
         sales_id=uuid4(),
     )
@@ -59,3 +58,46 @@ async def test_proyek_existing_tidak_diubah_oleh_seed_kualifikasi():
     assert result is existing
     assert existing.qualification_answers is None
     db.flush.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_proyek_existing_diperbarui_dengan_jawaban_dan_versi_schema_saja():
+    jawaban = {question.name: None for question in answer_questions()}
+    jawaban.update(
+        budget_dialokasikan="Ya",
+        peran_pic="Pengambil keputusan",
+        masalah_bisnis="Membangun analitik data customer terpusat untuk kebutuhan operasional.",
+        jenis_workload="Data warehouse/analytics",
+        lingkungan="Hybrid",
+        skala="40 server, 20 TB",
+        target_go_live="≤ 6 bulan",
+    )
+    bant_detail_lama = {"budget_mrr": 5000000, "pic_name": "PIC Lama"}
+    existing = Mock(
+        bant_detail=bant_detail_lama,
+        qualification_answers=None,
+        qualification_schema_version=None,
+        bant_score=71,
+        status="Assigned",
+    )
+    db = Mock()
+    db.execute = AsyncMock(return_value=Mock(scalar_one_or_none=Mock(return_value=existing)))
+    db.flush = AsyncMock()
+
+    result = await get_or_create_project(
+        db,
+        {
+            "id_project": "PRJ-EXISTING",
+            "project_name": "Existing",
+            "qualification_answers": jawaban,
+        },
+        sales_id=uuid4(),
+    )
+
+    assert result is existing
+    assert existing.qualification_answers == jawaban
+    assert existing.qualification_schema_version == QUESTIONNAIRE_SCHEMA_VERSION
+    assert existing.bant_detail == bant_detail_lama
+    assert existing.bant_score == 71
+    assert existing.status == "Assigned"
+    db.flush.assert_awaited_once()

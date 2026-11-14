@@ -78,7 +78,7 @@ def test_upgrade_ulang_setelah_downgrade(database_kosong_url):
 
     jalankan_alembic(url, "upgrade", "head")
 
-    assert _versi(url) == REVISI_BARU
+    assert _versi(url) == _head()
 
 
 def test_head_akumulasi_jeda_tidak_boleh_negatif(database_kosong_url):

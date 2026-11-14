@@ -2,8 +2,8 @@
 Test override skor BANT oleh Lead_SA/Admin (#30) lewat seam API.
 
 POST /projects/{id}/score-manual kini berarti override: empat sub-skor 0-25 +
-alasan wajib, hanya Lead_SA/Admin, hanya pada status Need Clarification /
-Manual Review Required, dan dicatat di audit log. DB di-mock; scoring_engine nyata.
+alasan wajib, hanya Lead_SA/Admin, hanya pada Intake dengan qualification_state
+Need Clarification / Manual Review, dan dicatat di audit log. DB di-mock; scoring_engine nyata.
 """
 
 import uuid
@@ -35,12 +35,13 @@ def _user(role):
     return u
 
 
-def _project(status="Need Clarification", sales_pic=None, assigned_sa=None):
+def _project(status="Intake", sales_pic=None, assigned_sa=None, state="Need Clarification"):
     p = MagicMock()
     p.id_project = "PRJ-20250101-ABC123"
     p.sales_pic = sales_pic
     p.assigned_sa = assigned_sa
     p.status = status
+    p.qualification_state = state if status == "Intake" else "Qualified"
     p.bant_score = 40
     p.bant_detail = {
         "budget": 10,
@@ -122,18 +123,24 @@ def test_skor_di_luar_rentang_422():
 
 
 @pytest.mark.parametrize(
-    "status", ["New", "Scoring Pending", "Pending Assignment", "Assigned", "Closed-Win"]
+    ("status", "state"),
+    [
+        ("Intake", "Scoring"),
+        ("Awaiting Assignment", "Qualified"),
+        ("Assigned", "Qualified"),
+        ("Won", "Qualified"),
+    ],
 )
-def test_status_selain_relevan_ditolak_400(status):
+def test_status_selain_relevan_ditolak_400(status, state):
     user = _user("Lead_SA")
-    project = _project(status=status)
+    project = _project(status=status, state=state)
     session = _setup(user, project)
 
     r = TestClient(app).post(URL, json=BODY)
 
     assert r.status_code == 400
     assert project.bant_score == 40
-    assert project.status == status
+    assert (project.status, project.qualification_state) == (status, state)
     assert _audits(session) == []
 
 
@@ -143,10 +150,10 @@ def test_proyek_tidak_ada_404():
 
 
 @pytest.mark.parametrize("role", ["Lead_SA", "Admin"])
-@pytest.mark.parametrize("status", ["Need Clarification", "Manual Review Required"])
-def test_override_sukses_lolos_gate_dan_tulis_audit(role, status):
+@pytest.mark.parametrize("state", ["Need Clarification", "Manual Review"])
+def test_override_sukses_lolos_gate_dan_tulis_audit(role, state):
     user = _user(role)
-    project = _project(status=status)
+    project = _project(state=state)
     session = _setup(user, project)
 
     r = TestClient(app).post(URL, json=BODY)
@@ -154,7 +161,7 @@ def test_override_sukses_lolos_gate_dan_tulis_audit(role, status):
     assert r.status_code == 200
     assert r.json()["data"]["total_score"] == 80
     assert project.bant_score == 80
-    assert project.status == "Pending Assignment"
+    assert (project.status, project.qualification_state) == ("Awaiting Assignment", "Qualified")
     # metadata legacy tidak hilang
     assert project.bant_detail["budget_mrr"] == 5000
     assert project.bant_detail["budget"] == 20
@@ -167,17 +174,20 @@ def test_override_sukses_lolos_gate_dan_tulis_audit(role, status):
     assert a.action == "bant_override"
     assert a.performed_by == user.id
     assert a.old_value["bant_score"] == 40
-    assert a.old_value["status"] == status
+    assert (a.old_value["status"], a.old_value["qualification_state"]) == ("Intake", state)
     assert a.old_value["sub_scores"]["budget"] == 10
     assert a.new_value["bant_score"] == 80
-    assert a.new_value["status"] == "Pending Assignment"
+    assert (a.new_value["status"], a.new_value["qualification_state"]) == (
+        "Awaiting Assignment",
+        "Qualified",
+    )
     assert a.new_value["sub_scores"]["timeline"] == 20
     assert a.new_value["reason"] == BODY["reason"]
 
 
 def test_override_di_bawah_gate_tetap_need_clarification():
     user = _user("Lead_SA")
-    project = _project(status="Manual Review Required")
+    project = _project(state="Manual Review")
     session = _setup(user, project)
 
     r = TestClient(app).post(
@@ -186,8 +196,12 @@ def test_override_di_bawah_gate_tetap_need_clarification():
 
     assert r.status_code == 200
     assert project.bant_score == 20
-    assert project.status == "Need Clarification"
-    assert _audits(session)[0].new_value["status"] == "Need Clarification"
+    assert (project.status, project.qualification_state) == ("Intake", "Need Clarification")
+    new_value = _audits(session)[0].new_value
+    assert (new_value["status"], new_value["qualification_state"]) == (
+        "Intake",
+        "Need Clarification",
+    )
 
 
 def test_metadata_deskriptif_tidak_lagi_diterima():
@@ -202,9 +216,9 @@ def test_metadata_deskriptif_tidak_lagi_diterima():
     assert project.bant_detail["budget_mrr"] == 5000  # tak tertimpa
 
 
-@pytest.mark.parametrize("status", ["Need Clarification", "Manual Review Required"])
-def test_override_mempertahankan_use_case_tags_hasil_ai(status):
-    project = _project(status=status)
+@pytest.mark.parametrize("state", ["Need Clarification", "Manual Review"])
+def test_override_mempertahankan_use_case_tags_hasil_ai(state):
+    project = _project(state=state)
     project.use_case_tags = ["cloud-migration", "dr"]
     _setup(_user("Lead_SA"), project)
 

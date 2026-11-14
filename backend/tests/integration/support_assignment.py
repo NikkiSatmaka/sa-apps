@@ -74,7 +74,7 @@ class Dunia:
     h: dict[str, dict[str, str]] = field(default_factory=dict)
 
     async def buat_proyek(self, **o: Any) -> Project:
-        o.setdefault("status", "Pending Assignment")
+        o.setdefault("status", "Awaiting Assignment")
         proyek = bangun_project(self.sales.id, **o)
         self.db.add(proyek)
         await self.db.commit()

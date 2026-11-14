@@ -1,7 +1,7 @@
 """
 Test edit jawaban kuesioner + re-score (#32) lewat seam API.
 
-PUT /projects/{id}/qualification-answers: Sales PIC hanya saat Need Clarification
+PUT /projects/{id}/qualification-answers: Sales PIC hanya saat qualification_state Need Clarification
 (re-score = max per kriteria antara rubrik baru dan hasil AI tersimpan, lalu gate 60);
 Lead_SA/Admin: sama saat Need Clarification, dan koreksi TANPA re-score setelah lolos gate.
 DB di-mock; scoring_engine dan rubrik nyata.
@@ -48,7 +48,7 @@ def _user(role):
     return u
 
 
-def _project(status="Need Clarification", sales_pic=None, ai=None, answers=None):
+def _project(status="Intake", sales_pic=None, ai=None, answers=None, state="Need Clarification"):
     p = MagicMock()
     p.id_project = "PRJ-20250101-ABC123"
     p.sales_pic = sales_pic
@@ -56,6 +56,7 @@ def _project(status="Need Clarification", sales_pic=None, ai=None, answers=None)
     p.assigned_sa = None
     p.collaborators = []
     p.status = status
+    p.qualification_state = state if status == "Intake" else "Qualified"
     p.bant_score = 57
     p.bant_detail = {"budget": 15, "authority": 15, "need": 12, "timeline": 15}
     p.use_case_tags = []
@@ -111,9 +112,9 @@ def test_sales_pic_edit_saat_need_clarification_rescore_lolos_gate_dan_notifikas
     assert project.qualification_answers["mrr"] == 5000
     assert project.bant_score == 77
     assert project.bant_detail["budget"] == 25
-    assert project.status == "Pending Assignment"
+    assert project.status == "Awaiting Assignment"
     assert len(_notifs(session)) == 1
-    assert r.json()["data"]["status"] == "Pending Assignment"
+    assert r.json()["data"]["status"] == "Awaiting Assignment"
 
 
 def test_edit_tetap_di_bawah_gate_status_tetap_need_clarification_tanpa_notifikasi():
@@ -125,7 +126,7 @@ def test_edit_tetap_di_bawah_gate_status_tetap_need_clarification_tanpa_notifika
 
     assert r.status_code == 200
     assert project.bant_score == 47
-    assert project.status == "Need Clarification"
+    assert (project.status, project.qualification_state) == ("Intake", "Need Clarification")
     assert _notifs(session) == []
     assert r.json()["data"]["feedback"]
 
@@ -142,7 +143,7 @@ def test_hasil_ai_tersimpan_ikut_diperhitungkan_pada_rescore():
     assert r.status_code == 200
     assert project.bant_detail["need"] == 25
     assert project.bant_score == 70
-    assert project.status == "Pending Assignment"
+    assert project.status == "Awaiting Assignment"
     # hasil AI tersimpan tidak ditimpa
     assert project.ai_scoring_result is ai
 
@@ -182,11 +183,18 @@ def test_jawaban_tervalidasi_422_dan_data_tidak_berubah(mutasi, field):
 
 
 @pytest.mark.parametrize(
-    "status", ["Pending Assignment", "Assigned", "Closed-Win", "New", "Manual Review Required"]
+    ("status", "state"),
+    [
+        ("Awaiting Assignment", "Qualified"),
+        ("Assigned", "Qualified"),
+        ("Won", "Qualified"),
+        ("Intake", "Scoring"),
+        ("Intake", "Manual Review"),
+    ],
 )
-def test_sales_ditolak_403_setelah_lolos_gate_atau_status_terkunci(status):
+def test_sales_ditolak_403_setelah_lolos_gate_atau_status_terkunci(status, state):
     user = _user("Sales")
-    project = _project(status=status, sales_pic=user.id)
+    project = _project(status=status, sales_pic=user.id, state=state)
     session = _setup(user, project)
 
     r = _put(ANSWERS_KUAT)
@@ -225,12 +233,12 @@ def test_lead_sa_admin_saat_need_clarification_diperlakukan_seperti_sales(role):
 
     assert r.status_code == 200
     assert project.bant_score == 77
-    assert project.status == "Pending Assignment"
+    assert project.status == "Awaiting Assignment"
     assert len(_notifs(session)) == 1
 
 
 @pytest.mark.parametrize("role", ["Lead_SA", "Admin"])
-@pytest.mark.parametrize("status", ["Pending Assignment", "Assigned"])
+@pytest.mark.parametrize("status", ["Awaiting Assignment", "Assigned"])
 def test_koreksi_setelah_gate_tanpa_rescore(role, status):
     project = _project(status=status, sales_pic=uuid.uuid4())
     project.bant_score = 80

@@ -5,7 +5,7 @@ Requirement adalah baris `Document` (`doc_type=Requirement`, `folder_type=Invent
 tanpa file Drive: kontennya daftar butir `{kategori, butir}` hasil ringkasan LLM dari
 jawaban Kuesioner kualifikasi + teks Source document berstatus `extracted`.
 
-Trigger: proyek PERTAMA kali masuk `Pending Assignment` menandai
+Trigger: proyek PERTAMA kali masuk `Awaiting Assignment` menandai
 `projects.requirement_generation_status = 'pending'` (di jalur tulis scoring / create tanpa
 file). Pemanggil lalu menjalankan `generate_pending_requirement` di background.
 
@@ -25,6 +25,7 @@ from typing import Any, Optional
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
+from app.core import status as status_konst
 from app.core.config import settings
 from app.core.dependencies import HubunganProyek, TingkatAkses, adalah_privileged, izinkan
 from app.models.document import Document
@@ -366,7 +367,7 @@ async def generate_pending_requirement(project_id: str, replace: bool = False) -
     Background task: generate Requirement bila proyek bertanda `pending`.
 
     Sesi DB sendiri; tidak pernah melempar. Tanpa penanda `pending` ini no-op (aman
-    dipanggil dari semua jalur menuju Pending Assignment). Gagal akhir → status `failed`,
+    dipanggil dari semua jalur menuju Awaiting Assignment). Gagal akhir → status `failed`,
     tidak ada baris Document, alur proyek tidak terganggu.
 
     `replace=True` (generate ulang manual, #34): bila Requirement sudah ada, kontennya
@@ -494,7 +495,7 @@ async def _notify_source_changed(
 
 
 # --------------------------------------------------------------------------- re-summarize (#35)
-TERMINAL_PROJECT_STATUSES = ("Closed-Win", "Lost", "Handover Complete")
+TERMINAL_PROJECT_STATUSES = status_konst.STATUS_AKHIR
 
 
 async def _resummarize(db: Any, project_id: str) -> None:

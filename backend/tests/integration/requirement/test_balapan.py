@@ -95,7 +95,7 @@ async def nyata(
         await simpan(db, sales, lead)
         proyek = bangun_project(
             sales.id,
-            status="Pending Assignment",
+            status="Awaiting Assignment",
             qualification_answers=jawaban_kuat(),
             requirement_generation_status="pending",
         )

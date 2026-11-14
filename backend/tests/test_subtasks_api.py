@@ -225,7 +225,7 @@ class _FakeSession:
         return None
 
 
-def _make_project(sales_pic=None, assigned_sa=None, status_value="Pending Assignment"):
+def _make_project(sales_pic=None, assigned_sa=None, status_value="Awaiting Assignment"):
     project = MagicMock(spec=Project)
     project.id_project = PROJECT_ID
     project.project_name = "Proyek Uji"
@@ -331,7 +331,7 @@ class TestAutoSeedOnAssignment:
         lead = _make_user(role="Lead_SA")
         sa_one = _make_user(role="SA", name="SA Satu")
         sa_two = _make_user(role="SA", name="SA Dua")
-        session.add_project(_make_project(status_value="Pending Assignment"))
+        session.add_project(_make_project(status_value="Awaiting Assignment"))
         session.add_user(lead)
         session.add_user(sa_one)
         session.add_user(sa_two)

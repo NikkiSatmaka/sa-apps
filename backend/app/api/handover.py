@@ -40,7 +40,7 @@ router = APIRouter(tags=["Handover"])
     summary="Cek kesiapan handover proyek",
     description=(
         "Mengembalikan status kesiapan handover: apakah semua prasyarat "
-        "terpenuhi (status Closed-Win, HLD Final, PMO/Delivery dikonfigurasi)."
+        "terpenuhi (status Won, HLD Final, PMO/Delivery dikonfigurasi)."
     ),
 )
 async def get_handover_status(
@@ -158,7 +158,7 @@ async def configure_handover(
     summary="Trigger proses handover proyek",
     description=(
         "Memulai proses handover proyek ke PMO dan Delivery. "
-        "Prasyarat: status Closed-Win, HLD Final, email PMO/Delivery sudah dikonfigurasi. "
+        "Prasyarat: status Won, HLD Final, email PMO/Delivery sudah dikonfigurasi. "
         "Proses: buat folder Final_Deliverables, set permission, kirim notifikasi, update status."
     ),
 )
@@ -175,7 +175,7 @@ async def trigger_handover(
     1. Validasi prasyarat
     2. Provisioning folder + permission GDrive
     3. Kirim notifikasi ke PMO + Delivery
-    4. Update status → "Handover Complete"
+    4. Update status → "Handed Over"
     5. Catat audit log
 
     Requirements: 17.2, 17.3, 17.4, 17.5, 17.7
@@ -223,7 +223,7 @@ async def trigger_handover(
         data=handover_result,
         message=(
             f"Handover proyek '{handover_result['project_name']}' berhasil. "
-            f"Status diubah ke 'Handover Complete'. "
+            f"Status diubah ke 'Handed Over'. "
             f"Notifikasi terkirim ke PMO ({handover_result['pmo_email']}) "
             f"dan Delivery ({handover_result['delivery_email']})."
         ),

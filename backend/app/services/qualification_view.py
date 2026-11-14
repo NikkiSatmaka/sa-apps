@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 from pydantic import ValidationError
 
+from app.core import status as status_konst
 from app.schemas.scoring import BANTSubScores
 from app.services import bant_rubric
 
@@ -48,8 +49,11 @@ def build_qualification_view(project: Any) -> dict[str, Any]:
     detail = dict(project.bant_detail or {})
     answers = project.qualification_answers
     is_legacy = answers is None
-    # Selama Scoring Pending skor rubrik hanya sementara; jangan tampil sebagai hasil final.
-    scoring_pending = project.status == "Scoring Pending"
+    # Selama qualification_state Scoring skor rubrik hanya sementara; jangan tampil sebagai hasil final.
+    scoring_pending = (
+        project.status == status_konst.INTAKE
+        and project.qualification_state == status_konst.QS_SCORING
+    )
 
     sub_scores = None if scoring_pending else _extract_sub_scores(detail)
     feedback = None

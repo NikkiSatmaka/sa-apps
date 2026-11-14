@@ -34,7 +34,13 @@ from sqlalchemy.orm import (
     with_loader_criteria,
 )
 
+from app.core import status as status_konst
 from app.core.database import Base
+
+
+def _daftar_sql(nilai: tuple[str, ...]) -> str:
+    """Daftar literal untuk `IN (...)` dari konstanta internal (bukan input user)."""
+    return ", ".join(f"'{n}'" for n in nilai)
 
 
 class Project(Base):
@@ -96,8 +102,26 @@ class Project(Base):
     status: Mapped[str] = mapped_column(
         String(30),
         nullable=False,
-        default="New",
-        comment="Status proyek saat ini",
+        default=status_konst.INTAKE,
+        server_default=status_konst.INTAKE,
+        comment="Status siklus kerja proyek (ADR 0013)",
+    )
+    qualification_state: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default=status_konst.QS_SCORING,
+        server_default=status_konst.QS_SCORING,
+        comment="Gate kualifikasi; bermakna saat status Intake, selanjutnya Qualified",
+    )
+    previous_status: Mapped[Optional[str]] = mapped_column(
+        String(30),
+        nullable=True,
+        comment="Status sebelum On Hold atau Lost; dipakai saat lanjut atau dibuka kembali",
+    )
+    lost_reason: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Alasan proyek Lost (wajib saat status Lost)",
     )
     target_submit: Mapped[date] = mapped_column(
         Date,
@@ -216,10 +240,21 @@ class Project(Base):
     # Constraints
     __table_args__ = (
         CheckConstraint(
-            "status IN ('New', 'Pending Assignment', 'Assigned', 'Ready', "
-            "'Closed-Win', 'Handover Complete', 'Lost', 'Need Clarification', "
-            "'Scoring Pending', 'Manual Review Required')",
+            f"status IN ({_daftar_sql(status_konst.SEMUA_STATUS)})",
             name="chk_projects_status",
+        ),
+        CheckConstraint(
+            f"qualification_state IN ({_daftar_sql(status_konst.SEMUA_QUALIFICATION_STATE)})",
+            name="chk_projects_qualification_state",
+        ),
+        CheckConstraint(
+            f"previous_status IS NULL OR previous_status IN "
+            f"({_daftar_sql(status_konst.STATUS_SEBELUMNYA_VALID)})",
+            name="chk_projects_previous_status",
+        ),
+        CheckConstraint(
+            "status <> 'Lost' OR (lost_reason IS NOT NULL AND btrim(lost_reason) <> '')",
+            name="chk_projects_lost_reason",
         ),
         CheckConstraint(
             "bant_score IS NULL OR (bant_score BETWEEN 0 AND 100)",

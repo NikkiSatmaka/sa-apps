@@ -182,9 +182,14 @@ async def test_sa_tambahan_ubah_status_proyek_dan_cek_handover_diizinkan(
     api, db_session, skenario, fake_gmail, fake_drive
 ):
     h = skenario.header("sa_tambahan")
+    for tipe in ("PropTek", "BOQ", "Mandays"):  # syarat Submitted (#121)
+        db_session.add(
+            bangun_document(ID_PROYEK, skenario.aktor["sa"].id, doc_type=tipe, status="Reviewed")
+        )
+    await db_session.commit()
 
     status = await api.client.patch(
-        f"{API}/projects/{ID_PROYEK}/status", json={"new_status": "Ready"}, headers=h
+        f"{API}/projects/{ID_PROYEK}/status", json={"new_status": "Submitted"}, headers=h
     )
     cek = await api.client.get(f"{API}/projects/{ID_PROYEK}/handover-status", headers=h)
 

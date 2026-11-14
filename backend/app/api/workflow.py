@@ -3,12 +3,14 @@ API endpoint untuk workflow status proyek.
 Menangani transisi status proyek dengan validasi state machine,
 role-based access control, dan pencatatan audit log.
 
-Workflow valid:
-  New → Pending Assignment → Assigned → Ready → Closed-Win
-  Closed-Win → Handover Complete hanya lewat POST /projects/{id}/handover (bukan endpoint ini)
+Workflow valid (ADR 0013):
+  Awaiting Assignment → Assigned → Submitted → Won
+  Won → Handed Over hanya lewat POST /projects/{id}/handover (bukan endpoint ini)
+  Intake → Awaiting Assignment hanya oleh sistem (gate BANT), bukan endpoint ini
 
 Status khusus:
-  "Lost" — hanya Lead_SA, dari status manapun kecuali "Handover Complete"
+  "Lost" — hanya Lead_SA/Admin, dari status manapun kecuali "Handed Over"; `reason` wajib
+  dan disimpan ke `lost_reason`
 """
 
 import logging
@@ -20,15 +22,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import status as status_konst
 from app.core.database import get_db
 from app.core.dependencies import (
     PERAN_REQUESTER,
     TingkatAkses,
-    adalah_privileged,
     ensure_project_access,
     get_current_user,
 )
 from app.models.audit_log import AuditLog
+from app.models.document import Document
+from app.models.project_assignment import ProjectAssignment
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.response import error_response, success_response
@@ -43,51 +47,98 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Workflow"])
 
-# === Definisi State Machine ===
+# === Definisi State Machine (ADR 0013, spec §2.0 "Siklus status") ===
 
-# Transisi forward yang valid (urutan linear)
-VALID_FORWARD_TRANSITIONS: dict[str, str] = {
-    "New": "Pending Assignment",
-    "Pending Assignment": "Assigned",
-    "Assigned": "Ready",
-    "Ready": "Closed-Win",
-    # `Closed-Win` → `Handover Complete` SENGAJA tidak ada di sini (issue #76): status itu hanya
-    # boleh dicapai lewat `POST /projects/{id}/handover`, yang memeriksa prasyarat (HLD Final,
-    # email PMO/Delivery, folder Drive), membuat folder, dan mengirim notifikasi.
+# Transisi yang boleh lewat PATCH /projects/{id}/status, beserta tingkat akses yang berhak
+# (di atas gerbang UBAH_STATUS: hubungan ke proyek). Lead_SA dan Admin selalu berhak.
+#
+# TIDAK ada di tabel ini, dengan sengaja:
+# - `Intake` → `Awaiting Assignment`: otomatis oleh sistem saat gate BANT lolos.
+# - `Awaiting Assignment` → `Assigned`: penugasan SA (POST /projects/{id}/assign).
+# - `Assigned` → `In Progress`: otomatis dari activity log/subtask pertama (#122).
+# - `Won` → `Handed Over`: hanya POST /projects/{id}/handover (issue #76: memeriksa HLD Final,
+#   email PMO/Delivery, folder Drive).
+# - `On Hold`, lanjut, dan buka kembali `Closed`/`Lost`: #122.
+_SEBELUM_HANDED_OVER = (
+    status_konst.INTAKE,
+    status_konst.AWAITING_ASSIGNMENT,
+    status_konst.ASSIGNED,
+    status_konst.IN_PROGRESS,
+    status_konst.SUBMITTED,
+    status_konst.WON,
+    status_konst.ON_HOLD,
+)
+
+TRANSISI_HAK: dict[tuple[str, str], TingkatAkses] = {
+    (status_konst.ASSIGNED, status_konst.SUBMITTED): TingkatAkses.UBAH_STATUS_SA,
+    (status_konst.IN_PROGRESS, status_konst.SUBMITTED): TingkatAkses.UBAH_STATUS_SA,
+    (status_konst.SUBMITTED, status_konst.IN_PROGRESS): TingkatAkses.UBAH_STATUS_SA,
+    (status_konst.SUBMITTED, status_konst.WON): TingkatAkses.UBAH_STATUS_PIC,
+    (status_konst.HANDED_OVER, status_konst.CLOSED): TingkatAkses.UBAH_STATUS_LEAD,
+    # Lost: dari status mana pun sebelum Handed Over; alasan wajib.
+    **{(dari, status_konst.LOST): TingkatAkses.UBAH_STATUS_LEAD for dari in _SEBELUM_HANDED_OVER},
 }
 
-# Status yang hanya dapat dicapai lewat endpoint khusus, bukan PATCH /status
-STATUS_VIA_ENDPOINT_KHUSUS: dict[str, str] = {
-    "Handover Complete": "POST /projects/{id}/handover",
+# Transisi sah yang HANYA boleh lewat endpoint khusus: ditolak di PATCH dan diarahkan.
+TRANSISI_VIA_ENDPOINT: dict[tuple[str, str], str] = {
+    (status_konst.WON, status_konst.HANDED_OVER): "POST /projects/{id}/handover",
+    (status_konst.AWAITING_ASSIGNMENT, status_konst.ASSIGNED): "POST /projects/{id}/assign",
 }
 
-# Status yang tidak bisa diubah ke "Lost"
-LOST_EXCLUDED_STATUSES = ("Handover Complete", "Lost")
+# Dokumen wajib untuk `Submitted`: masing-masing minimal satu dokumen berstatus ini.
+DOKUMEN_WAJIB_SUBMITTED = ("PropTek", "BOQ", "Mandays")
+STATUS_DOKUMEN_MINIMAL_REVIEWED = ("Reviewed", "Final")
 
 
-def _get_valid_next_statuses(current_status: str, privileged: bool) -> list[str]:
-    """
-    Mendapatkan daftar status yang valid dari status saat ini.
-    Mempertimbangkan hak privileged (Lead_SA/admin) untuk status khusus (Lost).
-    """
-    valid = []
-
-    # Transisi forward
-    next_status = VALID_FORWARD_TRANSITIONS.get(current_status)
-    if next_status:
-        valid.append(next_status)
-
-    # Status "Lost" — hanya Lead_SA/Admin, dari status manapun kecuali "Handover Complete" dan "Lost" sendiri
-    if privileged and current_status not in LOST_EXCLUDED_STATUSES:
-        valid.append("Lost")
-
-    return valid
+def status_berikutnya(status_sekarang: str) -> list[str]:
+    """Tujuan yang valid lewat PATCH /status dari `status_sekarang` (tanpa memandang peran)."""
+    return [ke for (dari, ke) in TRANSISI_HAK if dari == status_sekarang]
 
 
-def _is_valid_transition(current_status: str, new_status: str, privileged: bool) -> bool:
-    """Validasi apakah transisi status yang diminta valid."""
-    valid_statuses = _get_valid_next_statuses(current_status, privileged)
-    return new_status in valid_statuses
+def transisi_valid(status_sekarang: str, status_baru: str) -> bool:
+    """Apakah (`status_sekarang` → `status_baru`) ada di tabel transisi PATCH?"""
+    return (status_sekarang, status_baru) in TRANSISI_HAK
+
+
+def hak_transisi(status_sekarang: str, status_baru: str) -> TingkatAkses | None:
+    """Tingkat akses yang diminta transisi, atau None bila transisinya tidak valid."""
+    return TRANSISI_HAK.get((status_sekarang, status_baru))
+
+
+_PESAN_HAK_TRANSISI: dict[TingkatAkses, str] = {
+    TingkatAkses.UBAH_STATUS_SA: (
+        "Hanya SA yang ditugaskan, Lead_SA, atau Admin yang dapat menjalankan transisi status ini."
+    ),
+    TingkatAkses.UBAH_STATUS_PIC: (
+        "Hanya Sales/Product PIC proyek ini, Lead_SA, atau Admin yang dapat mengubah status "
+        "proyek menjadi 'Won'."
+    ),
+    TingkatAkses.UBAH_STATUS_LEAD: (
+        "Hanya Lead_SA atau Admin yang dapat menjalankan transisi status ini "
+        "('Lost' atau 'Closed')."
+    ),
+}
+
+
+async def _pastikan_syarat_submitted(db: AsyncSession, project: Project) -> None:
+    """`Submitted` butuh PropTek, BOQ, dan Mandays masing-masing minimal `Reviewed` (400)."""
+    hasil = await db.execute(
+        select(Document.doc_type).where(
+            Document.id_project == project.id_project,
+            Document.doc_type.in_(DOKUMEN_WAJIB_SUBMITTED),
+            Document.status.in_(STATUS_DOKUMEN_MINIMAL_REVIEWED),
+        )
+    )
+    ada = set(hasil.scalars().all())
+    kurang = [tipe for tipe in DOKUMEN_WAJIB_SUBMITTED if tipe not in ada]
+    if kurang:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Status 'Submitted' butuh dokumen PropTek, BOQ, dan Mandays masing-masing "
+                f"minimal berstatus 'Reviewed'. Belum terpenuhi: {', '.join(kurang)}."
+            ),
+        )
 
 
 def _generate_audit_id() -> str:
@@ -106,52 +157,70 @@ def _pesan_ditolak_ubah_status(peran: str) -> str:
     return "Role Anda tidak memiliki izin untuk operasi ini."
 
 
+async def _penerima_hld(project: Project, db: AsyncSession) -> list[User]:
+    """Semua SA proyek: SA utama dulu, lalu SA tambahan (`project_assignments`), tanpa ganda."""
+    urutan_id: list = [] if project.assigned_sa is None else [project.assigned_sa]
+    tambahan = await db.execute(
+        select(ProjectAssignment.user_id)
+        .where(ProjectAssignment.id_project == project.id_project)
+        .order_by(ProjectAssignment.created_at)
+    )
+    urutan_id += [uid for uid in tambahan.scalars().all() if uid not in urutan_id]
+    if not urutan_id:
+        return []
+    hasil = await db.execute(select(User).where(User.id.in_(urutan_id)))
+    return sorted(hasil.scalars().all(), key=lambda u: urutan_id.index(u.id))
+
+
 async def _notify_mandatory_hld(project: Project, db: AsyncSession) -> None:
     """
-    Kirim notifikasi wajib "buat HLD" ke SA saat proyek menjadi Closed-Win.
+    Kirim notifikasi wajib "buat HLD" ke SEMUA SA proyek (SA utama dan SA tambahan, ADR 0014)
+    saat proyek menjadi Won.
 
     Spec Flow 4 langkah 1. Memakai event `status_change` dengan flag
     `mandatory_hld` di metadata (event_type baru butuh migration CheckConstraint
-    tanpa manfaat tambahan). Kegagalan di sini tidak boleh menggagalkan transisi.
+    tanpa manfaat tambahan). Kegagalan di sini tidak boleh menggagalkan transisi, dan satu
+    penerima yang gagal tidak menghalangi penerima lain.
     """
-    if project.assigned_sa is None:
+    try:
+        penerima = await _penerima_hld(project, db)
+    except Exception as e:  # noqa: BLE001 - side-effect tidak boleh menggagalkan transisi
+        logger.error(f"Gagal menentukan penerima notifikasi wajib HLD {project.id_project}: {e}")
+        return
+
+    if not penerima:
         logger.warning(
-            f"Proyek {project.id_project} Closed-Win tapi belum punya SA; "
+            f"Proyek {project.id_project} Won tapi belum punya SA; "
             f"notifikasi wajib HLD dilewati."
         )
         return
 
-    try:
-        result = await db.execute(select(User).where(User.id == project.assigned_sa))
-        sa_user = result.scalar_one_or_none()
-        if sa_user is None:
-            logger.warning(
-                f"SA {project.assigned_sa} untuk proyek {project.id_project} "
-                f"tidak ditemukan; notifikasi wajib HLD dilewati."
+    for sa_user in penerima:
+        try:
+            await notification_service.send_notification(
+                NotificationEvent(
+                    event_type=NotificationEventType.STATUS_CHANGE,
+                    recipient_user_id=sa_user.id,
+                    recipient_email=sa_user.email,
+                    reference_id=project.id_project,
+                    subject="[Portal SA] Wajib: buat HLD untuk proyek Won",
+                    metadata={
+                        "project_name": project.project_name,
+                        "customer_name": project.customer_name,
+                        "new_status": status_konst.WON,
+                        "mandatory_hld": True,
+                        "message": (
+                            f"Proyek '{project.project_name}' berstatus Won. "
+                            f"Segera buat HLD (High Level Document)."
+                        ),
+                    },
+                )
             )
-            return
-
-        await notification_service.send_notification(
-            NotificationEvent(
-                event_type=NotificationEventType.STATUS_CHANGE,
-                recipient_user_id=sa_user.id,
-                recipient_email=sa_user.email,
-                reference_id=project.id_project,
-                subject="[Portal SA] Wajib: buat HLD untuk proyek Closed-Win",
-                metadata={
-                    "project_name": project.project_name,
-                    "customer_name": project.customer_name,
-                    "new_status": "Closed-Win",
-                    "mandatory_hld": True,
-                    "message": (
-                        f"Proyek '{project.project_name}' berstatus Closed-Win. "
-                        f"Segera buat HLD (High Level Document)."
-                    ),
-                },
+        except Exception as e:  # noqa: BLE001 - side-effect tidak boleh menggagalkan transisi
+            logger.error(
+                f"Gagal mengirim notifikasi wajib HLD untuk {project.id_project} "
+                f"ke {sa_user.id}: {e}"
             )
-        )
-    except Exception as e:  # noqa: BLE001 - side-effect tidak boleh menggagalkan transisi
-        logger.error(f"Gagal mengirim notifikasi wajib HLD untuk {project.id_project}: {e}")
 
 
 @router.patch(
@@ -160,8 +229,9 @@ async def _notify_mandatory_hld(project: Project, db: AsyncSession) -> None:
     description=(
         "Mengubah status proyek sesuai workflow yang valid. "
         "Mencatat perubahan di audit log. "
-        "Role-based: Sales (proyek sendiri), SA (proyek ditugaskan), "
-        "Lead_SA (semua proyek + status Lost)."
+        "Hak per transisi (spec §2.0): Submitted/revisi oleh SA ditugaskan, Lead_SA, Admin; "
+        "Won oleh Sales/Product PIC, Lead_SA, Admin; Lost dan Closed oleh Lead_SA/Admin "
+        "(Lost wajib `reason`). Assigned lewat penugasan dan Handed Over lewat handover."
     ),
 )
 async def update_project_status(
@@ -175,8 +245,8 @@ async def update_project_status(
 
     Flow:
     1. Validasi proyek ada
-    2. Validasi akses user terhadap proyek (role-based)
-    3. Validasi transisi status (state machine)
+    2. Validasi hubungan user ke proyek (gerbang UBAH_STATUS)
+    3. Validasi transisi (state machine), hak per transisi, lalu syarat (dokumen/alasan)
     4. Update status proyek
     5. Catat perubahan di audit log
     6. Return response dengan data proyek dan audit log
@@ -209,26 +279,21 @@ async def update_project_status(
     old_status = project.status
     new_status = body.new_status
 
-    # Khusus status "Lost" — hanya Lead_SA/Admin yang bisa
-    if new_status == "Lost" and not adalah_privileged(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Hanya Lead_SA atau Admin yang dapat mengubah status proyek menjadi 'Lost'.",
-        )
-
-    # Status yang hanya boleh dicapai lewat endpoint khusus: arahkan, jangan hanya "tidak valid".
-    if new_status in STATUS_VIA_ENDPOINT_KHUSUS:
+    # Transisi sah yang hanya boleh lewat endpoint khusus: arahkan, jangan hanya "tidak valid".
+    endpoint_khusus = TRANSISI_VIA_ENDPOINT.get((old_status, new_status))
+    if endpoint_khusus is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 f"Status '{new_status}' tidak dapat diubah lewat endpoint ini. "
-                f"Gunakan {STATUS_VIA_ENDPOINT_KHUSUS[new_status]}."
+                f"Gunakan {endpoint_khusus}."
             ),
         )
 
     # Validasi transisi menggunakan state machine
-    if not _is_valid_transition(old_status, new_status, adalah_privileged(current_user)):
-        valid_next = _get_valid_next_statuses(old_status, adalah_privileged(current_user))
+    tingkat_transisi = hak_transisi(old_status, new_status)
+    if tingkat_transisi is None:
+        valid_next = status_berikutnya(old_status)
         valid_str = ", ".join(f"'{s}'" for s in valid_next) if valid_next else "tidak ada (status terminal)"
 
         raise HTTPException(
@@ -239,8 +304,33 @@ async def update_project_status(
             ),
         )
 
+    # Hak per transisi (spec §2.0): diperiksa SEBELUM syarat agar kondisi dokumen/alasan tidak
+    # bocor ke peran yang tidak berhak.
+    await ensure_project_access(
+        db, project, current_user, tingkat_transisi, pesan=_PESAN_HAK_TRANSISI[tingkat_transisi]
+    )
+
+    # Syarat transisi: `Submitted` butuh dokumen wajib; `Lost` wajib beralasan (CHECK
+    # `chk_projects_lost_reason`) dan alasan disimpan di proyek.
+    if new_status == status_konst.SUBMITTED:
+        await _pastikan_syarat_submitted(db, project)
+    alasan = (body.reason or "").strip()
+    if new_status == status_konst.LOST and not alasan:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Alasan (reason) wajib diisi untuk mengubah status proyek menjadi 'Lost'.",
+        )
+
     # === 4. Update status proyek ===
     now = datetime.now(timezone.utc)
+    nilai_baru: dict = {"status": new_status}
+    if new_status == status_konst.LOST:
+        # Dari On Hold: `previous_status` sudah menyimpan status sebelum jeda; jangan ditimpa
+        # dengan 'On Hold' (CHECK `chk_projects_previous_status`).
+        if old_status != status_konst.ON_HOLD:
+            project.previous_status = old_status
+        project.lost_reason = alasan
+        nilai_baru["lost_reason"] = alasan
     project.status = new_status
     project.updated_at = now
 
@@ -253,7 +343,7 @@ async def update_project_status(
         action="status_change",
         performed_by=current_user.id,
         old_value={"status": old_status},
-        new_value={"status": new_status},
+        new_value=nilai_baru,
         created_at=now,
     )
     db.add(audit_log)
@@ -267,8 +357,8 @@ async def update_project_status(
         f"oleh {current_user.email} (role: {current_user.role})"
     )
 
-    # === 5b. Closed-Win → notifikasi wajib buat HLD ke SA (Flow 4 langkah 1) ===
-    if new_status == "Closed-Win":
+    # === 5b. Won → notifikasi wajib buat HLD ke SA (Flow 4 langkah 1) ===
+    if new_status == status_konst.WON:
         await _notify_mandatory_hld(project, db)
 
     # === 6. Build response ===
@@ -284,7 +374,7 @@ async def update_project_status(
             action="status_change",
             performed_by=str(current_user.id),
             old_value={"status": old_status},
-            new_value={"status": new_status},
+            new_value=nilai_baru,
             created_at=now,
         ),
     )

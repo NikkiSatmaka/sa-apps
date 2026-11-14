@@ -110,7 +110,7 @@ class TestDQNumberResponse:
             project_name="N",
             customer_name="C",
             dq_number="DQ-12345",
-            status="Ready",
+            status="Submitted",
         )
         assert r.message is None
 

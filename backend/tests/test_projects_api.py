@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 
-# Jawaban kuesioner minimal valid (skor rubrik 22 → Need Clarification, tanpa notifikasi)
+# Jawaban kuesioner minimal valid (skor rubrik 22 → Intake + Need Clarification, tanpa notifikasi)
 QA = json.dumps(
     {
         "budget_dialokasikan": "Tidak tahu",
@@ -216,7 +216,8 @@ class TestProjectFormValidation:
         assert response.status_code == status.HTTP_201_CREATED
         body = response.json()
         assert body["status"] == "success"
-        assert body["data"]["status"] == "Need Clarification"
+        assert body["data"]["status"] == "Intake"
+        assert body["data"]["qualification_state"] == "Need Clarification"
         assert body["data"]["bant_score"] == 22
         assert body["data"]["scoring_triggered"] is False
         assert "message_bant" not in body["data"]
@@ -359,8 +360,8 @@ class TestFileUploadValidation:
 class TestProjectRecordCreation:
     """Test pembuatan record project."""
 
-    def test_project_dengan_file_dibuat_dengan_status_scoring_pending(self, mock_auth_and_db):
-        """Proyek baru dengan file berstatus 'Scoring Pending' sampai scoring AI selesai."""
+    def test_project_dengan_file_dibuat_dengan_qualification_state_scoring(self, mock_auth_and_db):
+        """Proyek baru dengan file berstatus Intake + qualification_state 'Scoring' sampai scoring AI selesai."""
         client = TestClient(app)
         response = client.post(
             "/api/v1/projects",
@@ -376,7 +377,8 @@ class TestProjectRecordCreation:
         )
         assert response.status_code == status.HTTP_201_CREATED
         body = response.json()
-        assert body["data"]["status"] == "Scoring Pending"
+        assert body["data"]["status"] == "Intake"
+        assert body["data"]["qualification_state"] == "Scoring"
 
     def test_project_id_format_prj(self, mock_auth_and_db):
         """ID proyek mengikuti format PRJ-{date}-{random}."""
@@ -540,7 +542,7 @@ def _real_project(**overrides):
         id_project="PRJ-20250101-ABC123",
         project_name="Proyek Lama",
         customer_name="PT Lama",
-        status="New",
+        status="Intake",
         target_submit=date.today() + timedelta(days=7),
         sales_pic=uuid.uuid4(),
         product_pic=uuid.uuid4(),

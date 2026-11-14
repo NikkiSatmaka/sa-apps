@@ -234,7 +234,7 @@ async def test_kegagalan_llm_ekstraksi_tidak_menahan_create_maupun_scoring(
     assert resp.status_code == 201
     id_project = resp.json()["data"]["id_project"]
     proyek = await ambil_proyek(db_session, id_project)
-    assert proyek.status == "Pending Assignment" and proyek.bant_score == 100
+    assert proyek.status == "Awaiting Assignment" and proyek.bant_score == 100
     (doc,) = await source_docs(db_session, id_project)
     assert (doc.extraction_status, doc.extracted_text) == ("failed", None)
 
@@ -247,7 +247,7 @@ async def test_kegagalan_total_llm_scoring_fallback_dan_ekstraksi_failed(api, db
     resp = await buat_proyek(api, sales, jawaban_kuat(), files=berkas("m.pdf"), file_types=["MoM"])
 
     id_project = resp.json()["data"]["id_project"]
-    assert (await ambil_proyek(db_session, id_project)).status == "Pending Assignment"
+    assert (await ambil_proyek(db_session, id_project)).status == "Awaiting Assignment"
     (doc,) = await source_docs(db_session, id_project)
     assert doc.extraction_status == "failed"
 

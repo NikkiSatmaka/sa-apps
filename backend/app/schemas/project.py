@@ -95,7 +95,10 @@ class ProjectResponse(BaseModel):
     customer_name: str
     target_submit: date
     estimasi_nilai: Decimal
-    status: str = Field(default="New", description="Status awal proyek")
+    status: str = Field(default="Intake", description="Status awal proyek")
+    qualification_state: str = Field(
+        default="Scoring", description="Gate kualifikasi awal (Scoring, Need Clarification, Qualified)"
+    )
     created_by: OrangProyek = Field(..., description="Pembuat project")
     product_pic: OrangProyek = Field(..., description="Product penanggung jawab (selalu ada)")
     sales_pic: Optional[OrangProyek] = Field(

@@ -98,8 +98,8 @@ class TestHandoverResponse:
             id_project="P",
             project_name="N",
             customer_name="C",
-            old_status="Closed-Win",
-            new_status="Handover Complete",
+            old_status="Won",
+            new_status="Handed Over",
             pmo_email="p@x.com",
             delivery_email="d@x.com",
             handover_at=SEKARANG,
@@ -190,7 +190,7 @@ class TestProjectResponse:
             created_at=SEKARANG,
             files=[FileUploadResult(filename="a.pdf", success=True, size_bytes=10)],
         )
-        assert r.status == "New" and r.scoring_triggered is False and r.bant_score is None
+        assert r.status == "Intake" and r.scoring_triggered is False and r.bant_score is None
         assert r.sales_pic is None  # Sales opsional
         assert r.files[0].error is None
 
@@ -239,10 +239,10 @@ class TestScoring:
     def test_total_skor_batas(self, total, ok):
         sub = BANTSubScores(budget=1, authority=1, need=1, timeline=1)
         if ok:
-            assert BANTResult(total_score=total, sub_scores=sub, status="New").total_score == total
+            assert BANTResult(total_score=total, sub_scores=sub, status="Intake").total_score == total
         else:
             with pytest.raises(ValidationError):
-                BANTResult(total_score=total, sub_scores=sub, status="New")
+                BANTResult(total_score=total, sub_scores=sub, status="Intake")
 
     def test_use_case_tags_maksimal_5(self):
         sub = BANTSubScores(budget=1, authority=1, need=1, timeline=1)

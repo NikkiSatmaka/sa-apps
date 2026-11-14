@@ -69,7 +69,8 @@ async def test_tanpa_login_tidak_bisa_membuat_proyek(api, db_session):
 
 
 async def _proyek_milik(db, pic, **o) -> Project:
-    proyek = bangun_project(pic.id, status="Assigned", **o)
+    o.setdefault("status", "Assigned")
+    proyek = bangun_project(pic.id, **o)
     await simpan(db, proyek)
     return proyek
 
@@ -77,17 +78,17 @@ async def _proyek_milik(db, pic, **o) -> Project:
 async def test_product_pic_boleh_ubah_status_proyek_miliknya_tapi_bukan_milik_lain(api, db_session):
     produk, h_produk = await user_baru_b6(db_session, "Product")
     lain, _ = await user_baru_b6(db_session, "Product")
-    miliknya = await _proyek_milik(db_session, produk)
-    milik_lain = await _proyek_milik(db_session, lain)
+    miliknya = await _proyek_milik(db_session, produk, status="Submitted")
+    milik_lain = await _proyek_milik(db_session, lain, status="Submitted")
 
     ok = await api.client.patch(
         f"{API}/projects/{miliknya.id_project}/status",
-        json={"new_status": "Ready"},
+        json={"new_status": "Won"},
         headers=h_produk,
     )
     ditolak = await api.client.patch(
         f"{API}/projects/{milik_lain.id_project}/status",
-        json={"new_status": "Ready"},
+        json={"new_status": "Won"},
         headers=h_produk,
     )
 

@@ -142,7 +142,7 @@ def test_requirement_reviewed_tidak_memicu_doc_ready_maupun_unlock_solutions(dq)
 @pytest.mark.asyncio
 async def test_rag_tidak_merekomendasikan_dokumen_tanpa_link():
     proyek = MagicMock(
-        id_project="PRJ-001", project_name="P", customer_name="C", status="Closed-Win",
+        id_project="PRJ-001", project_name="P", customer_name="C", status="Won",
         use_case_tags=["etl"],
     )
     ada = MagicMock(id_doc="D1", id_project="PRJ-001", doc_type="PropTek",

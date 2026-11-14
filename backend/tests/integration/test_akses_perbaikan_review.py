@@ -6,7 +6,7 @@ Matriks peran × aksi di Postgres nyata untuk empat temuan perilaku:
   gating `GET /projects/{id}/documents/solutions` (Sales PIC + DQ terisi + Reviewed/Final).
 - B. `PATCH /projects/{id}` dengan `dq_number` mengikuti aturan DAN efek samping yang sama dengan
   `PATCH /projects/{id}/dq-number` (status diizinkan, Sales hanya mengisi yang kosong, timer SLA
-  berhenti + unlock + transisi ke Ready).
+  berhenti + unlock + status tidak berubah).
 - C. `PATCH /projects/subtasks/{id}/status`: pemilik subtask non-privileged harus masih berhak
   TULIS ke proyek subtask itu.
 - D. `POST /calendar/map`: pesan 409 tidak membocorkan nama proyek lain.
@@ -205,7 +205,7 @@ async def _keadaan(db):
 async def test_patch_proyek_isi_dq_pertama_kali_efek_samping_sama_dengan_jalur_dq_number(
     api, db_session, skenario_akses, fake_drive, aktor
 ):
-    """Isi pertama lewat PATCH proyek == lewat /dq-number: Ready, timer berhenti, unlock Drive."""
+    """Isi pertama lewat PATCH proyek == lewat /dq-number: status tetap, timer berhenti, unlock Drive."""
     await _siapkan_proyek(db_session, skenario_akses)
     await _kunci_sla(db_session)
     resp = await _patch_dq(api, skenario_akses, aktor, "DQ-12345")
@@ -227,7 +227,7 @@ async def test_patch_proyek_isi_dq_pertama_kali_efek_samping_sama_dengan_jalur_d
     assert lewat_patch == lewat_dq
     assert lewat_patch[0] == {
         "dq": "DQ-12345",
-        "status": "Ready",
+        "status": "Assigned",
         "timer_berhenti": True,
         "terkunci": False,
         "dibuka": True,
@@ -235,7 +235,7 @@ async def test_patch_proyek_isi_dq_pertama_kali_efek_samping_sama_dengan_jalur_d
     assert lewat_patch[1] != []  # unlock Drive benar-benar terjadi
 
 
-@pytest.mark.parametrize("status_proyek", ["New", "Pending Assignment", "Scoring Pending"])
+@pytest.mark.parametrize("status_proyek", ["Intake", "Awaiting Assignment", "On Hold"])
 @pytest.mark.parametrize("aktor", ["sales_pic", "lead", "admin"])
 async def test_patch_proyek_dq_pada_status_tak_diizinkan_400_tanpa_efek_samping(
     api, db_session, skenario_akses, fake_drive, aktor, status_proyek
@@ -261,7 +261,7 @@ async def test_patch_proyek_dq_pada_status_tak_diizinkan_400_tanpa_efek_samping(
 async def test_patch_proyek_sales_pic_tidak_boleh_menimpa_atau_mengosongkan_dq(
     api, db_session, skenario_akses, fake_drive, nilai
 ):
-    await _siapkan_proyek(db_session, skenario_akses, dq="DQ-10002", status="Ready")
+    await _siapkan_proyek(db_session, skenario_akses, dq="DQ-10002", status="Submitted")
 
     resp = await _patch_proyek(
         api, skenario_akses, "sales_pic", project_name="Nama Baru", dq_number=nilai
@@ -277,7 +277,7 @@ async def test_patch_proyek_sales_pic_dq_sama_diabaikan_field_lain_berlaku(
     api, db_session, skenario_akses
 ):
     """Form edit mengirim semua field: DQ tak berubah tidak memicu 403 meski Sales PIC."""
-    await _siapkan_proyek(db_session, skenario_akses, dq="DQ-10002", status="Ready")
+    await _siapkan_proyek(db_session, skenario_akses, dq="DQ-10002", status="Submitted")
 
     resp = await _patch_proyek(
         api, skenario_akses, "sales_pic", project_name="Nama Baru", dq_number="DQ-10002"
@@ -292,7 +292,7 @@ async def test_patch_proyek_sales_pic_dq_sama_diabaikan_field_lain_berlaku(
 async def test_patch_proyek_lead_dan_admin_boleh_mengubah_dq_yang_sudah_ada(
     api, db_session, skenario_akses, aktor
 ):
-    await _siapkan_proyek(db_session, skenario_akses, dq="DQ-10002", status="Ready")
+    await _siapkan_proyek(db_session, skenario_akses, dq="DQ-10002", status="Submitted")
 
     resp = await _patch_proyek(api, skenario_akses, aktor, dq_number="DQ-10003")
 
@@ -303,7 +303,7 @@ async def test_patch_proyek_lead_dan_admin_boleh_mengubah_dq_yang_sudah_ada(
 async def test_patch_proyek_ubah_dq_tidak_menghentikan_timer_ulang_bila_bukan_pertama_kali(
     api, db_session, skenario_akses
 ):
-    await _siapkan_proyek(db_session, skenario_akses, dq="DQ-10002", status="Ready")
+    await _siapkan_proyek(db_session, skenario_akses, dq="DQ-10002", status="Submitted")
 
     resp = await _patch_proyek(api, skenario_akses, "lead", dq_number="DQ-10003")
 
@@ -326,7 +326,7 @@ async def test_patch_proyek_peran_lain_ubah_dq_403_tanpa_efek_samping(
 
 
 async def test_jalur_dq_number_tetap_sales_pic_tidak_menimpa(api, db_session, skenario_akses):
-    await _siapkan_proyek(db_session, skenario_akses, dq="DQ-10002", status="Ready")
+    await _siapkan_proyek(db_session, skenario_akses, dq="DQ-10002", status="Submitted")
 
     resp = await _patch_dq(api, skenario_akses, "sales_pic", "DQ-10003")
 

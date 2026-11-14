@@ -318,7 +318,7 @@ async def test_assign_admin_non_lead_sa_tanpa_lead_sa_id_ditolak_400(dunia, api,
 
     assert resp.status_code == 400, resp.text
     p = await ambil_proyek(dunia.db, proyek.id_project)
-    assert (p.status, p.lead_sa, p.assigned_sa) == ("Pending Assignment", None, None)
+    assert (p.status, p.lead_sa, p.assigned_sa) == ("Awaiting Assignment", None, None)
 
 
 async def test_assign_admin_non_lead_sa_dengan_lead_sa_id_diterima(dunia, api, monkeypatch):
@@ -350,7 +350,7 @@ async def test_assign_lead_sa_pilihan_bukan_lead_sa_ditolak_dan_tidak_mengubah(
 
     assert resp.status_code == 400, resp.text
     p = await ambil_proyek(dunia.db, proyek.id_project)
-    assert (p.status, p.lead_sa) == ("Pending Assignment", None)
+    assert (p.status, p.lead_sa) == ("Awaiting Assignment", None)
 
 
 async def test_reassign_dari_pending_mengisi_lead_sa(dunia, api, monkeypatch):
@@ -398,7 +398,7 @@ async def test_reassign_dari_pending_oleh_admin_non_lead_sa_tanpa_lead_sa_id_dit
 
     assert resp.status_code == 400, resp.text
     p = await ambil_proyek(dunia.db, proyek.id_project)
-    assert (p.status, p.lead_sa, p.assigned_sa) == ("Pending Assignment", None, None)
+    assert (p.status, p.lead_sa, p.assigned_sa) == ("Awaiting Assignment", None, None)
 
 
 async def test_reassign_dari_pending_oleh_admin_dengan_lead_sa_id_diterima(dunia, api, monkeypatch):

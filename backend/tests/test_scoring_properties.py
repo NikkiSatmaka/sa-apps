@@ -124,9 +124,11 @@ def test_mrr_positif_tidak_menurunkan_skor_budget(jawaban, mrr):
 @RIBUAN
 @given(st.integers(min_value=-1000, max_value=1000))
 def test_gate_sesuai_ambang_untuk_semua_total(total):
-    status = bant_rubric.decide_status(total)
+    status_siklus, state = bant_rubric.decide_gate(total)
 
-    assert status == ("Pending Assignment" if total >= 60 else "Need Clarification")
+    assert (status_siklus, state) == (
+        ("Awaiting Assignment", "Qualified") if total >= 60 else ("Intake", "Need Clarification")
+    )
 
 
 @SEDANG
@@ -226,7 +228,7 @@ def test_build_result_konsisten_dengan_gate(rubrik, ai, override):
     hasil = ScoringEngine._build_result(skor, None)
 
     assert hasil.total_score == bant_rubric.total_score(skor)
-    assert hasil.status == bant_rubric.decide_status(hasil.total_score)
+    assert (hasil.status, hasil.qualification_state) == bant_rubric.decide_gate(hasil.total_score)
     assert (hasil.feedback is None) == (hasil.total_score >= 60)
 
 

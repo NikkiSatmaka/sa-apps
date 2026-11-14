@@ -69,7 +69,7 @@ async def test_koreksi_jawaban_memperbarui_requirement_biasa_dengan_hash_baru(sk
     assert baru.source_hash == compute_source_hash(proyek.qualification_answers, [])
     assert not set(ids_lama) & set(s.butir_id(baru))
     assert baru.is_overridden is False
-    assert (proyek.status, proyek.bant_score) == ("Pending Assignment", proyek.bant_score)
+    assert (proyek.status, proyek.bant_score) == ("Awaiting Assignment", proyek.bant_score)
     assert s.llm.jumlah("complete_text") == 2
     assert await s.notifikasi_sumber_berubah(id_project) == []
 
@@ -223,7 +223,7 @@ async def test_requirement_final_tidak_ditimpa_dan_memicu_notifikasi(skenario):
     assert requirement_dari(await daftar_dokumen(s, id_project))["source_changed"] is True
 
 
-@pytest.mark.parametrize("status_terminal", ["Closed-Win", "Lost", "Handover Complete"])
+@pytest.mark.parametrize("status_terminal", ["Won", "Lost", "Handed Over", "Closed"])
 @pytest.mark.parametrize("dilindungi", [False, True], ids=["biasa", "override"])
 async def test_proyek_terminal_tidak_di_resummarize_dan_tidak_diberi_tahu(
     skenario, status_terminal, dilindungi

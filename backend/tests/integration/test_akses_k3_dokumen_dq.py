@@ -357,7 +357,7 @@ async def test_dq_pengisi_berhak_menyimpan_dan_menghentikan_timer(
 
     assert resp.status_code == 200, resp.text
     proyek = await _muat(db_session, Project, id_project=ID_PROYEK)
-    assert (proyek.dq_number, proyek.status) == ("DQ-12345", "Ready")
+    assert (proyek.dq_number, proyek.status) == ("DQ-12345", "Assigned")
     assert (await _sla(db_session)).stopped_at is not None
 
 

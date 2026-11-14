@@ -23,7 +23,11 @@ class BANTResult(BaseModel):
     total_score: int = Field(ge=0, le=100, description="Total skor BANT (0-100)")
     sub_scores: BANTSubScores
     use_case_tags: list[str] = Field(default_factory=list, max_length=5)
-    status: str = Field(description="Status proyek setelah scoring")
+    status: str = Field(description="Status proyek setelah scoring (Intake atau Awaiting Assignment)")
+    qualification_state: str = Field(
+        default="Scoring",
+        description="Gate kualifikasi setelah scoring (Need Clarification, Manual Review, Qualified)",
+    )
     feedback: Optional[str] = Field(
         default=None,
         description="Feedback untuk Sales jika skor < 60",
@@ -53,7 +57,7 @@ class BANTOverrideInput(BaseModel):
 
 
 class RecommendedDocumentInfo(BaseModel):
-    """Info dokumen dari proyek Closed-Win yang direkomendasikan."""
+    """Info dokumen dari proyek Won yang direkomendasikan."""
 
     id_doc: str
     doc_type: str = Field(description="Tipe dokumen: PropTek, BOQ, Mandays, MoM, RFP, HLD")
@@ -72,5 +76,5 @@ class SimilarProjectResult(BaseModel):
     status: str
     documents: list[RecommendedDocumentInfo] = Field(
         default_factory=list,
-        description="Daftar dokumen dari proyek Closed-Win (PropTek, BOQ, HLD, dll.)",
+        description="Daftar dokumen dari proyek Won (PropTek, BOQ, HLD, dll.)",
     )

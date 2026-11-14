@@ -27,15 +27,8 @@ from tests.integration.model_helpers import bangun_sla, bangun_user, simpan
 pytestmark = pytest.mark.usefixtures("komit_sesi_request")
 
 DQ = "DQ-2025-001"
-STATUS_BOLEH = ["Assigned", "Ready", "Closed-Win", "Handover Complete"]
-STATUS_DITOLAK = [
-    "New",
-    "Pending Assignment",
-    "Need Clarification",
-    "Scoring Pending",
-    "Manual Review Required",
-    "Lost",
-]
+STATUS_BOLEH = ["Assigned", "In Progress", "Submitted", "Won", "Handed Over"]
+STATUS_DITOLAK = ["Intake", "Awaiting Assignment", "On Hold", "Closed", "Lost"]
 
 
 async def _input_dq(api, id_project, dq, header):
@@ -51,7 +44,7 @@ async def _dq_tersimpan(db, id_project):
 # --------------------------------------------------------------------------- input DQ: happy path
 
 
-async def test_dq_pertama_oleh_sales_tersimpan_dan_status_assigned_menjadi_ready(api, db_session):
+async def test_dq_pertama_oleh_sales_tersimpan_dan_status_tidak_berubah(api, db_session):
     dunia = await siapkan_dunia(api, db_session)
     proyek = await buat_proyek(db_session, dunia, status="Assigned")
 
@@ -60,10 +53,10 @@ async def test_dq_pertama_oleh_sales_tersimpan_dan_status_assigned_menjadi_ready
     assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
     assert data["dq_number"] == DQ
-    assert data["status"] == "Ready"
-    assert "Ready" in resp.json()["message"]
+    # DQ tidak lagi menggeser status: `Submitted` hanya lewat PATCH /status (syarat dokumen).
+    assert data["status"] == "Assigned"
     baris = await muat(db_session, Project, id_project=proyek.id_project)
-    assert (baris.dq_number, baris.status) == (DQ, "Ready")
+    assert (baris.dq_number, baris.status) == (DQ, "Assigned")
 
 
 @pytest.mark.parametrize("status_", STATUS_BOLEH)
@@ -76,8 +69,8 @@ async def test_dq_diterima_pada_status_assigned_atau_lebih_tinggi(api, db_sessio
     assert resp.status_code == 200, resp.text
     baris = await muat(db_session, Project, id_project=proyek.id_project)
     assert baris.dq_number == DQ
-    # Hanya Assigned yang naik ke Ready; status lain tidak berubah.
-    assert baris.status == ("Ready" if status_ == "Assigned" else status_)
+    # Input DQ tidak pernah mengubah status.
+    assert baris.status == status_
 
 
 @pytest.mark.parametrize("status_", STATUS_DITOLAK)
@@ -156,12 +149,12 @@ async def test_lead_sa_dan_admin_boleh_input_dq_pertama(api, db_session, peran):
 
     assert resp.status_code == 200, resp.text
     baris = await muat(db_session, Project, id_project=proyek.id_project)
-    assert (baris.dq_number, baris.status) == (DQ, "Ready")
+    assert (baris.dq_number, baris.status) == (DQ, "Assigned")
 
 
 async def test_sales_tidak_bisa_mengubah_dq_yang_sudah_tersimpan(api, db_session):
     dunia = await siapkan_dunia(api, db_session)
-    proyek = await buat_proyek(db_session, dunia, status="Ready", dq_number="DQ-LAMA-1")
+    proyek = await buat_proyek(db_session, dunia, status="Submitted", dq_number="DQ-LAMA-1")
 
     resp = await _input_dq(api, proyek.id_project, "DQ-BARU-2", dunia.header["Sales"])
 
@@ -175,19 +168,19 @@ async def test_lead_sa_dan_admin_boleh_mengedit_dq_tersimpan_tanpa_mengubah_stat
     api, db_session, peran
 ):
     dunia = await siapkan_dunia(api, db_session)
-    proyek = await buat_proyek(db_session, dunia, status="Ready", dq_number="DQ-LAMA-1")
+    proyek = await buat_proyek(db_session, dunia, status="Submitted", dq_number="DQ-LAMA-1")
 
     resp = await _input_dq(api, proyek.id_project, "DQ-BARU-2", dunia.header[peran])
 
     assert resp.status_code == 200, resp.text
     assert "diperbarui" in resp.json()["message"]
     baris = await muat(db_session, Project, id_project=proyek.id_project)
-    assert (baris.dq_number, baris.status) == ("DQ-BARU-2", "Ready")
+    assert (baris.dq_number, baris.status) == ("DQ-BARU-2", "Submitted")
 
 
 async def test_sa_tidak_bisa_mengedit_dq_tersimpan(api, db_session):
     dunia = await siapkan_dunia(api, db_session)
-    proyek = await buat_proyek(db_session, dunia, status="Ready", dq_number="DQ-LAMA-1")
+    proyek = await buat_proyek(db_session, dunia, status="Submitted", dq_number="DQ-LAMA-1")
 
     resp = await _input_dq(api, proyek.id_project, "DQ-BARU-2", dunia.header["SA"])
 
@@ -260,7 +253,7 @@ async def test_edit_dq_oleh_lead_sa_tidak_menghentikan_ulang_timer(api, db_sessi
     proyek = await buat_proyek(
         db_session,
         dunia,
-        status="Ready",
+        status="Submitted",
         dq_number="DQ-LAMA-1",
         gdrive_solutions_folder_id="solutions",
     )
@@ -300,7 +293,7 @@ async def test_kegagalan_stop_timer_tidak_menggagalkan_input_dq(api, db_session,
 
     assert resp.status_code == 200, resp.text
     baris = await muat(db_session, Project, id_project=proyek.id_project)
-    assert (baris.dq_number, baris.status) == (DQ, "Ready")
+    assert (baris.dq_number, baris.status) == (DQ, "Assigned")
 
 
 # --------------------------------------------------------------------------- read-gating Solutions

@@ -73,11 +73,11 @@ class TestHelperMurni:
         )
 
     def test_default_phase_handover_complete_adalah_implementation(self):
-        assert default_phase_for_status("Handover Complete") == "Implementation"
+        assert default_phase_for_status("Handed Over") == "Implementation"
 
     @pytest.mark.parametrize(
         "status",
-        ["New", "Assigned", "Ready", "Closed-Win", "Lost", "", "handover complete"],
+        ["Intake", "Assigned", "Submitted", "Won", "Lost", "", "handed over"],
     )
     def test_default_phase_selainnya_pre_implementation(self, status):
         assert default_phase_for_status(status) == "Pre-Implementation"

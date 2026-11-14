@@ -60,6 +60,11 @@ def bangun_project(sales_pic: uuid.UUID | None, **o: Any) -> Project:
     d.update(o)
     d.setdefault("product_pic", d["sales_pic"])
     d.setdefault("created_by", d["product_pic"])
+    # Setelah Intake, `qualification_state` selalu `Qualified` (ADR 0013).
+    if d.get("status", "Intake") != "Intake":
+        d.setdefault("qualification_state", "Qualified")
+    if d.get("status") == "Lost":
+        d.setdefault("lost_reason", "Alasan uji")
     return Project(**d)
 
 

@@ -29,7 +29,7 @@ from tests.test_requirement_generate_api import (
 BARU = [{"kategori": "Teknis", "butir": "Butir hasil re-summarize"}]
 
 
-def _proyek(status="Pending Assignment", answers=None):
+def _proyek(status="Awaiting Assignment", answers=None):
     return Project(
         id_project="PRJ-X",
         project_name="P",
@@ -134,7 +134,7 @@ def test_dokumen_final_tidak_diubah():
     assert _butir(req) == ["Butir lama"]
 
 
-@pytest.mark.parametrize("status", ["Closed-Win", "Lost", "Handover Complete"])
+@pytest.mark.parametrize("status", ["Won", "Lost", "Handed Over"])
 def test_status_terminal_tidak_di_resummarize(status):
     sumber = [_source(text="MoM baru")]
     req = _requirement(jawaban_kuat(), sumber, stale=True)

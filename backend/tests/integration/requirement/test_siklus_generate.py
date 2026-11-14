@@ -31,7 +31,7 @@ async def test_lolos_gate_tanpa_file_membuat_requirement_ready_di_postgres(skena
 
     proyek = await s.proyek(id_project)
     doc = await s.requirement(id_project)
-    assert proyek.status == "Pending Assignment"
+    assert proyek.status == "Awaiting Assignment"
     assert proyek.requirement_generation_status == "ready"
     assert doc is not None
     assert (doc.doc_type, doc.status, doc.folder_type) == ("Requirement", "Draft", "Inventory")
@@ -50,7 +50,7 @@ async def test_gagal_gate_tidak_memanggil_llm_dan_tidak_membuat_requirement(sken
     id_project = await s.buat_proyek(jawaban_lemah())
 
     proyek = await s.proyek(id_project)
-    assert proyek.status == "Need Clarification"
+    assert (proyek.status, proyek.qualification_state) == ("Intake", "Need Clarification")
     assert proyek.requirement_generation_status is None
     assert await s.requirement(id_project) is None
     assert s.llm.jumlah() == 0
@@ -72,7 +72,7 @@ async def test_dengan_file_ai_sukses_requirement_dibuat_lalu_diperbarui_setelah_
     proyek = await s.proyek(id_project)
     doc = await s.requirement(id_project)
     sumber = await s.sumber(id_project)
-    assert proyek.status == "Pending Assignment"
+    assert proyek.status == "Awaiting Assignment"
     assert proyek.requirement_generation_status == "ready"
     assert [x.extraction_status for x in sumber] == ["extracted"]
     assert [(i["kategori"], i["butir"]) for i in doc.content] == list(BUTIR_BARU)
@@ -94,7 +94,7 @@ async def test_dengan_file_ai_gagal_fallback_rubrik_tetap_menghasilkan_requireme
 
     proyek = await s.proyek(id_project)
     doc = await s.requirement(id_project)
-    assert proyek.status == "Pending Assignment"  # skor rubrik dari kuesioner lolos gate
+    assert proyek.status == "Awaiting Assignment"  # skor rubrik dari kuesioner lolos gate
     assert proyek.requirement_generation_status == "ready"
     assert [x.extraction_status for x in await s.sumber(id_project)] == ["failed"]
     assert doc is not None and doc.source_hash == compute_source_hash(
@@ -119,7 +119,7 @@ async def test_sumber_terpotong_finish_reason_menandai_requirement_source_trunca
     assert doc.source_truncated is True
 
 
-# --- jalur: setelah Need Clarification
+# --- jalur: setelah qualification_state Need Clarification
 async def test_edit_kuesioner_dari_need_clarification_hingga_lolos_membuat_requirement(skenario):
     s = skenario
     await s.header("Lead_SA")
@@ -133,7 +133,7 @@ async def test_edit_kuesioner_dari_need_clarification_hingga_lolos_membuat_requi
 
     assert resp.status_code == 200, resp.text
     proyek = await s.proyek(id_project)
-    assert proyek.status == "Pending Assignment"
+    assert proyek.status == "Awaiting Assignment"
     assert proyek.requirement_generation_status == "ready"
     assert (await s.requirement(id_project)).source_hash == compute_source_hash(
         proyek.qualification_answers, []
@@ -172,7 +172,7 @@ async def test_override_skor_lead_sa_hingga_lolos_membuat_requirement(skenario):
 
     assert resp.status_code == 200, resp.text
     proyek = await s.proyek(id_project)
-    assert (proyek.status, proyek.requirement_generation_status) == ("Pending Assignment", "ready")
+    assert (proyek.status, proyek.requirement_generation_status) == ("Awaiting Assignment", "ready")
     assert await s.jumlah_requirement(id_project) == 1
 
 
@@ -246,7 +246,7 @@ async def test_kegagalan_llm_menandai_failed_tanpa_dokumen_dan_tanpa_mengganggu_
 
     proyek = await s.proyek(id_project)
     assert proyek.requirement_generation_status == "failed"
-    assert proyek.status == "Pending Assignment"  # alur proyek tidak terganggu
+    assert proyek.status == "Awaiting Assignment"  # alur proyek tidak terganggu
     assert await s.requirement(id_project) is None
     assert s.llm.jumlah("complete_text") == MAX_GENERATE_RETRIES
 
@@ -324,7 +324,7 @@ async def _proyek_legacy_pending(s):
     id_project = await s.buat_proyek(jawaban_lemah())
     await s.tetapkan(
         id_project,
-        status="Pending Assignment",
+        status="Awaiting Assignment",
         qualification_answers=None,
         requirement_generation_status="pending",
     )
@@ -383,7 +383,7 @@ async def test_source_document_gagal_atau_kosong_tidak_ikut_hash_maupun_prompt(s
         ]
     )
     await s.tetapkan(
-        id_project, status="Pending Assignment", requirement_generation_status="pending"
+        id_project, status="Awaiting Assignment", requirement_generation_status="pending"
     )
     s.llm.sukses("complete_text", items_json(*BUTIR_AWAL))
 

@@ -27,6 +27,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import asc, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import status as status_konst
 from app.core.database import get_db
 from app.core.dependencies import (
     TingkatAkses,
@@ -46,7 +47,7 @@ from app.schemas.project import FileUploadResult, ProjectResponse
 from app.schemas.qualification import parse_answers, validate_answers
 from app.schemas.response import error_response, success_response
 from app.services import bant_rubric
-from app.services.scoring_engine import SCORING_MUTABLE_STATUSES, scoring_engine
+from app.services.scoring_engine import scoring_engine
 from app.services.qualification_view import build_qualification_view
 from app.services.requirement_generator import (
     generate_pending_requirement,
@@ -192,11 +193,12 @@ async def _trigger_scoring_engine(
             )
             logger.info(
                 f"[ScoringEngine] Scoring selesai untuk proyek {project_id}: "
-                f"total_score={result.total_score}, status={result.status}"
+                f"total_score={result.total_score}, status={result.status}, "
+                f"qualification_state={result.qualification_state}"
             )
     except Exception as e:
         logger.error(f"[ScoringEngine] Gagal memproses proyek {project_id}: {e}")
-        # Jaring pengaman: jangan biarkan proyek menggantung di Scoring Pending
+        # Jaring pengaman: jangan biarkan proyek menggantung di qualification_state Scoring
         try:
             async with AsyncSessionLocal() as db:
                 await scoring_engine.fallback_after_failure(db, project_id)
@@ -366,6 +368,7 @@ async def list_projects(
                 "project_name": p.project_name,
                 "customer_name": p.customer_name,
                 "status": p.status,
+                "qualification_state": p.qualification_state,
                 "dq_number": p.dq_number,
                 "bant_score": p.bant_score,
                 "use_case_tags": p.use_case_tags or [],
@@ -515,21 +518,28 @@ async def get_project_detail(
         for d in source_docs_result.scalars().all()
     ]
 
+    scoring_berjalan = (
+        project.status == status_konst.INTAKE
+        and project.qualification_state == status_konst.QS_SCORING
+    )
     data = {
         "id_project": project.id_project,
         "project_name": project.project_name,
         "customer_name": project.customer_name,
         "status": project.status,
+        "qualification_state": project.qualification_state,
+        "previous_status": project.previous_status,
+        "lost_reason": project.lost_reason,
         "dq_number": project.dq_number,
-        # Selama Scoring Pending skor sementara tidak ditampilkan sebagai hasil final
-        "bant_score": None if project.status == "Scoring Pending" else project.bant_score,
+        # Selama qualification_state Scoring skor sementara tidak ditampilkan sebagai hasil final
+        "bant_score": None if scoring_berjalan else project.bant_score,
         "bant_detail": (
             {
                 k: v
                 for k, v in (project.bant_detail or {}).items()
                 if k not in bant_rubric.SUB_SCORE_KEYS
             }
-            if project.status == "Scoring Pending"
+            if scoring_berjalan
             else project.bant_detail
         ),
         "qualification": build_qualification_view(project),
@@ -624,8 +634,8 @@ async def delete_project(
     "/{project_id}/qualification-answers",
     summary="Edit jawaban Kuesioner kualifikasi",
     description=(
-        "Sales PIC mengubah jawaban hanya saat status Need Clarification (re-score + gate 60). "
-        "Lead_SA/Admin diperlakukan sama saat Need Clarification; setelah lolos gate mereka "
+        "Sales PIC mengubah jawaban hanya saat Intake dengan qualification_state Need Clarification "
+        "(re-score + gate 60). Lead_SA/Admin diperlakukan sama saat Need Clarification; setelah lolos gate mereka "
         "dapat mengoreksi tanpa re-score. Proyek legacy (tanpa jawaban) ditolak."
     ),
 )
@@ -661,20 +671,26 @@ async def update_qualification_answers(
             ),
         )
 
-    needs_clarification = project.status == "Need Clarification"
+    needs_clarification = (
+        project.status == status_konst.INTAKE
+        and project.qualification_state == status_konst.QS_NEED_CLARIFICATION
+    )
     if not needs_clarification:
         if not is_privileged:
             raise HTTPException(
                 status_code=403,
                 detail=(
-                    "Jawaban kuesioner hanya dapat diubah Sales saat status Need Clarification."
+                    "Jawaban kuesioner hanya dapat diubah Sales saat qualification_state "
+                    "Need Clarification."
                 ),
             )
-        if project.status in SCORING_MUTABLE_STATUSES or project.status == "Manual Review Required":
+        if project.status == status_konst.INTAKE:
+            # Intake dengan state Scoring atau Manual Review: gate belum selesai.
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"Jawaban kuesioner belum dapat diedit pada status '{project.status}'."
+                    f"Jawaban kuesioner belum dapat diedit pada qualification_state "
+                    f"'{project.qualification_state}'."
                 ),
             )
 
@@ -831,7 +847,7 @@ async def update_project(
         "Dapat diakses oleh role Sales, Product, Lead_SA, dan `is_admin` (SA ditolak). "
         "Menerima form data + file attachment (PDF/DOCX, max 20MB/file, max 5 files). "
         "Menerima jawaban Kuesioner kualifikasi (qualification_answers, JSON); skor BANT "
-        "dihitung backend. Tanpa file: gate 60 langsung diterapkan. Dengan file: status 'Scoring Pending' "
+        "dihitung backend. Tanpa file: gate 60 langsung diterapkan. Dengan file: Intake + qualification_state 'Scoring' "
         "dan scoring engine async."
     ),
 )
@@ -896,7 +912,7 @@ async def create_project(
     Flow:
     1. Validasi input form (project_name, customer_name, target_submit, estimasi_nilai)
     2. Validasi file upload (format, ukuran, jumlah)
-    3. Buat record Project dengan status awal sesuai skor rubrik (Scoring Pending bila ada file)
+    3. Buat record Project dengan status awal sesuai skor rubrik (Intake + Scoring bila ada file)
     4. Trigger Scoring_Engine async jika ada file valid
     5. Return 201 dengan data proyek + hasil upload per file
     """
@@ -1029,13 +1045,15 @@ async def create_project(
     now = datetime.now(timezone.utc)
 
     # Tanpa file valid: rubrik dihitung sinkron dan gate 60 langsung diterapkan.
-    # Dengan file: perilaku scoring file tidak berubah (status New + background task).
+    # Dengan file: perilaku scoring file tidak berubah (Intake + Scoring + background task).
     rubric_scores = bant_rubric.compute_rubric_scores(answers, target_submit)
     rubric_total = bant_rubric.total_score(rubric_scores)
     scored_now = not valid_files_data
-    # Dengan file: status `Scoring Pending` sampai analisis AI selesai (skor rubrik sudah disimpan).
-    initial_status = (
-        bant_rubric.decide_status(rubric_total) if scored_now else "Scoring Pending"
+    # Dengan file: Intake + `Scoring` sampai analisis AI selesai (skor rubrik sudah disimpan).
+    initial_status, initial_state = (
+        bant_rubric.decide_gate(rubric_total)
+        if scored_now
+        else (status_konst.INTAKE, status_konst.QS_SCORING)
     )
     feedback: Optional[str] = None
     if scored_now and rubric_total < bant_rubric.GATE_THRESHOLD:
@@ -1049,9 +1067,10 @@ async def create_project(
         estimasi_nilai=estimasi_decimal,
         dq_number=validated_dq,
         status=initial_status,
+        qualification_state=initial_state,
         # Lolos gate tanpa file: Requirement di-generate di background (#33).
         requirement_generation_status=(
-            "pending" if scored_now and initial_status == "Pending Assignment" else None
+            "pending" if scored_now and initial_status == status_konst.AWAITING_ASSIGNMENT else None
         ),
         created_by=current_user.id,
         product_pic=produk_user.id,
@@ -1102,7 +1121,7 @@ async def create_project(
         scoring_triggered = True
         # Ekstraksi teks Source document: panggilan Gemini terpisah, tidak menahan respons/scoring
         background_tasks.add_task(extract_source_documents, project_id, extraction_items)
-    elif initial_status == "Pending Assignment":
+    elif initial_status == status_konst.AWAITING_ASSIGNMENT:
         from app.services.scoring_engine import scoring_engine
 
         try:
@@ -1119,6 +1138,7 @@ async def create_project(
         target_submit=target_submit,
         estimasi_nilai=estimasi_decimal,
         status=initial_status,
+        qualification_state=initial_state,
         created_by=_ringkas_orang(current_user, current_user.id),
         product_pic=_ringkas_orang(produk_user, produk_user.id),
         sales_pic=_ringkas_orang(sales_user, sales_user.id) if sales_user else None,

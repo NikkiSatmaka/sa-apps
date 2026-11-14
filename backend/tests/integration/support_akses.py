@@ -76,6 +76,7 @@ async def skenario_akses(db_session: AsyncSession) -> SkenarioAkses:
         bant_detail={"budget": 20, "authority": 20, "need": 20, "timeline": 20},
         use_case_tags=["etl", "dwh"],
         status="Assigned",
+        qualification_state="Qualified",
     )
     lain = Project(
         id_project="PRJ-AKSES-2",
@@ -88,13 +89,14 @@ async def skenario_akses(db_session: AsyncSession) -> SkenarioAkses:
     )
     referensi = Project(
         id_project="PRJ-AKSES-REF",
-        project_name="Referensi Closed-Win",
+        project_name="Referensi Won",
         customer_name="PT Referensi",
         created_by=a["sales_pic"].id,
         product_pic=a["sales_pic"].id,
         sales_pic=a["sales_pic"].id,
         target_submit=date.today() + timedelta(days=30),
-        status="Closed-Win",
+        status="Won",
+        qualification_state="Qualified",
         use_case_tags=["etl"],
     )
     db.add_all([proyek, lain, referensi])

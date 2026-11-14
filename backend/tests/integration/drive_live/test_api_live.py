@@ -103,10 +103,10 @@ async def dunia(db_session: AsyncSession, konfigurasi_live: KonfigurasiLive) -> 
 async def _assign_dan_provision(
     dunia: DuniaLive, api, monkeypatch, provisioner, pembersih, awalan
 ) -> str:
-    """Proyek Pending Assignment → assign (endpoint nyata) → provisioning ASLI. Return id proyek."""
+    """Proyek Awaiting Assignment → assign (endpoint nyata) → provisioning ASLI. Return id proyek."""
     proyek = bangun_project(
         dunia.sales.id,
-        status="Pending Assignment",
+        status="Awaiting Assignment",
         customer_name=f"{awalan}PT Uji",
         project_name="Proyek Live",
     )

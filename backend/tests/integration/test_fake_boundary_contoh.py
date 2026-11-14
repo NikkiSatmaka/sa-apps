@@ -142,12 +142,12 @@ async def test_drive_fake_gagal_status_provisioning_failed(api, db_session, fake
 # ----------------------------------------------------------------------------- Gmail
 
 
-async def _closed_win(api, db_session, lead: dict) -> tuple[str, User]:
-    """Proyek 'Ready' ditugaskan ke SA, lalu Lead_SA menaikkannya ke Closed-Win (notifikasi HLD)."""
+async def _won(api, db_session, lead: dict) -> tuple[str, User]:
+    """Proyek 'Submitted' ditugaskan ke SA, lalu Lead_SA menaikkannya ke Won (notifikasi HLD)."""
     id_project, _, _ = await _proyek_pending(api)
-    sa = await _tugaskan_sa(api, id_project, db_session, status="Ready")
+    sa = await _tugaskan_sa(api, id_project, db_session, status="Submitted")
     resp = await api.client.patch(
-        f"{PROYEK}/{id_project}/status", json={"new_status": "Closed-Win"}, headers=lead
+        f"{PROYEK}/{id_project}/status", json={"new_status": "Won"}, headers=lead
     )
     assert resp.status_code == 200, resp.text
     return id_project, sa
@@ -157,7 +157,7 @@ async def test_gmail_fake_email_hld_terekam(api, db_session, fake_gmail):
     lead = await api.login_demo("Lead_SA")
     fake_gmail.tahan_email()
 
-    id_project, sa = await _closed_win(api, db_session, lead)
+    id_project, sa = await _won(api, db_session, lead)
     fake_gmail.lepaskan_email()
 
     await fake_gmail.tunggu_percobaan(1)
@@ -172,7 +172,7 @@ async def test_gmail_fake_gagal_dicoba_ulang_sampai_pulih(api, db_session, fake_
     lead = await api.login_demo("Lead_SA")
     fake_gmail.tahan_email()
 
-    await _closed_win(api, db_session, lead)
+    await _won(api, db_session, lead)
     fake_gmail.lepaskan_email()
 
     await fake_gmail.tunggu_percobaan(3)

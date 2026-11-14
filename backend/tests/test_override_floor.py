@@ -145,7 +145,7 @@ def test_override_tinggi_tetap_berlaku_setelah_sales_mengedit_jawaban():
     assert project.bant_detail["need"] == 20
     assert project.bant_detail["timeline"] == 20
     assert project.bant_score == 80
-    assert project.status == "Pending Assignment"
+    assert project.status == "Awaiting Assignment"
     assert len(_notifs(session)) == 1
     assert project.override_sub_scores == OVERRIDE_TINGGI  # tidak berubah
 
@@ -199,7 +199,7 @@ def test_hasil_ai_terlambat_digabung_max_dengan_override_bukan_menimpa():
     assert proyek.bant_detail["budget"] == 25
     assert proyek.bant_detail["need"] == 25
     assert proyek.bant_score == 100
-    assert proyek.status == "Pending Assignment"
+    assert proyek.status == "Awaiting Assignment"
     assert proyek.ai_scoring_result["sub_scores"]["budget"] == 5  # AI mentah tetap terpisah
     assert proyek.override_sub_scores["budget"] == 25
     assert len(bg.of_type(NotificationLog)) == 1
@@ -222,7 +222,7 @@ def test_ai_gagal_fallback_tetap_menghormati_override():
         OVERRIDE_TINGGI, jawaban=jawaban_lemah(), ai_response=_gagal()
     )
     assert proyek.bant_score == 80
-    assert proyek.status == "Pending Assignment"
+    assert proyek.status == "Awaiting Assignment"
     assert len(bg.of_type(NotificationLog)) == 1
 
 
@@ -240,7 +240,8 @@ def test_fallback_after_failure_langsung_menghormati_override():
         id_project="PRJ-20250101-ABC123",
         project_name="P",
         customer_name="C",
-        status="Scoring Pending",
+        status="Intake",
+        qualification_state="Scoring",
         qualification_answers=jawaban_lemah(),
         qualification_schema_version=1,
         override_sub_scores=OVERRIDE_TINGGI,
@@ -255,11 +256,11 @@ def test_fallback_after_failure_langsung_menghormati_override():
     asyncio.run(scoring_engine.fallback_after_failure(db, proyek.id_project))
 
     assert proyek.bant_score == 80
-    assert proyek.status == "Pending Assignment"
+    assert proyek.status == "Awaiting Assignment"
 
 
 # ----------------------------------------------------------------------------- koreksi pasca-gate
-@pytest.mark.parametrize("status", ["Pending Assignment", "Assigned"])
+@pytest.mark.parametrize("status", ["Awaiting Assignment", "Assigned"])
 def test_koreksi_pasca_gate_tanpa_rescore_tidak_menyentuh_override(status):
     user = _user("Lead_SA")
     project = _edit_project(status=status)

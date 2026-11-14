@@ -64,7 +64,7 @@ async def test_pending_assignment_hanya_proyek_pending_terbaru_dulu(dunia, api):
     lama = await dunia.buat_proyek(project_name="Lama", bant_score=70)
     baru = await dunia.buat_proyek(project_name="Baru", bant_score=90)
     await dunia.buat_proyek(project_name="Sudah", status="Assigned", assigned_sa=dunia.sa.id)
-    await dunia.buat_proyek(project_name="Butuh Klarifikasi", status="Need Clarification")
+    await dunia.buat_proyek(project_name="Butuh Klarifikasi", status="Intake", qualification_state="Need Clarification")
 
     resp = await api.client.get(PENDING, headers=dunia.h["lead"])
 
@@ -72,7 +72,7 @@ async def test_pending_assignment_hanya_proyek_pending_terbaru_dulu(dunia, api):
     data = resp.json()["data"]
     assert [p["project_name"] for p in data] == ["Baru", "Lama"]
     assert [p["id_project"] for p in data] == [baru.id_project, lama.id_project]
-    assert data[0]["bant_score"] == 90 and data[0]["status"] == "Pending Assignment"
+    assert data[0]["bant_score"] == 90 and data[0]["status"] == "Awaiting Assignment"
     assert "2 proyek" in resp.json()["message"]
 
 
@@ -84,8 +84,8 @@ async def test_pending_assignment_kosong(dunia, api):
 
 async def test_sa_tersedia_menghitung_proyek_aktif_tanpa_status_terminal(dunia, api):
     await dunia.buat_proyek(status="Assigned", assigned_sa=dunia.sa.id)
-    await dunia.buat_proyek(status="Ready", assigned_sa=dunia.sa.id)
-    for terminal in ("Closed-Win", "Handover Complete", "Lost"):
+    await dunia.buat_proyek(status="Submitted", assigned_sa=dunia.sa.id)
+    for terminal in ("Won", "Handed Over", "Lost"):
         await dunia.buat_proyek(status=terminal, assigned_sa=dunia.sa.id)
     await dunia.buat_proyek(status="Assigned", assigned_sa=dunia.sa2.id)
 
@@ -182,7 +182,7 @@ async def test_utilisasi_proyek_tanpa_log_kosong(dunia, api):
 
 async def test_utilisasi_proyek_total_personel_dan_urutan_jam_menurun(dunia, api):
     besar = await dunia.buat_proyek(project_name="Besar", status="Assigned")
-    kecil = await dunia.buat_proyek(project_name="Kecil", status="Ready")
+    kecil = await dunia.buat_proyek(project_name="Kecil", status="Submitted")
     await _catat(dunia, dunia.sa, besar.id_project, "3", _waktu(2026, 1))
     await _catat(dunia, dunia.sa, besar.id_project, "2", _waktu(2026, 2))
     await _catat(dunia, dunia.sa2, besar.id_project, "10", _waktu(2026, 2))

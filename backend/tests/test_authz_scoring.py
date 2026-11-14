@@ -51,7 +51,7 @@ def _make_project(sales_pic=None, assigned_sa=None):
     project.bant_score = 80
     project.bant_detail = {"budget": 20, "authority": 20, "need": 20, "timeline": 20}
     project.use_case_tags = ["etl"]
-    project.status = "Pending Assignment"
+    project.status = "Awaiting Assignment"
     return project
 
 
@@ -87,7 +87,7 @@ BANT_RESULT = BANTResult(
     total_score=80,
     sub_scores=BANTSubScores(budget=20, authority=20, need=20, timeline=20),
     use_case_tags=["etl"],
-    status="Pending Assignment",
+    status="Awaiting Assignment",
     feedback=None,
 )
 
@@ -191,8 +191,9 @@ SCORE_BODY = {
 class TestScoreManualAuthz:
     """POST score-manual (override): hanya Lead_SA/Admin."""
 
-    def _post(self, user, project, role_status="Need Clarification"):
-        project.status = role_status
+    def _post(self, user, project, role_state="Need Clarification"):
+        project.status = "Intake"
+        project.qualification_state = role_state
         mock_session = AsyncMock()
         mock_session.add = MagicMock()
         mock_session.execute = AsyncMock(return_value=_execute_result_scalar(project))

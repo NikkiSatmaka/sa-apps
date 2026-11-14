@@ -1,5 +1,5 @@
 """
-Test seam utama tiket 5A-2 (#28): opportunity dengan file → `Scoring Pending`, skor akhir
+Test seam utama tiket 5A-2 (#28): opportunity dengan file → Intake + `Scoring`, skor akhir
 per kriteria = max(rubrik, AI), fallback ke rubrik bila AI gagal. Lewat HTTP API (TestClient)
 dengan sesi DB dan provider LLM di-mock di boundary.
 
@@ -51,17 +51,17 @@ def _pdf():
 
 
 # --------------------------------------------------------------------------- create dengan file
-def test_create_dengan_file_status_scoring_pending_dan_skor_rubrik_tersimpan():
+def test_create_dengan_file_qualification_state_scoring_dan_skor_rubrik_tersimpan():
     with patch("app.api.projects._trigger_scoring_engine", new=AsyncMock()) as trigger:
         with _api() as (client, session):
             resp = client.post(URL, data=_form(jawaban_lemah(), file_types=["MoM"]), files=[_pdf()])
     assert resp.status_code == 201
     d = resp.json()["data"]
-    assert d["status"] == "Scoring Pending"
+    assert (d["status"], d["qualification_state"]) == ("Intake", "Scoring")
     assert d["scoring_triggered"] is True
     trigger.assert_awaited_once()
     proyek = session.of_type(Project)[0]
-    assert proyek.status == "Scoring Pending"
+    assert (proyek.status, proyek.qualification_state) == ("Intake", "Scoring")
     assert proyek.bant_score == 22
     assert proyek.bant_detail["budget"] == 0
     assert proyek.bant_detail["need"] == 12
@@ -73,7 +73,8 @@ def test_create_dengan_file_status_scoring_pending_dan_skor_rubrik_tersimpan():
 # --------------------------------------------------------------------------- background scoring
 def _jalankan_background(
     *,
-    status_awal="Scoring Pending",
+    status_awal="Intake",
+    state_awal="Scoring",
     jawaban=None,
     ai_response=None,
     ai_lama=None,
@@ -81,7 +82,7 @@ def _jalankan_background(
 ):
     """
     Create dengan file lalu jalankan background scoring. Proyek di DB background dibuat
-    seolah-olah sudah tersimpan oleh create (status `status_awal`, skor rubrik terhitung).
+    seolah-olah sudah tersimpan oleh create (status `status_awal` + `state_awal`, skor rubrik terhitung).
     Return (proyek, sesi_background, provider).
     """
     proyek = Project(
@@ -89,6 +90,7 @@ def _jalankan_background(
         project_name="P",
         customer_name="C",
         status=status_awal,
+        qualification_state=state_awal if status_awal == "Intake" else "Qualified",
         target_submit=date.today() + timedelta(days=30),
         qualification_answers=jawaban,
         qualification_schema_version=1 if jawaban is not None else None,
@@ -145,7 +147,7 @@ def test_skor_akhir_per_kriteria_adalah_max_rubrik_dan_ai_lalu_gate_lolos_dan_le
     proyek, bg, _ = _jalankan_background(
         jawaban=jawaban_lemah(), ai_response=_sukses(budget=25, authority=25, need=5, timeline=5)
     )
-    assert proyek.status == "Pending Assignment"
+    assert (proyek.status, proyek.qualification_state) == ("Awaiting Assignment", "Qualified")
     assert proyek.bant_score == 72
     assert proyek.bant_detail["budget"] == 25
     assert proyek.bant_detail["authority"] == 25
@@ -157,7 +159,7 @@ def test_skor_akhir_per_kriteria_adalah_max_rubrik_dan_ai_lalu_gate_lolos_dan_le
 def test_rubrik_lebih_tinggi_dari_ai_tetap_dipakai():
     proyek, bg, _ = _jalankan_background(jawaban=jawaban_kuat(), ai_response=_sukses())
     assert proyek.bant_score == 100
-    assert proyek.status == "Pending Assignment"
+    assert (proyek.status, proyek.qualification_state) == ("Awaiting Assignment", "Qualified")
     assert len(bg.of_type(NotificationLog)) == 1
 
 
@@ -165,7 +167,7 @@ def test_gabungan_di_bawah_60_need_clarification_dengan_feedback_tanpa_notifikas
     proyek, bg, _ = _jalankan_background(
         jawaban=jawaban_lemah(), ai_response=_sukses(budget=5, authority=5)
     )
-    assert proyek.status == "Need Clarification"
+    assert (proyek.status, proyek.qualification_state) == ("Intake", "Need Clarification")
     assert proyek.bant_score == 5 + 5 + 12 + 10
     assert bg.of_type(NotificationLog) == []
 
@@ -185,26 +187,28 @@ def test_hasil_ai_tersimpan_terpisah_dari_skor_rubrik_dan_gabungan():
 def test_ai_gagal_semua_retry_gate_memakai_skor_rubrik_lolos():
     proyek, bg, provider = _jalankan_background(jawaban=jawaban_kuat(), ai_response=_gagal())
     assert provider.parse_document.await_count == 3  # semua retry terpakai
-    assert proyek.status == "Pending Assignment"
+    assert (proyek.status, proyek.qualification_state) == ("Awaiting Assignment", "Qualified")
     assert proyek.bant_score == 100
     assert len(bg.of_type(NotificationLog)) == 1
 
 
 def test_ai_gagal_semua_retry_gate_memakai_skor_rubrik_tidak_lolos_tidak_menggantung():
     proyek, bg, _ = _jalankan_background(jawaban=jawaban_lemah(), ai_response=_gagal())
-    assert proyek.status == "Need Clarification"  # bukan Scoring Pending / Manual Review
+    # bukan qualification_state Scoring / Manual Review
+    assert (proyek.status, proyek.qualification_state) == ("Intake", "Need Clarification")
     assert proyek.bant_score == 22
     assert proyek.ai_scoring_result is None
     assert bg.of_type(NotificationLog) == []
 
 
-def test_ai_gagal_dan_rubrik_tidak_dapat_dihitung_manual_review_required():
+def test_ai_gagal_dan_rubrik_tidak_dapat_dihitung_manual_review():
     # Proyek legacy tanpa jawaban kuesioner: rubrik tidak bisa dihitung
     proyek = Project(
         id_project="PRJ-20250101-LEG001",
         project_name="P",
         customer_name="C",
-        status="Scoring Pending",
+        status="Intake",
+        qualification_state="Scoring",
         qualification_answers=None,
         sales_pic=uuid.uuid4(),
     )
@@ -232,14 +236,15 @@ def test_ai_gagal_dan_rubrik_tidak_dapat_dihitung_manual_review_required():
                 proyek.id_project, [(b"%PDF-1.4", "application/pdf", "mom.pdf")], bg
             )
         )
-    assert proyek.status == "Manual Review Required"
+    assert (proyek.status, proyek.qualification_state) == ("Intake", "Manual Review")
 
 
 def test_exception_tak_terduga_di_luar_retry_llm_jatuh_ke_rubrik_lolos():
     proyek, bg, _ = _jalankan_background(
         jawaban=jawaban_kuat(), provider_error=RuntimeError("DB/tak terduga")
     )
-    assert proyek.status == "Pending Assignment"  # tidak menggantung di Scoring Pending
+    # tidak menggantung di qualification_state Scoring
+    assert (proyek.status, proyek.qualification_state) == ("Awaiting Assignment", "Qualified")
     assert proyek.bant_score == 100
     assert len(bg.of_type(NotificationLog)) == 1
 
@@ -248,7 +253,7 @@ def test_exception_tak_terduga_jatuh_ke_rubrik_tidak_lolos():
     proyek, bg, _ = _jalankan_background(
         jawaban=jawaban_lemah(), provider_error=RuntimeError("DB/tak terduga")
     )
-    assert proyek.status == "Need Clarification"
+    assert (proyek.status, proyek.qualification_state) == ("Intake", "Need Clarification")
     assert proyek.bant_score == 22
     assert bg.of_type(NotificationLog) == []
 
@@ -261,7 +266,7 @@ def test_exception_tak_terduga_tidak_menimpa_status_assigned():
     assert bg.of_type(NotificationLog) == []
 
 
-@pytest.mark.parametrize("status", ["Assigned", "Ready", "Closed-Win"])
+@pytest.mark.parametrize("status", ["Assigned", "Submitted", "Won"])
 def test_hasil_ai_terlambat_tidak_menimpa_assigned_dan_sesudahnya(status):
     ai_lama = {"sub_scores": {"budget": 1, "authority": 1, "need": 1, "timeline": 1}}
     proyek, bg, _ = _jalankan_background(

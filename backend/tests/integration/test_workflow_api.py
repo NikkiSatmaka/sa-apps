@@ -1,6 +1,7 @@
 """
 Integrasi `api/workflow` terhadap Postgres nyata (tiket B6, #59, spec #49): transisi status proyek
-(forward, Lost, terminal, akses per peran), audit log, dan notifikasi wajib HLD saat Won.
+(rangkaian, Lost, terminal, audit; matriks transisi x peran ada di
+`test_workflow_transisi.py`) dan notifikasi wajib HLD saat Won.
 Pasangan unit: `tests/test_dokumen_workflow_handover_unit.py`.
 """
 
@@ -13,6 +14,7 @@ from app.models import AuditLog, Project
 from app.services.notification_service import notification_service
 from tests.integration.b6_support import (  # noqa: F401
     API,
+    buat_dokumen,
     buat_proyek,
     komit_sesi_request,
     muat,
@@ -25,8 +27,8 @@ pytestmark = pytest.mark.usefixtures("komit_sesi_request")
 
 # `Handed Over` TIDAK dapat dicapai lewat endpoint ini (issue #76): hanya `POST /handover`
 # yang memeriksa prasyarat (HLD Final, email PMO/Delivery, folder Drive). Lihat test khusus di bawah.
+# `Assigned` hanya lewat penugasan SA; `Submitted` butuh PropTek/BOQ/Mandays minimal Reviewed.
 FORWARD = [
-    ("Awaiting Assignment", "Assigned"),
     ("Assigned", "Submitted"),
     ("Submitted", "Won"),
 ]
@@ -74,23 +76,6 @@ async def _audit(db, id_project) -> list[AuditLog]:
 
 
 @pytest.mark.parametrize("peran", ["Sales", "SA", "Lead_SA", "Admin"])
-@pytest.mark.parametrize(("awal", "akhir"), FORWARD)
-async def test_transisi_forward_diizinkan_untuk_pemilik_proyek_dan_privileged(
-    api, db_session, peran, awal, akhir
-):
-    """Sales = PIC proyek, SA = SA yang ditugaskan, Lead_SA/Admin = semua proyek."""
-    dunia = await siapkan_dunia(api, db_session)
-    proyek = await buat_proyek(db_session, dunia, status=awal)
-
-    resp = await _ubah(api, proyek.id_project, akhir, dunia.header[peran])
-
-    assert resp.status_code == 200, resp.text
-    data = resp.json()["data"]
-    assert (data["old_status"], data["new_status"]) == (awal, akhir)
-    assert await _status(db_session, proyek.id_project) == akhir
-
-
-@pytest.mark.parametrize("peran", ["Sales", "SA", "Lead_SA", "Admin"])
 async def test_patch_ke_handover_complete_ditolak_dan_diarahkan_ke_endpoint_handover(
     api, db_session, fake_drive, fake_gmail, peran
 ):
@@ -111,6 +96,8 @@ async def test_patch_ke_handover_complete_ditolak_dan_diarahkan_ke_endpoint_hand
 async def test_transisi_mencatat_audit_log_dengan_nilai_lama_dan_baru(api, db_session):
     dunia = await siapkan_dunia(api, db_session)
     proyek = await buat_proyek(db_session, dunia, status="Assigned")
+    for tipe in ("PropTek", "BOQ", "Mandays"):
+        await buat_dokumen(db_session, proyek, dunia, doc_type=tipe, status="Reviewed")
 
     resp = await _ubah(api, proyek.id_project, "Submitted", dunia.header["Lead_SA"])
 
@@ -131,7 +118,9 @@ async def test_rangkaian_forward_penuh_sampai_won_dengan_satu_audit_per_langkah(
     api, db_session
 ):
     dunia = await siapkan_dunia(api, db_session)
-    proyek = await buat_proyek(db_session, dunia, status="Awaiting Assignment")
+    proyek = await buat_proyek(db_session, dunia, status="Assigned")
+    for tipe in ("PropTek", "BOQ", "Mandays"):
+        await buat_dokumen(db_session, proyek, dunia, doc_type=tipe, status="Reviewed")
 
     for _, tujuan in FORWARD:
         resp = await _ubah(api, proyek.id_project, tujuan, dunia.header["Lead_SA"])
@@ -176,7 +165,7 @@ async def test_transisi_tidak_valid_400_status_tetap_dan_tanpa_audit(api, db_ses
 
 
 @pytest.mark.parametrize("peran", ["Sales", "SA", "Lead_SA", "Admin"])
-@pytest.mark.parametrize("terminal", ["Lost", "Handed Over"])
+@pytest.mark.parametrize("terminal", ["Lost", "Closed"])
 async def test_status_terminal_tidak_bisa_diubah_siapa_pun(api, db_session, peran, terminal):
     dunia = await siapkan_dunia(api, db_session)
     proyek = await buat_proyek(db_session, dunia, status=terminal)
@@ -191,7 +180,7 @@ async def test_status_terminal_tidak_bisa_diubah_siapa_pun(api, db_session, pera
 
 async def test_pesan_transisi_tidak_valid_menyebut_status_terminal(api, db_session):
     dunia = await siapkan_dunia(api, db_session)
-    proyek = await buat_proyek(db_session, dunia, status="Handed Over")
+    proyek = await buat_proyek(db_session, dunia, status="Closed")
 
     resp = await _ubah(api, proyek.id_project, "Submitted", dunia.header["Lead_SA"])
 
@@ -333,7 +322,9 @@ async def test_notifikasi_hld_tidak_terkirim_lagi_pada_transisi_berikutnya_yang_
     assert len(await notifikasi(db_session, reference_id=proyek.id_project)) == 1
 
 
-@pytest.mark.parametrize(("awal", "akhir"), [f for f in FORWARD if f[1] != "Won"])
+@pytest.mark.parametrize(
+    ("awal", "akhir"), [("Submitted", "In Progress"), ("Handed Over", "Closed")]
+)
 async def test_transisi_selain_won_tidak_mengirim_notifikasi_hld(
     api, db_session, awal, akhir
 ):

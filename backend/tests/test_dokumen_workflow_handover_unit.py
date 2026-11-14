@@ -54,48 +54,73 @@ def _db(*hasil):
 # ------------------------------ state machine proyek
 
 
-@given(st.sampled_from(SEMUA_STATUS), st.booleans())
-def test_status_berikutnya_selalu_valid_dan_lost_hanya_privileged_non_terminal(status, privileged):
-    berikut = workflow._get_valid_next_statuses(status, privileged)
+@given(st.sampled_from(SEMUA_STATUS))
+def test_status_berikutnya_unik_valid_dan_tidak_pernah_ke_diri_sendiri(status):
+    berikut = workflow.status_berikutnya(status)
 
     assert len(berikut) == len(set(berikut))
     assert set(berikut) <= set(SEMUA_STATUS)
-    boleh_lost = privileged and status not in ("Handed Over", "Lost")
-    assert ("Lost" in berikut) == boleh_lost
-    forward = workflow.VALID_FORWARD_TRANSITIONS.get(status)
-    assert (forward in berikut) == (forward is not None)
-    # Tidak pernah ada transisi mundur atau ke status yang sama.
     assert status not in berikut
 
 
-@given(st.sampled_from(SEMUA_STATUS), st.text(max_size=30), st.booleans())
-def test_transisi_valid_ekuivalen_dengan_keanggotaan_daftar_berikutnya(status, tujuan, privileged):
-    assert workflow._is_valid_transition(status, tujuan, privileged) == (
-        tujuan in workflow._get_valid_next_statuses(status, privileged)
+@given(st.sampled_from(SEMUA_STATUS))
+def test_lost_tersedia_dari_status_mana_pun_sebelum_handed_over(status):
+    sebelum_handed_over = status not in ("Handed Over", "Closed", "Lost")
+
+    assert ("Lost" in workflow.status_berikutnya(status)) == sebelum_handed_over
+
+
+@given(st.sampled_from(SEMUA_STATUS), st.text(max_size=30))
+def test_transisi_valid_ekuivalen_dengan_keanggotaan_daftar_berikutnya(status, tujuan):
+    assert workflow.transisi_valid(status, tujuan) == (
+        tujuan in workflow.status_berikutnya(status)
     )
 
 
-@pytest.mark.parametrize("terminal", ["Lost", "Handed Over"])
-@pytest.mark.parametrize("privileged", [True, False])
-def test_status_terminal_tanpa_lost(terminal, privileged):
-    assert "Lost" not in workflow._get_valid_next_statuses(terminal, privileged)
+@pytest.mark.parametrize("terminal", ["Lost", "Closed"])
+def test_status_terminal_tidak_punya_tujuan(terminal):
+    assert workflow.status_berikutnya(terminal) == []
 
 
-def test_rantai_forward_linear_tanpa_siklus_dan_berakhir_di_won():
-    """`Won` → `Handed Over` hanya lewat POST /handover (issue #76), bukan state machine ini."""
-    status, terlihat = "Awaiting Assignment", []
-    while status in workflow.VALID_FORWARD_TRANSITIONS:
-        terlihat.append(status)
-        status = workflow.VALID_FORWARD_TRANSITIONS[status]
-    assert status == "Won"
-    assert len(terlihat) == len(set(terlihat)) == 3
+def test_tabel_transisi_sesuai_spec_2_0():
+    """Tabel tujuan per status lewat PATCH /status (spec §2.0). `Intake` → `Awaiting
+    Assignment` (sistem), `Awaiting Assignment` → `Assigned` (penugasan), `Assigned` → `In
+    Progress` (otomatis), `Won` → `Handed Over` (handover) dan jeda/buka kembali (#122) TIDAK
+    ada di sini."""
+    assert {s: sorted(workflow.status_berikutnya(s)) for s in SEMUA_STATUS} == {
+        "Intake": ["Lost"],
+        "Awaiting Assignment": ["Lost"],
+        "Assigned": ["Lost", "Submitted"],
+        "In Progress": ["Lost", "Submitted"],
+        "Submitted": ["In Progress", "Lost", "Won"],
+        "Won": ["Lost"],
+        "Handed Over": ["Closed"],
+        "Closed": [],
+        "Lost": [],
+        "On Hold": ["Lost"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("awal", "tujuan", "endpoint"),
+    [("Won", "Handed Over", "/handover"), ("Awaiting Assignment", "Assigned", "/assign")],
+)
+def test_transisi_lewat_endpoint_khusus_bukan_transisi_patch(awal, tujuan, endpoint):
+    assert workflow.transisi_valid(awal, tujuan) is False
+    assert endpoint in workflow.TRANSISI_VIA_ENDPOINT[(awal, tujuan)]
 
 
 @pytest.mark.parametrize("status", SEMUA_STATUS)
-@pytest.mark.parametrize("privileged", [True, False])
-def test_handover_complete_tidak_pernah_menjadi_tujuan_valid_patch_status(status, privileged):
-    assert "Handed Over" not in workflow._get_valid_next_statuses(status, privileged)
-    assert workflow._is_valid_transition(status, "Handed Over", privileged) is False
+def test_handed_over_dan_on_hold_tidak_pernah_menjadi_tujuan_valid_patch_status(status):
+    assert "Handed Over" not in workflow.status_berikutnya(status)
+    assert "On Hold" not in workflow.status_berikutnya(status)  # jeda: #122
+
+
+def test_hak_per_transisi_mencakup_setiap_tujuan_valid():
+    """Setiap pasangan valid punya tingkat akses; tidak ada transisi tanpa aturan hak."""
+    for awal in SEMUA_STATUS:
+        for tujuan in workflow.status_berikutnya(awal):
+            assert workflow.hak_transisi(awal, tujuan) is not None
 
 
 def test_id_audit_berformat_tanggal_dan_acak_enam_karakter():

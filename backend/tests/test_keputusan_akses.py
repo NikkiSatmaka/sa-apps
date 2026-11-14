@@ -75,6 +75,13 @@ MATRIKS = {
     TingkatAkses.HAPUS_KOLABORATOR: {"privileged", "sales_pic", "sa_ditugaskan"},
     # Ubah status proyek (workflow): Sales PIC & SA ditugaskan (cocok id DAN peran)
     TingkatAkses.UBAH_STATUS: {"privileged", "sales_pic", "sa_ditugaskan"},
+    # Hak per transisi status (#121, ADR 0013), di atas gerbang UBAH_STATUS:
+    # Submitted / revisi (Submitted -> In Progress): SA ditugaskan, Lead_SA, Admin
+    TingkatAkses.UBAH_STATUS_SA: {"privileged", "sa_ditugaskan"},
+    # Won: Sales/Product PIC, Lead_SA, Admin
+    TingkatAkses.UBAH_STATUS_PIC: {"privileged", "sales_pic"},
+    # Lost dan Closed: hanya Lead_SA/Admin
+    TingkatAkses.UBAH_STATUS_LEAD: {"privileged"},
     # Handover: Sales PIC ditolak
     TingkatAkses.HANDOVER: {"privileged", "sa_ditugaskan"},
     # Requirement: Sales PIC dan collaborator read-only
@@ -328,6 +335,13 @@ async def test_ensure_pesan_khusus_menggantikan_pesan_generik_status_tetap_403()
 def test_product_pic_diperlakukan_sama_dengan_sales_pic_di_semua_tingkat(tingkat):
     """ADR 0012: Product memakai tingkat izin yang sama dengan Sales (hanya beda tim)."""
     assert izinkan(PRODUCT_PIC, tingkat) == izinkan(SALES_PIC, tingkat)
+
+
+@pytest.mark.parametrize("tingkat", [TingkatAkses.UBAH_STATUS_SA, TingkatAkses.UBAH_STATUS_PIC])
+def test_hak_transisi_mencocokkan_id_dan_peran(tingkat):
+    """SA ditugaskan harus berperan SA; PIC harus berperan Sales/Product (bukan peran lain)."""
+    assert izinkan(HubunganProyek(sa_ditugaskan=True, peran="Sales"), tingkat) is False
+    assert izinkan(HubunganProyek(sales_pic=True, peran="SA"), tingkat) is False
 
 
 @pytest.mark.parametrize("tingkat", [TingkatAkses.UBAH_STATUS, TingkatAkses.EDIT_KUESIONER])

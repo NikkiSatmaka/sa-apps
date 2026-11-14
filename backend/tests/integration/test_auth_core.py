@@ -83,6 +83,9 @@ async def test_login_demo_admin_membuat_identitas_lead_admin_terpisah(api):
     assert klaim_lead["is_admin"] is True
     assert klaim_admin["is_admin"] is True
     assert klaim_lead["sub"] != klaim_admin["sub"]
+    me = await api.client.get(f"{AUTH}/me", headers=admin)
+    assert me.status_code == 200
+    assert me.json()["id"] == klaim_admin["sub"]
 
 
 async def test_demo_login_diblok_di_produksi_dan_tidak_menulis_ke_db(api, db_session, monkeypatch):

@@ -13,6 +13,7 @@ import { ReassignModal } from "@/components/ReassignModal";
 import { PeopleSection } from "@/components/PeopleSection";
 import { CollaboratorSection } from "@/components/CollaboratorSection";
 import { SubtaskSection } from "@/components/SubtaskSection";
+import { ProjectComments } from "@/components/ProjectComments";
 import { TimSASection } from "@/components/TimSASection";
 import { QualificationSection } from "@/components/QualificationSection";
 import type { QualificationView } from "@/lib/qualification";
@@ -341,6 +342,12 @@ export default function ProjectDetailPage() {
 
           {/* Section: Subtask — work item assignable per proyek */}
           <SubtaskSection projectId={projectId} />
+
+          {/* Section: Komentar — thread project, terpisah dari Project Story (#125) */}
+          <ProjectComments
+            projectId={projectId}
+            readOnly={project.status === "Closed" || project.status === "Lost"}
+          />
 
           {/* Section: Kolaborator */}
           <CollaboratorSection

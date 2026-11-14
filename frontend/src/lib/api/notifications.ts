@@ -22,7 +22,8 @@ export type NotificationEventType =
   | "sla_reminder"
   | "sla_escalation"
   | "handover"
-  | "doc_ready";
+  | "doc_ready"
+  | "komentar";
 
 /** Tipe data notifikasi dari backend */
 export interface Notification {

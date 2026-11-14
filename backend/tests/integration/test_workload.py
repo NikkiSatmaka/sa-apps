@@ -15,7 +15,7 @@ import pytest
 from app.models.project_assignment import ProjectAssignment
 from app.services import workload
 from tests.integration.conftest import patch_session_factory
-from tests.integration.model_helpers import bangun_log, bangun_subtask
+from tests.integration.model_helpers import bangun_audit, bangun_log, bangun_subtask
 from tests.integration.support_assignment import bangun_dunia
 
 BASE = "/api/v1/workload"
@@ -47,7 +47,7 @@ async def _tambahan(dunia, id_project: str, user):
     )
 
 
-BAGIAN = ["beban", "jatuh-tempo"]
+BAGIAN = ["beban", "jatuh-tempo", "macet"]
 
 
 # --- akses ---
@@ -326,3 +326,124 @@ async def test_jatuh_tempo_project_target_submit(dunia, api):
     assert telat["status"] == "In Progress"
     assert telat["customer_name"] == "CustX"
     assert telat["target_submit"] == (hari_ini - timedelta(days=2)).isoformat()
+
+
+# --- (3) macet ---
+
+
+def _audit_status(dunia, id_project: str, status: str, umur: timedelta, **o):
+    return bangun_audit(
+        dunia.lead.id,
+        entity_id=id_project,
+        action=o.pop("action", "status_change"),
+        new_value={"status": status},
+        created_at=datetime.now(UTC) - umur,
+        **o,
+    )
+
+
+def _macet(resp) -> dict:
+    assert resp.status_code == 200, resp.text
+    return resp.json()["data"]
+
+
+async def test_macet_memakai_audit_status_terakhir_yang_cocok(dunia, api):
+    p = await dunia.buat_proyek(status="In Progress", assigned_sa=dunia.sa.id, project_name="Lama")
+    await _simpan(
+        dunia,
+        _audit_status(dunia, p.id_project, "Assigned", timedelta(days=40)),
+        _audit_status(dunia, p.id_project, "In Progress", timedelta(days=15)),
+        # aksi lain yang memuat status yang sama bukan perpindahan status
+        _audit_status(dunia, p.id_project, "In Progress", timedelta(days=1), action="people_change"),
+    )
+
+    data = _macet(await _get(api, dunia, "macet"))
+
+    assert [i["project_name"] for i in data["items"]] == ["Lama"]
+    item = data["items"][0]
+    assert item["id_project"] == p.id_project
+    assert item["status"] == "In Progress"
+    assert item["hari_di_status"] == 15
+    assert item["ambang_hari"] == 14
+    assert item["sumber"] == "audit"
+    assert item["customer_name"] == p.customer_name
+
+
+async def test_macet_audit_lama_status_lain_diabaikan_bila_baru_pindah(dunia, api):
+    p = await dunia.buat_proyek(status="In Progress", assigned_sa=dunia.sa.id)
+    await _simpan(
+        dunia,
+        _audit_status(dunia, p.id_project, "Assigned", timedelta(days=40)),
+        _audit_status(dunia, p.id_project, "In Progress", timedelta(days=2)),
+    )
+
+    data = _macet(await _get(api, dunia, "macet"))
+
+    assert data["items"] == []
+
+
+async def test_macet_tanpa_audit_memakai_updated_at(dunia, api):
+    p = await dunia.buat_proyek(
+        status="Awaiting Assignment", updated_at=datetime.now(UTC) - timedelta(days=5)
+    )
+
+    data = _macet(await _get(api, dunia, "macet"))
+
+    item = data["items"][0]
+    assert item["id_project"] == p.id_project
+    assert item["sumber"] == "updated_at"
+    assert item["hari_di_status"] == 5
+    assert item["ambang_hari"] == 2
+
+
+@pytest.mark.parametrize(
+    ("status", "ambang"),
+    [
+        ("Intake", 3),
+        ("Awaiting Assignment", 2),
+        ("Assigned", 3),
+        ("In Progress", 14),
+        ("Submitted", 14),
+        ("Won", 7),
+        ("Handed Over", 14),
+    ],
+)
+async def test_macet_ambang_per_status(dunia, api, status, ambang):
+    pas = await dunia.buat_proyek(
+        status=status, updated_at=datetime.now(UTC) - timedelta(days=ambang, minutes=1)
+    )
+    kurang = await dunia.buat_proyek(
+        status=status, updated_at=datetime.now(UTC) - timedelta(days=ambang, minutes=-5)
+    )
+
+    data = _macet(await _get(api, dunia, "macet"))
+
+    assert [i["id_project"] for i in data["items"]] == [pas.id_project]
+    assert kurang.id_project not in [i["id_project"] for i in data["items"]]
+    assert data["ambang_hari"][status] == ambang
+
+
+async def test_macet_tak_aktif_dan_soft_deleted_dikecualikan(dunia, api):
+    lama = datetime.now(UTC) - timedelta(days=365)
+    for st in ("On Hold", "Closed", "Lost"):
+        await dunia.buat_proyek(status=st, updated_at=lama)
+    await dunia.buat_proyek(
+        status="In Progress", updated_at=lama, deleted_at=datetime.now(UTC), deleted_by=dunia.lead.id
+    )
+
+    data = _macet(await _get(api, dunia, "macet"))
+
+    assert data["items"] == []
+    for st in ("On Hold", "Closed", "Lost"):
+        assert st not in data["ambang_hari"]
+
+
+async def test_macet_diurutkan_terlama_dulu(dunia, api):
+    sekarang = datetime.now(UTC)
+    a = await dunia.buat_proyek(status="Assigned", updated_at=sekarang - timedelta(days=4))
+    b = await dunia.buat_proyek(status="Assigned", updated_at=sekarang - timedelta(days=9))
+    c = await dunia.buat_proyek(status="In Progress", updated_at=sekarang - timedelta(days=20))
+
+    data = _macet(await _get(api, dunia, "macet"))
+
+    assert [i["id_project"] for i in data["items"]] == [c.id_project, b.id_project, a.id_project]

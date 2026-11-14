@@ -9,7 +9,13 @@ from scripts.seed_demo_data import DEMO_USERS, get_or_create_project
 
 
 def test_seed_menyediakan_dua_user_untuk_setiap_persona_fungsional():
-    jumlah = {role: sum(user["role"] == role and user.get("is_admin", False) is False for user in DEMO_USERS) for role in ("Sales", "Product", "SA", "Lead_SA")}
+    jumlah = {
+        role: sum(
+            user["role"] == role and user.get("is_admin", False) is False
+            for user in DEMO_USERS
+        )
+        for role in ("Sales", "Product", "SA", "Lead_SA")
+    }
     jumlah["Admin"] = sum(user.get("is_admin", False) for user in DEMO_USERS)
     assert jumlah == {"Sales": 2, "Product": 2, "SA": 2, "Lead_SA": 2, "Admin": 2}
 

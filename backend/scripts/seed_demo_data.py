@@ -69,23 +69,38 @@ DEMO_USERS = [
         "role": "Sales",
         "google_id": "demo-google-id-sales",
     },
-    {"email": "demo-sales2@portal-sa.local", "name": "Demo Sales 2", "role": "Sales", "google_id": "demo-google-id-sales-2"},
-    {"email": "demo-product@portal-sa.local", "name": "Demo Product", "role": "Product", "google_id": "demo-google-id-product"},
-    {"email": "demo-product2@portal-sa.local", "name": "Demo Product 2", "role": "Product", "google_id": "demo-google-id-product-2"},
+    {
+        "email": "demo-sales2@portal-sa.local", "name": "Demo Sales 2",
+        "role": "Sales", "google_id": "demo-google-id-sales-2",
+    },
+    {
+        "email": "demo-product@portal-sa.local", "name": "Demo Product",
+        "role": "Product", "google_id": "demo-google-id-product",
+    },
+    {
+        "email": "demo-product2@portal-sa.local", "name": "Demo Product 2",
+        "role": "Product", "google_id": "demo-google-id-product-2",
+    },
     {
         "email": "demo-sa@portal-sa.local",
         "name": "Demo SA",
         "role": "SA",
         "google_id": "demo-google-id-sa",
     },
-    {"email": "demo-sa2@portal-sa.local", "name": "Demo SA 2", "role": "SA", "google_id": "demo-google-id-sa-2"},
+    {
+        "email": "demo-sa2@portal-sa.local", "name": "Demo SA 2",
+        "role": "SA", "google_id": "demo-google-id-sa-2",
+    },
     {
         "email": "demo-lead@portal-sa.local",
         "name": "Demo Lead SA",
         "role": "Lead_SA",
         "google_id": "demo-google-id-lead-sa",
     },
-    {"email": "demo-lead2@portal-sa.local", "name": "Demo Lead SA 2", "role": "Lead_SA", "google_id": "demo-google-id-lead-sa-2"},
+    {
+        "email": "demo-lead2@portal-sa.local", "name": "Demo Lead SA 2",
+        "role": "Lead_SA", "google_id": "demo-google-id-lead-sa-2",
+    },
     {
         "email": "demo-admin@portal-sa.local",
         "name": "Demo Admin",
@@ -93,7 +108,10 @@ DEMO_USERS = [
         "is_admin": True,
         "google_id": "demo-google-id-admin",
     },
-    {"email": "demo-admin2@portal-sa.local", "name": "Demo Admin 2", "role": "SA", "is_admin": True, "google_id": "demo-google-id-admin-2"},
+    {
+        "email": "demo-admin2@portal-sa.local", "name": "Demo Admin 2",
+        "role": "SA", "is_admin": True, "google_id": "demo-google-id-admin-2",
+    },
 ]
 
 

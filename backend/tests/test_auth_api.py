@@ -165,7 +165,9 @@ class TestDemoLogin:
         monkeypatch.setattr(settings, "DEMO_MODE", True)
         assert klien().post(f"{P}/demo-login", json={"role": "Root"}).status_code == 422
 
-    def test_persona_allowlisted_memilih_akun_tambahan_dengan_role_yang_sama(self, klien, monkeypatch):
+    def test_persona_allowlisted_memilih_akun_tambahan_dengan_role_yang_sama(
+        self, klien, monkeypatch
+    ):
         monkeypatch.setattr(settings, "DEMO_MODE", True)
         db = SesiPalsu(None)
         resp = klien(db).post(f"{P}/demo-login", json={"role": "Product", "persona": "Product 2"})

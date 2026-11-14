@@ -116,15 +116,30 @@ DEMO_USERS = {
 # Selector persona publik sengaja allowlisted; email/user arbitrer tidak diterima.
 DEMO_PERSONAS = {
     "Sales": {"role": "Sales", **DEMO_USERS["Sales"]},
-    "Sales 2": {"role": "Sales", "email": "demo-sales2@portal-sa.local", "name": "Demo Sales 2", "google_id": "demo-google-id-sales-2"},
+    "Sales 2": {
+        "role": "Sales", "email": "demo-sales2@portal-sa.local",
+        "name": "Demo Sales 2", "google_id": "demo-google-id-sales-2",
+    },
     "Product": {"role": "Product", **DEMO_USERS["Product"]},
-    "Product 2": {"role": "Product", "email": "demo-product2@portal-sa.local", "name": "Demo Product 2", "google_id": "demo-google-id-product-2"},
+    "Product 2": {
+        "role": "Product", "email": "demo-product2@portal-sa.local",
+        "name": "Demo Product 2", "google_id": "demo-google-id-product-2",
+    },
     "SA": {"role": "SA", **DEMO_USERS["SA"]},
-    "SA 2": {"role": "SA", "email": "demo-sa2@portal-sa.local", "name": "Demo SA 2", "google_id": "demo-google-id-sa-2"},
+    "SA 2": {
+        "role": "SA", "email": "demo-sa2@portal-sa.local",
+        "name": "Demo SA 2", "google_id": "demo-google-id-sa-2",
+    },
     "Lead_SA": {"role": "Lead_SA", **DEMO_USERS["Lead_SA"]},
-    "Lead_SA 2": {"role": "Lead_SA", "email": "demo-lead2@portal-sa.local", "name": "Demo Lead SA 2", "google_id": "demo-google-id-lead-sa-2"},
+    "Lead_SA 2": {
+        "role": "Lead_SA", "email": "demo-lead2@portal-sa.local",
+        "name": "Demo Lead SA 2", "google_id": "demo-google-id-lead-sa-2",
+    },
     "Admin": {"role": "Admin", **DEMO_USERS["Admin"]},
-    "Admin 2": {"role": "Admin", "email": "demo-admin2@portal-sa.local", "name": "Demo Admin 2", "google_id": "demo-google-id-admin-2", "role": "SA", "is_admin": True},
+    "Admin 2": {
+        "email": "demo-admin2@portal-sa.local", "name": "Demo Admin 2",
+        "google_id": "demo-google-id-admin-2", "role": "SA", "is_admin": True,
+    },
 }
 
 

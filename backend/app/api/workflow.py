@@ -27,6 +27,7 @@ from app.core.database import get_db
 from app.core.dependencies import (
     PERAN_REQUESTER,
     TingkatAkses,
+    adalah_admin,
     ensure_project_access,
     get_current_user,
 )
@@ -37,6 +38,7 @@ from app.models.project import Project
 from app.models.user import User
 from app.schemas.response import error_response, success_response
 from app.schemas.workflow import StatusTransitionResponse, StatusUpdateRequest, AuditLogEntry
+from app.services.sla_timer import sla_timer
 from app.services.notification_service import (
     NotificationEvent,
     NotificationEventType,
@@ -56,9 +58,10 @@ router = APIRouter(tags=["Workflow"])
 # - `Intake` → `Awaiting Assignment`: otomatis oleh sistem saat gate BANT lolos.
 # - `Awaiting Assignment` → `Assigned`: penugasan SA (POST /projects/{id}/assign).
 # - `Assigned` → `In Progress`: otomatis dari activity log/subtask pertama (#122).
+# - Lanjut dari `On Hold` dan buka kembali `Closed`/`Lost`: bukan baris tabel karena tujuannya
+#   dinamis (selalu `previous_status`); ditangani cabang `_STATUS_KEMBALI` di endpoint (#122).
 # - `Won` → `Handed Over`: hanya POST /projects/{id}/handover (issue #76: memeriksa HLD Final,
 #   email PMO/Delivery, folder Drive).
-# - `On Hold`, lanjut, dan buka kembali `Closed`/`Lost`: #122.
 _SEBELUM_HANDED_OVER = (
     status_konst.INTAKE,
     status_konst.AWAITING_ASSIGNMENT,
@@ -69,12 +72,31 @@ _SEBELUM_HANDED_OVER = (
     status_konst.ON_HOLD,
 )
 
+# Status yang bisa dijeda (`On Hold`): dari `Awaiting Assignment` sampai `Submitted` (ADR 0013).
+_BOLEH_DIJEDA = (
+    status_konst.AWAITING_ASSIGNMENT,
+    status_konst.ASSIGNED,
+    status_konst.IN_PROGRESS,
+    status_konst.SUBMITTED,
+)
+
+# Status yang keluar HANYA ke `previous_status` (lanjut dari jeda, buka kembali) dan hak per
+# status asal. Lanjut: Lead_SA/Admin/Sales/Product PIC. Buka kembali: hanya `is_admin`
+# (diperiksa terpisah di endpoint karena Lead_SA ikut "privileged" di `TingkatAkses`).
+_STATUS_KEMBALI: dict[str, TingkatAkses] = {
+    status_konst.ON_HOLD: TingkatAkses.UBAH_STATUS_PIC,
+    status_konst.CLOSED: TingkatAkses.UBAH_STATUS_LEAD,
+    status_konst.LOST: TingkatAkses.UBAH_STATUS_LEAD,
+}
+
 TRANSISI_HAK: dict[tuple[str, str], TingkatAkses] = {
     (status_konst.ASSIGNED, status_konst.SUBMITTED): TingkatAkses.UBAH_STATUS_SA,
     (status_konst.IN_PROGRESS, status_konst.SUBMITTED): TingkatAkses.UBAH_STATUS_SA,
     (status_konst.SUBMITTED, status_konst.IN_PROGRESS): TingkatAkses.UBAH_STATUS_SA,
     (status_konst.SUBMITTED, status_konst.WON): TingkatAkses.UBAH_STATUS_PIC,
     (status_konst.HANDED_OVER, status_konst.CLOSED): TingkatAkses.UBAH_STATUS_LEAD,
+    # On Hold: jeda; timer SLA berhenti. Lanjut ke `previous_status` lewat `_STATUS_KEMBALI`.
+    **{(dari, status_konst.ON_HOLD): TingkatAkses.UBAH_STATUS_PIC for dari in _BOLEH_DIJEDA},
     # Lost: dari status mana pun sebelum Handed Over; alasan wajib.
     **{(dari, status_konst.LOST): TingkatAkses.UBAH_STATUS_LEAD for dari in _SEBELUM_HANDED_OVER},
 }
@@ -90,9 +112,15 @@ DOKUMEN_WAJIB_SUBMITTED = ("PropTek", "BOQ", "Mandays")
 STATUS_DOKUMEN_MINIMAL_REVIEWED = ("Reviewed", "Final")
 
 
-def status_berikutnya(status_sekarang: str) -> list[str]:
-    """Tujuan yang valid lewat PATCH /status dari `status_sekarang` (tanpa memandang peran)."""
-    return [ke for (dari, ke) in TRANSISI_HAK if dari == status_sekarang]
+def status_berikutnya(status_sekarang: str, previous_status: str | None = None) -> list[str]:
+    """Tujuan yang valid lewat PATCH /status dari `status_sekarang` (tanpa memandang peran).
+
+    Dari `On Hold`/`Closed`/`Lost` ditambah `previous_status` (tujuan dinamis) bila ada.
+    """
+    tujuan = [ke for (dari, ke) in TRANSISI_HAK if dari == status_sekarang]
+    if status_sekarang in _STATUS_KEMBALI and previous_status:
+        tujuan.insert(0, previous_status)
+    return tujuan
 
 
 def transisi_valid(status_sekarang: str, status_baru: str) -> bool:
@@ -110,8 +138,8 @@ _PESAN_HAK_TRANSISI: dict[TingkatAkses, str] = {
         "Hanya SA yang ditugaskan, Lead_SA, atau Admin yang dapat menjalankan transisi status ini."
     ),
     TingkatAkses.UBAH_STATUS_PIC: (
-        "Hanya Sales/Product PIC proyek ini, Lead_SA, atau Admin yang dapat mengubah status "
-        "proyek menjadi 'Won'."
+        "Hanya Sales/Product PIC proyek ini, Lead_SA, atau Admin yang dapat menjalankan "
+        "transisi status ini ('Won', 'On Hold', atau melanjutkan dari 'On Hold')."
     ),
     TingkatAkses.UBAH_STATUS_LEAD: (
         "Hanya Lead_SA atau Admin yang dapat menjalankan transisi status ini "
@@ -290,10 +318,20 @@ async def update_project_status(
             ),
         )
 
+    # Kembali ke `previous_status` (lanjut dari On Hold, buka kembali Closed/Lost): tujuannya
+    # dinamis sehingga tidak ada di tabel `TRANSISI_HAK`.
+    kembali = (
+        old_status in _STATUS_KEMBALI
+        and project.previous_status is not None
+        and new_status == project.previous_status
+    )
+
     # Validasi transisi menggunakan state machine
-    tingkat_transisi = hak_transisi(old_status, new_status)
+    tingkat_transisi = (
+        _STATUS_KEMBALI[old_status] if kembali else hak_transisi(old_status, new_status)
+    )
     if tingkat_transisi is None:
-        valid_next = status_berikutnya(old_status)
+        valid_next = status_berikutnya(old_status, project.previous_status)
         valid_str = ", ".join(f"'{s}'" for s in valid_next) if valid_next else "tidak ada (status terminal)"
 
         raise HTTPException(
@@ -310,11 +348,28 @@ async def update_project_status(
         db, project, current_user, tingkat_transisi, pesan=_PESAN_HAK_TRANSISI[tingkat_transisi]
     )
 
+    # Buka kembali `Closed`/`Lost`: hanya `is_admin` (Lead_SA lolos tingkat di atas, bukan ini)
+    # dan wajib beralasan; alasan masuk audit log.
+    alasan = (body.reason or "").strip()
+    buka_kembali = kembali and old_status in (status_konst.CLOSED, status_konst.LOST)
+    if buka_kembali:
+        if not adalah_admin(current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Hanya Admin yang dapat membuka kembali proyek '{old_status}'.",
+            )
+        if not alasan:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Alasan (reason) wajib diisi untuk membuka kembali proyek '{old_status}'."
+                ),
+            )
+
     # Syarat transisi: `Submitted` butuh dokumen wajib; `Lost` wajib beralasan (CHECK
     # `chk_projects_lost_reason`) dan alasan disimpan di proyek.
     if new_status == status_konst.SUBMITTED:
         await _pastikan_syarat_submitted(db, project)
-    alasan = (body.reason or "").strip()
     if new_status == status_konst.LOST and not alasan:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -331,6 +386,20 @@ async def update_project_status(
             project.previous_status = old_status
         project.lost_reason = alasan
         nilai_baru["lost_reason"] = alasan
+    elif new_status == status_konst.CLOSED:
+        project.previous_status = old_status  # dipakai saat dibuka kembali
+    elif new_status == status_konst.ON_HOLD:
+        project.previous_status = old_status
+        nilai_baru["aksi"] = "jeda"
+        await sla_timer.jeda_timer(project_id, db)
+    elif kembali:
+        # Lanjut dari On Hold atau buka kembali: timer SLA yang dijeda berjalan lagi (juga bila
+        # `Lost` datang dari `On Hold`, saat timer sengaja tetap berhenti).
+        nilai_baru["aksi"] = "buka_kembali" if buka_kembali else "lanjut"
+        project.previous_status = None
+        await sla_timer.lanjutkan_timer(project_id, db)
+    if alasan and "aksi" in nilai_baru:
+        nilai_baru["reason"] = alasan
     project.status = new_status
     project.updated_at = now
 

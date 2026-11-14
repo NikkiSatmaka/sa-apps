@@ -203,9 +203,7 @@ TRANSISI_TIDAK_VALID = [
     ("Assigned", "Pending DQ"),  # bukan status proyek (ADR 0001, 2026-11-10)
     ("Assigned", "Ready"),  # nama status lama
     ("Submitted", "Closed-Win"),
-    ("Assigned", "On Hold"),  # jeda dikerjakan di #122
-    ("On Hold", "Assigned"),
-    ("On Hold", "Submitted"),
+    ("On Hold", "Submitted"),  # lanjut hanya ke previous_status (Assigned); jeda: #122
 ]
 
 

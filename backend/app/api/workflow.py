@@ -32,6 +32,7 @@ from app.core.dependencies import (
 )
 from app.models.audit_log import AuditLog
 from app.models.document import Document
+from app.models.project_assignment import ProjectAssignment
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.response import error_response, success_response
@@ -156,52 +157,70 @@ def _pesan_ditolak_ubah_status(peran: str) -> str:
     return "Role Anda tidak memiliki izin untuk operasi ini."
 
 
+async def _penerima_hld(project: Project, db: AsyncSession) -> list[User]:
+    """Semua SA proyek: SA utama dulu, lalu SA tambahan (`project_assignments`), tanpa ganda."""
+    urutan_id: list = [] if project.assigned_sa is None else [project.assigned_sa]
+    tambahan = await db.execute(
+        select(ProjectAssignment.user_id)
+        .where(ProjectAssignment.id_project == project.id_project)
+        .order_by(ProjectAssignment.created_at)
+    )
+    urutan_id += [uid for uid in tambahan.scalars().all() if uid not in urutan_id]
+    if not urutan_id:
+        return []
+    hasil = await db.execute(select(User).where(User.id.in_(urutan_id)))
+    return sorted(hasil.scalars().all(), key=lambda u: urutan_id.index(u.id))
+
+
 async def _notify_mandatory_hld(project: Project, db: AsyncSession) -> None:
     """
-    Kirim notifikasi wajib "buat HLD" ke SA saat proyek menjadi Won.
+    Kirim notifikasi wajib "buat HLD" ke SEMUA SA proyek (SA utama dan SA tambahan, ADR 0014)
+    saat proyek menjadi Won.
 
     Spec Flow 4 langkah 1. Memakai event `status_change` dengan flag
     `mandatory_hld` di metadata (event_type baru butuh migration CheckConstraint
-    tanpa manfaat tambahan). Kegagalan di sini tidak boleh menggagalkan transisi.
+    tanpa manfaat tambahan). Kegagalan di sini tidak boleh menggagalkan transisi, dan satu
+    penerima yang gagal tidak menghalangi penerima lain.
     """
-    if project.assigned_sa is None:
+    try:
+        penerima = await _penerima_hld(project, db)
+    except Exception as e:  # noqa: BLE001 - side-effect tidak boleh menggagalkan transisi
+        logger.error(f"Gagal menentukan penerima notifikasi wajib HLD {project.id_project}: {e}")
+        return
+
+    if not penerima:
         logger.warning(
             f"Proyek {project.id_project} Won tapi belum punya SA; "
             f"notifikasi wajib HLD dilewati."
         )
         return
 
-    try:
-        result = await db.execute(select(User).where(User.id == project.assigned_sa))
-        sa_user = result.scalar_one_or_none()
-        if sa_user is None:
-            logger.warning(
-                f"SA {project.assigned_sa} untuk proyek {project.id_project} "
-                f"tidak ditemukan; notifikasi wajib HLD dilewati."
+    for sa_user in penerima:
+        try:
+            await notification_service.send_notification(
+                NotificationEvent(
+                    event_type=NotificationEventType.STATUS_CHANGE,
+                    recipient_user_id=sa_user.id,
+                    recipient_email=sa_user.email,
+                    reference_id=project.id_project,
+                    subject="[Portal SA] Wajib: buat HLD untuk proyek Won",
+                    metadata={
+                        "project_name": project.project_name,
+                        "customer_name": project.customer_name,
+                        "new_status": status_konst.WON,
+                        "mandatory_hld": True,
+                        "message": (
+                            f"Proyek '{project.project_name}' berstatus Won. "
+                            f"Segera buat HLD (High Level Document)."
+                        ),
+                    },
+                )
             )
-            return
-
-        await notification_service.send_notification(
-            NotificationEvent(
-                event_type=NotificationEventType.STATUS_CHANGE,
-                recipient_user_id=sa_user.id,
-                recipient_email=sa_user.email,
-                reference_id=project.id_project,
-                subject="[Portal SA] Wajib: buat HLD untuk proyek Won",
-                metadata={
-                    "project_name": project.project_name,
-                    "customer_name": project.customer_name,
-                    "new_status": status_konst.WON,
-                    "mandatory_hld": True,
-                    "message": (
-                        f"Proyek '{project.project_name}' berstatus Won. "
-                        f"Segera buat HLD (High Level Document)."
-                    ),
-                },
+        except Exception as e:  # noqa: BLE001 - side-effect tidak boleh menggagalkan transisi
+            logger.error(
+                f"Gagal mengirim notifikasi wajib HLD untuk {project.id_project} "
+                f"ke {sa_user.id}: {e}"
             )
-        )
-    except Exception as e:  # noqa: BLE001 - side-effect tidak boleh menggagalkan transisi
-        logger.error(f"Gagal mengirim notifikasi wajib HLD untuk {project.id_project}: {e}")
 
 
 @router.patch(

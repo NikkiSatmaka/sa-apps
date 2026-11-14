@@ -5,7 +5,6 @@ from uuid import uuid4
 
 import pytest
 
-from app.api.auth import DEMO_PERSONAS
 from app.schemas.qualification_definition import QUESTIONNAIRE_SCHEMA_VERSION, answer_questions
 from scripts import seed_demo_data
 from scripts.seed_demo_data import DEMO_USERS, get_or_create_project
@@ -21,15 +20,6 @@ def test_seed_menyediakan_dua_user_untuk_setiap_persona_fungsional():
     }
     jumlah["Admin"] = sum(user.get("is_admin", False) for user in DEMO_USERS)
     assert jumlah == {"Sales": 2, "Product": 2, "SA": 2, "Lead_SA": 2, "Admin": 2}
-
-
-def test_seed_users_sinkron_dengan_persona_yang_dapat_login():
-    seed_by_email = {user["email"]: user for user in DEMO_USERS}
-    for persona in DEMO_PERSONAS.values():
-        seeded = seed_by_email[persona["email"]]
-        assert (seeded["role"], seeded.get("is_admin", False), seeded["google_id"]) == (
-            persona.get("role", "SA"), persona.get("is_admin", False), persona["google_id"]
-        )
 
 
 @pytest.mark.asyncio

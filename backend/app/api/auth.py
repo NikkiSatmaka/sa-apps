@@ -113,36 +113,6 @@ DEMO_USERS = {
     },
 }
 
-# Selector persona publik sengaja allowlisted; email/user arbitrer tidak diterima.
-DEMO_PERSONAS = {
-    "Sales": {"role": "Sales", **DEMO_USERS["Sales"]},
-    "Sales 2": {
-        "role": "Sales", "email": "demo-sales2@portal-sa.local",
-        "name": "Demo Sales 2", "google_id": "demo-google-id-sales-2",
-    },
-    "Product": {"role": "Product", **DEMO_USERS["Product"]},
-    "Product 2": {
-        "role": "Product", "email": "demo-product2@portal-sa.local",
-        "name": "Demo Product 2", "google_id": "demo-google-id-product-2",
-    },
-    "SA": {"role": "SA", **DEMO_USERS["SA"]},
-    "SA 2": {
-        "role": "SA", "email": "demo-sa2@portal-sa.local",
-        "name": "Demo SA 2", "google_id": "demo-google-id-sa-2",
-    },
-    "Lead_SA": {"role": "Lead_SA", **DEMO_USERS["Lead_SA"]},
-    "Lead_SA 2": {
-        "role": "Lead_SA", "email": "demo-lead2@portal-sa.local",
-        "name": "Demo Lead SA 2", "google_id": "demo-google-id-lead-sa-2",
-    },
-    "Admin": {"role": "Admin", **DEMO_USERS["Admin"]},
-    "Admin 2": {
-        "email": "demo-admin2@portal-sa.local", "name": "Demo Admin 2",
-        "google_id": "demo-google-id-admin-2", "role": "SA", "is_admin": True,
-    },
-}
-
-
 def _origin(url: str) -> tuple[str, str]:
     """(scheme, host:port) dari sebuah URL, untuk membandingkan origin."""
     parsed = urlparse(url)
@@ -159,7 +129,6 @@ class DemoLoginRequest(BaseModel):
     """Request body untuk demo login."""
 
     role: Literal["Sales", "Product", "SA", "Lead_SA", "Admin"]
-    persona: str | None = None
 
 
 @router.post("/demo-login", summary="Demo Login (bypass OAuth)")
@@ -181,13 +150,8 @@ async def demo_login(
             detail="Demo mode tidak aktif. Gunakan Google OAuth untuk login.",
         )
 
-    # Ambil konfigurasi demo user berdasarkan role
-    if body.persona is None:
-        demo_config = DEMO_USERS[body.role]
-    else:
-        demo_config = DEMO_PERSONAS.get(body.persona)
-        if demo_config is None or body.persona.split(" 2")[0] != body.role:
-            raise HTTPException(status_code=422, detail="Persona demo tidak sesuai dengan role.")
+    # Demo login tetap memakai akun default per role; field tambahan diabaikan.
+    demo_config = DEMO_USERS[body.role]
 
     # Cari user di database berdasarkan email (INSERT IF NOT EXISTS)
     stmt = select(User).where(User.email == demo_config["email"])

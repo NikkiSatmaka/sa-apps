@@ -192,6 +192,26 @@ async def test_callback_handoff_hanya_dapat_ditukar_satu_kali(api, monkeypatch):
     assert pakai_ulang.status_code == 401
 
 
+async def test_calendar_callback_location_hanya_membawa_kode_terbatas(api, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "FRONTEND_URL", "http://localhost:3000")
+    pasang_google(monkeypatch, token_body={"access_token": "GOOGLE-SECRET"})
+    callback = await api.client.get(
+        f"{AUTH}/callback",
+        params={"code": "google-code", "state": "calendar_auth|http://localhost:3000/activity-logs/calendar"},
+        follow_redirects=False,
+    )
+    location = callback.headers["location"]
+    assert "GOOGLE-SECRET" not in location
+    code = location.split("gcal_code=", 1)[1]
+    exchanged = await api.client.post(f"{AUTH}/calendar/exchange", json={"code": code})
+    assert exchanged.json() == {"access_token": "GOOGLE-SECRET"}
+    assert (
+        await api.client.post(f"{AUTH}/calendar/exchange", json={"code": code})
+    ).status_code == 401
+
+
 # ------------------------------------------------------------------------- refresh / logout / sesi
 
 

@@ -12,7 +12,6 @@ const roles: [Role, string][] = [
   ["Product", "Login sebagai Product Manager"],
   ["SA", "Login sebagai SA"],
   ["Lead_SA", "Login sebagai Lead SA"],
-  ["Admin", "Login sebagai Admin"],
 ];
 
 async function renderReady() {
@@ -28,10 +27,11 @@ describe("halaman /demo — guard demo mode", () => {
     expect(screen.queryByText("Pilih role untuk demo login")).not.toBeInTheDocument();
   });
 
-  it("demo_mode aktif: menampilkan banner, 5 tombol peran (Admin = SA dengan flag admin), dan tautan ke /login", async () => {
+  it("demo_mode aktif: menampilkan empat role fungsional dan tautan ke /login", async () => {
     await renderReady();
     expect(screen.getByRole("status")).toHaveTextContent("Demo Mode");
     for (const [, label] of roles) expect(screen.getByRole("button", { name: label })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Login sebagai Admin" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Login dengan Google Account" })).toHaveAttribute("href", "/login");
     expect(router.replace).not.toHaveBeenCalled();
     for (const label of ["Sales 2 — Demo Sales 2", "Product Manager 2 — Demo Product 2", "SA 2 — Demo SA 2", "Lead SA 2 — Demo Lead SA 2", "Admin 2 — Demo Admin 2"]) {
@@ -116,12 +116,12 @@ describe("halaman /demo — login per peran", () => {
   it("respons gagal dengan pesan: menampilkan pesan backend, tidak menyimpan token, tidak berpindah", async () => {
     server.use(http.post(api("/auth/demo-login"), () => HttpResponse.json({ message: "Demo dinonaktifkan" }, { status: 403 })));
     const { user } = await renderReady();
-    await user.click(screen.getByRole("button", { name: "Login sebagai Admin" }));
+    await user.click(screen.getByRole("button", { name: "Login sebagai Sales" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Demo dinonaktifkan");
     expect(localStorage.getItem("access_token")).toBeNull();
     expect(router.push).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Login sebagai Admin" })).toBeEnabled(); // bisa dicoba lagi
+    expect(screen.getByRole("button", { name: "Login sebagai Sales" })).toBeEnabled(); // bisa dicoba lagi
   });
 
   it("respons gagal tanpa JSON: pesan generik berisi kode status", async () => {

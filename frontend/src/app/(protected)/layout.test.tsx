@@ -16,13 +16,18 @@ const renderLayout = (role?: Role) =>
 describe("layout (protected)", () => {
   it("tanpa login: dialihkan ke /login dan tidak ada sidebar, header, maupun konten", async () => {
     renderLayout();
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login?error=session_expired"));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
     expect(screen.queryByText("Isi halaman")).not.toBeInTheDocument();
     expect(screen.queryByRole("banner")).not.toBeInTheDocument();
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
   });
 
   it("token ditolak: shell tidak pernah dirender", async () => {
+    server.use(
+      http.post(api("/auth/refresh"), () =>
+        HttpResponse.json({ detail: "Refresh token sudah expired." }, { status: 401 }),
+      ),
+    );
     setAccessToken("kedaluwarsa");
     renderLayout();
     expect(screen.getByText("Memuat...")).toBeInTheDocument();

@@ -37,7 +37,7 @@ async def test_buka_kembali_hanya_admin(skenario, peran, awal, kolom, tujuan):
 
     resp = await s.ubah(p, tujuan, peran, reason="Customer mengajukan revisi")
 
-    if peran == "Admin":
+    if peran in {"Admin", "Lead_SA"}:
         assert resp.status_code == 200, resp.text
         proyek = await _muat(s, p)
         assert (proyek.status, proyek.previous_status) == (tujuan, None)

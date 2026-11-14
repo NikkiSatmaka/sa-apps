@@ -13,12 +13,12 @@ const renderGuard = () =>
     </AuthGuard>,
   );
 
-const roles: Role[] = ["Sales", "Product", "SA", "Lead_SA", "Admin"];
+const roles: Role[] = ["Sales", "Product", "SA", "Lead_SA"];
 
 describe("AuthGuard", () => {
   it("tanpa token: mengalihkan ke /login dan tidak pernah menampilkan konten", async () => {
     renderGuard();
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login?error=session_expired"));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
     expect(screen.queryByText("Konten rahasia")).not.toBeInTheDocument();
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
@@ -78,6 +78,7 @@ describe("AuthGuard", () => {
 
   it("token ditolak backend (401): token dihapus dan dialihkan ke /login", async () => {
     setAccessToken("kedaluwarsa");
+    server.use(http.post(api("/auth/refresh"), () => HttpResponse.json({ detail: "Refresh token sudah expired." }, { status: 401 })));
     renderGuard();
     await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login?error=session_expired"));
     expect(localStorage.getItem("access_token")).toBeNull();
@@ -118,12 +119,12 @@ describe("AuthGuard", () => {
     expect(calls).toBe(0);
   });
 
-  it("store terautentikasi tetapi refresh cookie tidak tersedia: dialihkan dengan pesan sesi berakhir", async () => {
+  it("store terautentikasi tetapi refresh cookie tidak tersedia: dialihkan tanpa pesan sesi berakhir", async () => {
     seedAuth("SA");
     localStorage.clear();
     clearAccessToken();
     renderGuard();
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login?error=session_expired"));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
     expect(screen.queryByText("Konten rahasia")).not.toBeInTheDocument();
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });

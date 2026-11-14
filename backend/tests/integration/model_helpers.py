@@ -33,8 +33,8 @@ def uid() -> str:
 
 
 def bangun_user(**o: Any) -> User:
-    if o.get("role") == "Admin":  # persona admin = SA dengan flag admin (ADR 0012)
-        o = {**o, "role": "SA", "is_admin": True}
+    if o.get("role") == "Admin":  # Admin adalah flag pada role fungsional Lead_SA.
+        o = {**o, "role": "Lead_SA", "is_admin": True}
     n = uid()
     d = {
         "id": uuid.uuid4(),

@@ -251,12 +251,35 @@ def patch_session_factory(
 class KlienApi:
     client: httpx.AsyncClient
     generate_requirement: AsyncMock
+    session_factory: async_sessionmaker[AsyncSession]
+    login_headers: dict[str, dict[str, str]] = field(default_factory=dict)
 
     async def login_demo(self, role: str) -> dict[str, str]:
         """Demo login → header Authorization (JWT asli lewat alur produksi)."""
+        if role in self.login_headers:
+            return self.login_headers[role]
+
+        if role == "Admin":
+            from tests._auth_support import buat_token
+            from tests.integration.model_helpers import bangun_user, simpan
+
+            user = bangun_user(role="Admin")
+            async with self.session_factory() as db:
+                await simpan(db, user)
+                await db.commit()
+            token = buat_token(
+                user.id,
+                ekstra={"email": user.email, "role": user.role, "is_admin": user.is_admin},
+            )
+            headers = {"Authorization": f"Bearer {token}"}
+            self.login_headers[role] = headers
+            return headers
+
         resp = await self.client.post("/api/v1/auth/demo-login", json={"role": role})
         assert resp.status_code == 200, resp.text
-        return {"Authorization": f"Bearer {resp.json()['tokens']['access_token']}"}
+        headers = {"Authorization": f"Bearer {resp.json()['tokens']['access_token']}"}
+        self.login_headers[role] = headers
+        return headers
 
 
 @pytest_asyncio.fixture
@@ -295,7 +318,11 @@ async def api(
     transport = httpx.ASGITransport(app=app)
     try:
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            yield KlienApi(client=client, generate_requirement=gen_requirement)
+            yield KlienApi(
+                client=client,
+                generate_requirement=gen_requirement,
+                session_factory=session_factory,
+            )
     finally:
         app.dependency_overrides.pop(get_db, None)
 

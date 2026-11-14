@@ -58,7 +58,8 @@ export function AuthGuard({ children }: AuthGuardProps) {
         clearAccessToken();
         clearUser();
         router.replace(
-          error instanceof ApiError && error.status === 401
+          error instanceof ApiError && error.status === 401 &&
+          (error.data as { refreshDetail?: string } | undefined)?.refreshDetail !== "Refresh cookie tidak ditemukan."
             ? "/login?error=session_expired"
             : "/login",
         );

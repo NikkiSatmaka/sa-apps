@@ -45,11 +45,6 @@ const DEMO_ROLES = [
     label: "Login sebagai Lead SA",
     color: "bg-purple-600 hover:bg-purple-700 focus:ring-purple-500",
   },
-  {
-    role: "Admin",
-    label: "Login sebagai Admin",
-    color: "bg-red-600 hover:bg-red-700 focus:ring-red-500",
-  },
 ] as const;
 
 function DemoContent() {

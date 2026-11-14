@@ -68,7 +68,7 @@ describe("Daftar proyek — daftar penuh untuk semua peran (#109, ADR 0011)", ()
 
     await user.click(screen.getByRole("checkbox", { name: "Hanya proyek saya" }));
     expect(await screen.findByText("Menampilkan 3 dari 3 proyek")).toBeInTheDocument();
-    expect(urls.at(-1)!.searchParams.has("involved")).toBe(false);
+    await waitFor(() => expect(urls.at(-1)!.searchParams.has("involved")).toBe(false));
     expect(screen.getByRole("checkbox", { name: "Hanya proyek saya" })).not.toBeChecked();
   });
 

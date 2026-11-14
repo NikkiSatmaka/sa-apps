@@ -114,3 +114,18 @@ class SubtaskListResponse(BaseModel):
 
     items: list[SubtaskResponse]
     total: int
+
+
+class TugasSayaResponse(SubtaskResponse):
+    """Satu baris "Tugas saya": subtask beserta ringkasan project induknya."""
+
+    project_name: str
+    customer_name: str
+    project_status: str
+
+
+class TugasSayaListResponse(BaseModel):
+    """Response daftar "Tugas saya" lintas project."""
+
+    items: list[TugasSayaResponse]
+    total: int

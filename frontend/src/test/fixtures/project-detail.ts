@@ -135,3 +135,20 @@ export function makeSATambahan(overrides: Partial<AnggotaSATambahanFixture> = {}
     ...overrides,
   };
 }
+
+export interface TugasSayaFixture extends SubtaskFixture {
+  project_name: string;
+  customer_name: string;
+  project_status: string;
+}
+
+/** Satu baris `GET /subtasks/saya`: subtask plus ringkasan project induknya (#126). */
+export function makeTugasSaya(overrides: Partial<TugasSayaFixture> = {}): TugasSayaFixture {
+  return {
+    ...makeSubtask(),
+    project_name: "Proyek Alfa",
+    customer_name: "PT Alfa",
+    project_status: "In Progress",
+    ...overrides,
+  };
+}

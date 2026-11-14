@@ -156,7 +156,7 @@ describe("projects: penanganan 401 lewat fetcher (#83)", () => {
     await expect(getBANTResult("p1")).rejects.toMatchObject({ name: "ApiError", status: 401, message: "Unauthorized" });
     expect(getAccessToken()).toBeNull();
     expect(localStorage.getItem("refresh_token")).toBeNull();
-    expect(loc.href).toBe("/login");
+    expect(loc.href).toBe("/login?error=session_expired");
   });
 
   it("mutasi 401: hanya ApiError dengan pesan backend, token tetap (sama dengan apiRequest)", async () => {

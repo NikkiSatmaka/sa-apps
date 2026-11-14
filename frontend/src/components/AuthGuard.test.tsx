@@ -18,7 +18,7 @@ const roles: Role[] = ["Sales", "Product", "SA", "Lead_SA", "Admin"];
 describe("AuthGuard", () => {
   it("tanpa token: mengalihkan ke /login dan tidak pernah menampilkan konten", async () => {
     renderGuard();
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login?error=session_expired"));
     expect(screen.queryByText("Konten rahasia")).not.toBeInTheDocument();
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
@@ -79,7 +79,7 @@ describe("AuthGuard", () => {
   it("token ditolak backend (401): token dihapus dan dialihkan ke /login", async () => {
     setAccessToken("kedaluwarsa");
     renderGuard();
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login?error=session_expired"));
     expect(localStorage.getItem("access_token")).toBeNull();
     expect(localStorage.getItem("refresh_token")).toBeNull();
     expect(screen.queryByText("Konten rahasia")).not.toBeInTheDocument();
@@ -118,12 +118,12 @@ describe("AuthGuard", () => {
     expect(calls).toBe(0);
   });
 
-  it("store terautentikasi tetapi token hilang dari localStorage: dialihkan ke /login dan konten disembunyikan", async () => {
+  it("store terautentikasi tetapi refresh cookie tidak tersedia: dialihkan dengan pesan sesi berakhir", async () => {
     seedAuth("SA");
     localStorage.clear();
     clearAccessToken();
     renderGuard();
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login?error=session_expired"));
     expect(screen.queryByText("Konten rahasia")).not.toBeInTheDocument();
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });

@@ -16,7 +16,7 @@ const renderLayout = (role?: Role) =>
 describe("layout (protected)", () => {
   it("tanpa login: dialihkan ke /login dan tidak ada sidebar, header, maupun konten", async () => {
     renderLayout();
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login?error=session_expired"));
     expect(screen.queryByText("Isi halaman")).not.toBeInTheDocument();
     expect(screen.queryByRole("banner")).not.toBeInTheDocument();
     expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
@@ -26,7 +26,7 @@ describe("layout (protected)", () => {
     setAccessToken("kedaluwarsa");
     renderLayout();
     expect(screen.getByText("Memuat...")).toBeInTheDocument();
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login?error=session_expired"));
     expect(screen.queryByRole("main")).not.toBeInTheDocument();
   });
 

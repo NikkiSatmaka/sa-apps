@@ -108,7 +108,7 @@ export async function fetcher<T>(endpoint: string): Promise<T> {
     if (response.status === 401) {
       if (typeof window !== "undefined") {
         clearAccessToken();
-        window.location.href = "/login";
+        window.location.href = "/login?error=session_expired";
       }
       throw new ApiError("Unauthorized", 401);
     }
@@ -205,7 +205,7 @@ export async function apiCall(endpoint: string, opsi: ApiCallOptions): Promise<a
     if (response.status === 401 && method === "GET") {
       if (typeof window !== "undefined") {
         clearAccessToken();
-        window.location.href = "/login";
+        window.location.href = "/login?error=session_expired";
       }
       throw new ApiError("Unauthorized", 401);
     }

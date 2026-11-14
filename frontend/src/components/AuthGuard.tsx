@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth";
-import { clearAccessToken, fetcher, getAccessToken } from "@/lib/fetcher";
+import { ApiError, clearAccessToken, fetcher, getAccessToken } from "@/lib/fetcher";
 
 /**
  * AuthGuard Component
@@ -53,11 +53,15 @@ export function AuthGuard({ children }: AuthGuardProps) {
           is_admin: userData.is_admin === true,
           avatar_url: userData.avatar_url,
         });
-      } catch {
+      } catch (error) {
         // Network error atau masalah lain — clear dan redirect
         clearAccessToken();
         clearUser();
-        router.replace("/login");
+        router.replace(
+          error instanceof ApiError && error.status === 401
+            ? "/login?error=session_expired"
+            : "/login",
+        );
       }
     };
 

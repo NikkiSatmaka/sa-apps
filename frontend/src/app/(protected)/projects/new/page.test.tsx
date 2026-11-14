@@ -688,3 +688,26 @@ describe("NewProjectPage — Product dan Sales PIC (ADR 0014)", () => {
     expect(screen.getByText(/Langkah 1 dari 2/)).toBeInTheDocument();
   });
 });
+
+describe("NewProjectPage — gating peran pembuat project (#83)", () => {
+  it("SA: melihat pesan akses, tanpa form dan tanpa request daftar orang", async () => {
+    let requestOrang = 0;
+    server.use(
+      http.get(api("/projects/users/search"), () => {
+        requestOrang++;
+        return HttpResponse.json(successEnvelope([]));
+      }),
+    );
+    renderWithProviders(<NewProjectPage />, { role: "SA" });
+
+    expect(await screen.findByText("Halaman ini hanya untuk Sales, Product, Lead_SA, atau Admin.")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Nama Proyek/)).not.toBeInTheDocument();
+    expect(requestOrang).toBe(0);
+  });
+
+  it.each(["Sales", "Product", "Lead_SA", "Admin"] as Role[])("%s: form tampil", async (role) => {
+    setup({ role });
+    expect(await screen.findByLabelText(/Nama Proyek/)).toBeInTheDocument();
+    expect(screen.queryByText(/Halaman ini hanya untuk/)).not.toBeInTheDocument();
+  });
+});

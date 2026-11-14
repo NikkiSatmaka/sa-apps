@@ -22,6 +22,7 @@ import {
 } from "@/test/fixtures/opportunity";
 import type { Role } from "@/test";
 import { users } from "@/test/fixtures/users";
+import { pasangHubungan, type Hubungan } from "@/test";
 import EditProjectPage from "./page";
 
 const ID = "22222222-2222-4222-8222-222222222222";
@@ -449,5 +450,39 @@ describe("EditProjectPage — simpan jawaban kuesioner", () => {
     await user.type(mrr, "77");
     await user.type(screen.getByLabelText("Nama Proyek"), "!");
     expect(screen.getByLabelText(/Anggaran bulanan/)).toHaveValue(77);
+  });
+});
+
+describe("EditProjectPage — gating hak ubah proyek (#83)", () => {
+  const TOLAK = "Anda tidak berhak mengubah data proyek ini.";
+
+  it.each([
+    ["Sales", "viewer"],
+    ["Sales", "tak_terkait"],
+    ["Product", "tak_terkait"],
+    ["SA", "viewer"],
+    ["SA", "tak_terkait"],
+  ] as [Role, Hubungan][])("%s dengan hubungan %s: melihat pesan akses, form tidak tampil", async (role, hubungan) => {
+    arrange();
+    pasangHubungan(role, hubungan);
+    render(role);
+    expect(await screen.findByText(TOLAK)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Edit Proyek" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Simpan/ })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["Sales", "sales_pic"],
+    ["Product", "product_pic"],
+    ["SA", "sa_utama"],
+    ["Sales", "contributor"],
+    ["Lead_SA", "tak_terkait"],
+    ["Admin", "tak_terkait"],
+  ] as [Role, Hubungan][])("%s dengan hubungan %s: form tampil", async (role, hubungan) => {
+    arrange();
+    pasangHubungan(role, hubungan);
+    render(role);
+    await tungguHalaman();
+    expect(screen.queryByText(TOLAK)).not.toBeInTheDocument();
   });
 });

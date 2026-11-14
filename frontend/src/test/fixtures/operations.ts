@@ -8,6 +8,7 @@ export function makeAvailableSA(overrides: Partial<AvailableSA> = {}): Available
     email: "budi@example.com",
     avatar_url: null,
     active_project_count: 1,
+    role: "SA",
     ...overrides,
   };
 }

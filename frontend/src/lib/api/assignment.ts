@@ -37,6 +37,8 @@ export interface AvailableSA {
   email: string;
   avatar_url: string | null;
   active_project_count: number;
+  /** Peran kandidat ("SA" atau "Lead_SA"); dipakai menyaring dropdown Lead SA. */
+  role: "SA" | "Lead_SA";
 }
 
 /** Response setelah assignment berhasil */

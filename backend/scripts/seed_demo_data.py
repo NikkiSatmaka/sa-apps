@@ -168,7 +168,7 @@ async def get_or_create_project(
         if project_data["id_project"].startswith("PRJ-DEMO-"):
             ownership = {"sales_pic": sales_id, "assigned_sa": sa_id}
             if product_id is not None:
-                ownership.update(created_by=product_id, product_pic=product_id)
+                ownership["product_pic"] = product_id
             changed = False
             for field, value in ownership.items():
                 if getattr(existing, field, None) != value:
@@ -207,9 +207,9 @@ async def get_or_create_project(
         id_project=project_data["id_project"],
         project_name=project_data["project_name"],
         customer_name=project_data["customer_name"],
-        sales_pic=sales_id,
-        created_by=product_id or sales_id,
+        created_by=sales_id,
         product_pic=product_id or sales_id,
+        sales_pic=sales_id,
         assigned_sa=sa_id,
         status=project_data["status"],
         qualification_state=project_data.get(
@@ -319,10 +319,10 @@ async def seed_all():
                 users[user_data["email"]] = user
 
             sales1 = users["demo-sales@portal-sa.local"]
-            sales2 = sales1
+            sales2 = users["demo-sales2@portal-sa.local"]
             sa1 = users["demo-sa@portal-sa.local"]
-            sa2 = sa1
-            sa3 = sa1
+            sa2 = users["demo-sa2@portal-sa.local"]
+            sa3 = users["demo-sa@portal-sa.local"]
             lead_sa = users["demo-lead@portal-sa.local"]
             product1 = users["demo-product@portal-sa.local"]
             product2 = users["demo-product2@portal-sa.local"]

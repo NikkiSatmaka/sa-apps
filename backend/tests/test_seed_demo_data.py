@@ -5,8 +5,8 @@ from uuid import uuid4
 
 import pytest
 
-from app.schemas.qualification_definition import QUESTIONNAIRE_SCHEMA_VERSION, answer_questions
 from app.api.auth import DEMO_PERSONAS
+from app.schemas.qualification_definition import QUESTIONNAIRE_SCHEMA_VERSION, answer_questions
 from scripts import seed_demo_data
 from scripts.seed_demo_data import DEMO_USERS, get_or_create_project
 
@@ -65,8 +65,10 @@ async def test_seed_all_memakai_akun_sales_dan_sa_berbeda_pada_project(monkeypat
 
     sales_ids = {sales_id for _, sales_id, _, _ in captured}
     sa_ids = {sa_id for _, _, sa_id, _ in captured if sa_id is not None}
-    assert len(sales_ids) == 2
-    assert len(sa_ids) >= 2
+    assert sales_ids == {
+        ids["demo-sales@portal-sa.local"], ids["demo-sales2@portal-sa.local"]
+    }
+    assert sa_ids == {ids["demo-sa@portal-sa.local"], ids["demo-sa2@portal-sa.local"]}
 
 
 @pytest.mark.asyncio
@@ -89,13 +91,14 @@ async def test_rerun_sinkronkan_pic_tanpa_mengubah_pembuat_atau_data_project():
     db.execute = AsyncMock(return_value=Mock(scalar_one_or_none=Mock(return_value=existing)))
     db.flush = AsyncMock()
 
-    await get_or_create_project(
-        db,
-        {"id_project": "PRJ-DEMO-001", "project_name": "Fixture"},
-        sales_id=sales,
-        sa_id=sa,
-        product_id=product,
-    )
+    for _ in range(2):
+        await get_or_create_project(
+            db,
+            {"id_project": "PRJ-DEMO-001", "project_name": "Fixture"},
+            sales_id=sales,
+            sa_id=sa,
+            product_id=product,
+        )
 
     assert (existing.sales_pic, existing.assigned_sa, existing.product_pic) == (sales, sa, product)
     assert existing.created_by == pembuat
@@ -128,11 +131,16 @@ async def test_proyek_baru_menyimpan_jawaban_kualifikasi_dan_versi_skema():
     db.execute = AsyncMock(return_value=Mock(scalar_one_or_none=Mock(return_value=None)))
     db.flush = AsyncMock()
 
-    project = await get_or_create_project(db, data, sales_id=uuid4())
+    sales_id, product_id = uuid4(), uuid4()
+    project = await get_or_create_project(
+        db, data, sales_id=sales_id, product_id=product_id
+    )
 
     assert project.qualification_answers == jawaban
     assert project.qualification_schema_version == QUESTIONNAIRE_SCHEMA_VERSION
     assert project.bant_detail is None
+    assert project.created_by == sales_id
+    assert project.product_pic == product_id
 
 
 @pytest.mark.asyncio

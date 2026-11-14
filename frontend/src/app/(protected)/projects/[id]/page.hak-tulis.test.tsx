@@ -94,11 +94,11 @@ describe("Detail proyek — konfigurasi dan modal handover Won", () => {
     pasangHubungan("SA", "tak_terkait", { status: "Won" });
     const { unmount } = renderWithProviders(<ProjectDetailPage />, { role: "SA" });
     await muat();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     unmount();
 
     pasangHubungan("SA", "sa_tambahan", { status: "Won" });
     renderWithProviders(<ProjectDetailPage />, { role: "SA" });
-    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { http, HttpResponse, server, api, successEnvelope, errorEnvelope } from "@/test";
+import { http, HttpResponse, server, api, successEnvelope, errorEnvelope, stubLocation } from "@/test";
 import { makeNotification, makePaginatedNotifications } from "@/test/fixtures/notifications";
 import { getNotifications, getUnreadCount, markAsRead } from "./notifications";
 
@@ -104,5 +104,29 @@ describe("notifications API: token dan respons tanpa envelope", () => {
   it("getNotifications memakai body utuh bila tanpa `data`", async () => {
     server.use(http.get(api("/notifications"), () => HttpResponse.json({ items: [], total: 0 })));
     await expect(getNotifications()).resolves.toEqual({ items: [], total: 0 });
+  });
+});
+
+describe("notifications: penanganan 401 lewat fetcher (#83)", () => {
+  it("GET 401: hapus kedua token, arahkan ke /login, lempar ApiError 401 (sama dengan fetcher)", async () => {
+    localStorage.setItem("access_token", "a");
+    localStorage.setItem("refresh_token", "r");
+    const loc = stubLocation();
+    server.use(http.get(api("/notifications/unread-count"), () => HttpResponse.json(errorEnvelope("Token kadaluarsa"), { status: 401 })));
+
+    await expect(getUnreadCount()).rejects.toMatchObject({ name: "ApiError", status: 401, message: "Unauthorized" });
+    expect(localStorage.getItem("access_token")).toBeNull();
+    expect(localStorage.getItem("refresh_token")).toBeNull();
+    expect(loc.href).toBe("/login");
+  });
+
+  it("mutasi 401: hanya ApiError dengan pesan backend, token tetap (sama dengan apiRequest)", async () => {
+    localStorage.setItem("access_token", "a");
+    const loc = stubLocation();
+    server.use(http.patch(api("/notifications/n1/read"), () => HttpResponse.json(errorEnvelope("Token kadaluarsa"), { status: 401 })));
+
+    await expect(markAsRead("n1")).rejects.toMatchObject({ status: 401, message: "Token kadaluarsa" });
+    expect(localStorage.getItem("access_token")).toBe("a");
+    expect(loc.href).toBe("http://localhost/");
   });
 });

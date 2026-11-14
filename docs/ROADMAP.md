@@ -47,226 +47,31 @@ Dokumen pelacakan untuk fitur yang dibutuhkan agar mencapai MVP yang layak. Stat
 
 ---
 
-## Bug yang Harus Diperbaiki (terlepas dari fitur)
+## Bug
 
-Ditemukan saat asesmen dan sebaiknya diperbaiki lebih awal — ini merusak fungsionalitas yang sudah ada.
-
-- [x] **B1. Crash `metadata=` pada `NotificationLog`** — `backend/app/services/scoring_engine.py` ~line 623 mengirim `metadata=` ke constructor model, padahal atributnya `notification_metadata` (`metadata` reserved oleh SQLAlchemy). Ini raise saat runtime, merusak notifikasi scoring ke Lead SA dan jalur notifikasi manual-review. _Fix: ganti jadi `notification_metadata=`._
-- [x] **B2. Folder provisioner tidak pernah dipanggil** — `backend/app/api/assignment.py` `_trigger_folder_provisioner` (~line 54) adalah stub `pass` dengan TODO, padahal response melaporkan `folder_provisioning_triggered=True`. Service `FolderProvisioner` sudah diimplementasikan penuh tapi tidak pernah di-wire. (Ditangani di Fase 2 / fitur 5.) _Fix (#45): stub diganti pemanggilan nyata `provision_project_folder` dengan persist kedua id + status provisioning; `folder_provisioning_triggered` jadi reflektif (bukan hardcode)._
-- [x] **B3. `/health` melaporkan status DB palsu** — `backend/app/main.py` mengembalikan `"database": "healthy"` yang di-hardcode, bukan memanggil `check_database_health()` yang sudah ada. Membatalkan fungsi Docker health check.
-- [x] **B4. `estimasi_nilai` tidak dipersist** — `create_project` memvalidasi dan mengembalikannya tapi tidak ada kolom di model `Project`, jadi nilai opportunity hilang. (Ditangani di Fase 1 / fitur 2.) _Fix: tambah kolom `Numeric(14,2)` nullable di model `Project` + migration `005`, simpan saat create, tampilkan di detail/list, dan bisa diedit via `PATCH` dengan validasi range sama._
-- [x] **B10. `bant_detail` tidak tersimpan saat edit** — `PATCH /projects/{id}` memutasi dict `bant_detail` secara in-place, tapi kolom `JSONB` tanpa `MutableDict` membuat SQLAlchemy tidak mendeteksi perubahan sehingga `commit()` melewatinya (response 200 tapi data tidak berubah). _Fix: bungkus kolom `bant_detail` dengan `MutableDict.as_mutable(JSONB)` di model `Project` sehingga mutasi in-place terlacak._
-- [x] **B5. `create_all` saat startup melewati Alembic** — `main.py` membuat tabel otomatis, bersaing dengan migrasi Alembic. Pilih satu mekanisme untuk menghindari schema drift.
-- [x] **B6. `project_collaborators` tanpa migration** — tabel ini hanya terdefinisi sebagai model SQLAlchemy; tidak ada migration Alembic yang membuatnya (hanya terbentuk lewat `create_all` saat startup). Melanggar aturan AGENTS.md "jangan andalkan auto-create table sebagai mekanisme migration" dan merupakan manifestasi konkret dari B5. _Fix: tambahkan migration Alembic untuk `project_collaborators` (termasuk FK `ON DELETE CASCADE` dan `UniqueConstraint(id_project, user_id)`)._
-- [x] **B7. `event_type="reassignment"` melanggar CheckConstraint** — `backend/app/api/assignment.py` `reassign_sa_to_project` membuat `NotificationLog(event_type="reassignment", ...)`, padahal nilai itu tidak termasuk dalam `chk_notification_logs_event_type` (`assignment`, `status_change`, `sla_reminder`, `sla_escalation`, `handover`, `doc_ready`). Bahkan setelah B1 diperbaiki, INSERT reassign tetap ditolak DB. _Fix: ganti ke `assignment`, atau tambahkan `reassignment` ke enum + migration._
-- [x] **B8. Router `scoring.py` tanpa autentikasi** — seluruh endpoint di `backend/app/api/scoring.py` (`POST /projects/{id}/score-manual`, `GET /projects/{id}/bant-result`, `GET /projects/{id}/recommendations`) tidak memasang dependency `get_current_user`. Siapa pun yang bisa menjangkau API dapat menulis skor BANT dan mengubah status proyek (lewat `apply_threshold`). Risiko authz nyata. _Fix: pasang `get_current_user` + cek akses proyek di semua endpoint scoring._
-- [x] **B9. `PATCH /projects/{id}` tanpa cek role/akses** — `backend/app/api/projects.py` `update_project` tidak melakukan cek role atau akses proyek, sehingga user terautentikasi mana pun bisa mengedit `project_name`/`customer_name`/`dq_number`/`bant_detail` proyek apa pun. _Fix: tambahkan cek akses proyek berbasis role, konsisten dengan endpoint project lainnya._
-- [x] **B11. `sla_timer.start_timer` tidak pernah dipanggil** — `start_timer` hanya terdefinisi di `backend/app/services/sla_timer.py` (~line 91) dan tidak dipanggil dari mana pun. `assign_sa_to_project` (`backend/app/api/assignment.py`) men-set `project.assigned_at` (~line 583) lalu insert notifikasi + menjadwalkan folder provisioner, **tapi tidak memanggil `sla_timer.start_timer()`**. Akibatnya tidak ada row `SLATracking` yang pernah dibuat lewat jalur normal, sehingga seluruh Flow 2 SLA (reminder H+3, eskalasi H+5, auto-lock folder Solutions) **mati total end-to-end** walau kodenya lengkap. _Fix: wire `start_timer(...)` di `assign_sa_to_project` setelah `assigned_at` di-set._ (Dilacak di Fase 2A / fitur 12.) _Terverifikasi 2026-11-10: `assign_sa_to_project` kini memanggil `sla_timer.start_timer(...)` (`backend/app/api/assignment.py` ~line 728), diikat `test_sla_assignment_wiring.py`._
-- [x] **B12. Tidak ada scheduler untuk `process_sla_actions()`** — `process_sla_actions()` hanya terpanggil via endpoint manual `POST /sla/process` (`backend/app/api/sla.py`, `process_sla` ~line 77, memanggil `sla_timer.process_sla_actions()` ~line 101), yang butuh trigger manual Admin/Lead_SA. Spec Flow 2 menyiratkan otomasi berbasis waktu (H+3 reminder, H+5 eskalasi). Tidak ada background scheduler/cron di `backend/app/main.py`. _Opsi: tambah background scheduler, atau dokumentasikan secara eksplisit bahwa cron eksternal memanggil `POST /sla/process` secara periodik._ (Dilacak di Fase 2A / fitur 12.) _Terverifikasi 2026-11-10: `SLAScheduler` (`backend/app/services/sla_scheduler.py`) dijalankan saat startup di `backend/app/main.py` (toggle `SLA_SCHEDULER_ENABLED`, ADR 0003), diikat `test_sla_scheduler.py`._
-- [x] **B13. Event `doc_ready` tidak pernah di-emit (Flow 2, cabang "<5 hari")** — spec: saat dokumen menjadi `Reviewed`, link Drive terbuka otomatis untuk Sales + email pemberitahuan. Realita: `update_document_status` (`backend/app/api/documents.py`) menjalankan transisi Draft→Reviewed→Final dengan benar **tapi tidak meng-emit notifikasi `doc_ready` ke Sales dan tidak membuka permission Drive Solutions** saat `Reviewed`. `NotificationEventType.DOC_READY` terdefinisi di `backend/app/services/notification_service.py` (~line 47, dipakai hanya di map subject ~line 405) tetapi tidak pernah di-emit. _Fix: emit `DOC_READY` + buka permission Solutions untuk Sales pada transisi ke `Reviewed` (saat DQ sudah terisi)._ (Dilacak di Fase 2A / fitur 12.) _Terverifikasi 2026-11-10: `_handle_doc_ready` (`backend/app/api/documents.py`) emit `DOC_READY` + buka akses Solutions saat transisi ke `Reviewed` dengan DQ terisi, diikat `test_doc_ready.py`._
-- [x] **B14. Closed-Win tidak memicu notifikasi wajib HLD (Flow 4 langkah 1)** — spec: saat proyek menjadi `Closed-Win`, SA menerima notifikasi wajib "create HLD". Realita: `update_project_status` (`backend/app/api/workflow.py`, ~line 125 — bukan `backend/app/workflow.py`) hanya menulis audit log `status_change` pada transisi ke `Closed-Win`; tidak ada emit notifikasi mandatory-HLD ke SA. _Fix: emit notifikasi "wajib buat HLD" dari `update_project_status` saat masuk status `Closed-Win`._ (Dilacak di Fase 4 / fitur 6 — berkaitan dengan post-sales handover.)
+Daftar bug lintas-fitur (B1–B14+): [`roadmap/bug.md`](roadmap/bug.md). Buka bila tiket menyebut nomor `B<n>`.
 
 ---
 
-## Fase 0 — Hardening Keamanan & Correctness (bagian dari Guardrails, fitur 11)
-
-**Tujuan:** membuat app aman untuk di-deploy secara nyata dan memperbaiki bug yang merusak fungsionalitas. Ini adalah interpretasi "guardrails auth" dan menjadi prasyarat untuk MVP produksi mana pun.
-
-- [x] 0.1 Default `DEMO_MODE` menjadi `False`; cegah `/auth/demo-login` agar tidak mungkin aktif di build produksi. (`backend/app/core/config.py`, `backend/app/api/auth.py`)
-- [x] 0.2 Hapus default `JWT_SECRET_KEY` yang tidak aman; fail fast saat startup jika belum di-set. Selaraskan penamaan `SECRET_KEY` (README) vs `JWT_SECRET_KEY` (kode). (`config.py`, `README.md`)
-- [x] 0.3 Berhenti mengirim JWT access/refresh token sebagai query param URL di redirect OAuth callback; pindah ke URL hash (seperti flow calendar yang sudah ada) atau httpOnly cookie. (`frontend/src/app/api/v1/[...path]/route.ts`)
-- [x] 0.4 Kunci default CORS dari `*` menjadi allow-list yang digerakkan env. (`config.py`, `main.py`)
-- [x] 0.5 Fix bug **B1** (notifikasi `metadata=`), **B3** (health check DB sungguhan — daftarkan `app/api/health.py` yang sudah benar, atau panggil `check_database_health()` di `main.py`), **B5** (putuskan Alembic vs `create_all`), **B6** (migration `project_collaborators`), **B7** (`event_type` reassign melanggar constraint).
-- [x] 0.6 **Tutup authz yang hilang.** Pasang `get_current_user` + cek akses proyek ke semua endpoint `scoring.py` (fix **B8**); tambahkan cek role/akses ke `PATCH /projects/{id}` (fix **B9**). Pertimbangkan ekstraksi dependency `require_role(...)` yang reusable, karena cek role saat ini di-copy-paste di tiap handler sebagai `if current_user.role not in (...)`.
-
-**Kriteria selesai:** app menolak start dengan default tidak aman; token tidak pernah muncul di URL/log; jalur notifikasi scoring + assignment/reassignment berfungsi; health check mencerminkan status DB sebenarnya; tidak ada endpoint yang menulis skor BANT, mengubah status, atau mengedit proyek tanpa autentikasi dan cek akses.
-
----
-
-## Fase 1 — Menutup Partial yang Mudah (quick wins)
-
-**Tujuan:** menyelesaikan fitur yang sudah 80% jadi dengan perubahan kecil dan berisiko rendah.
-
-- [x] 1.1 **Fitur 2:** persist `estimasi_nilai` — tambah column + migration ke `Project`, simpan saat create, tampilkan di detail/edit. (fix **B4**)
-- [x] 1.2 **Fitur 7:** tambahkan `Requirement` ke `DocTypeEnum` dan constraint `CHECK` di DB; perbarui dropdown tipe dokumen di frontend. (`backend/app/schemas/document.py`, `backend/app/models/document.py`, migration, `frontend/src/components/DocumentForm.tsx`)
-- [ ] ~~1.3 **Fitur 9:** ganti tombol teks "Edit" dengan ikon pensil/edit di halaman detail proyek.~~ **Dibatalkan (2026-10-19):** premis keliru. Keluhan sebenarnya bukan soal tampilan tombol Edit, melainkan **tidak ada navigasi kembali ke halaman proyek dari subhalaman Dokumen & Activity Log** (halaman Edit sendiri sudah punya tombol "Batal"). Dilacak terpisah di `.agents/tasks/ux-project-subpages-no-back-nav/findings.md` dan dikerjakan di branch tersendiri dari `main`, bukan sebagai bagian Fase 1.
-
-**Kriteria selesai:** nilai opportunity tersimpan dan tampil; Requirement bisa dipilih sebagai tipe dokumen.
-
----
-
-## Fase 2 — Folder Provisioning & Assignment (fitur 5)
-
-**Tujuan:** men-wire provisioner yang sudah dibangun dan memperjelas alur Lead SA.
-
-- [x] 2.1 Ganti stub `_trigger_folder_provisioner` dengan pemanggilan nyata ke `FolderProvisioner.provision_project_folder`, termasuk handling retry/`Provisioning Failed` yang sudah didukung service. (fix **B2**) **Mendarat (#45):** `_trigger_folder_provisioner` membuka session baru via `AsyncSessionLocal()`, set `folder_provisioning_status='pending'`, panggil `provision_project_folder`, lalu persist `gdrive_folder_id` (master) + `gdrive_solutions_folder_id` + status `'provisioned'`; `FolderProvisioningError` (setelah retry internal service) → status `'failed'`, graceful (tidak menggagalkan transisi).
-- [x] 2.2 Hanya laporkan `folder_provisioning_triggered=True` saat provisioning benar-benar di-schedule; ekspos status provisioning di proyek agar badge "Folder Pending" berfungsi. **Mendarat (#45):** `AssignmentResponse.folder_provisioning_triggered` kini mencerminkan apakah task benar-benar dijadwalkan (variabel `folder_scheduled`, bukan hardcode `True`); `folder_provisioning_status` diekspos di response list/detail proyek + payload card, dan badge dashboard Lead_SA membacanya (pending/provisioned/failed).
-- [x] 2.3 **Fakta spec (bukan asumsi terbuka):** BANT ≥ 60% adalah gatekeeper kualifikasi — spec Flow 1 langkah 3 menetapkannya eksplisit, dan kode sudah mengimplementasikannya (`scoring_engine.apply_threshold()`: `score >= 60` → `Pending Assignment` + notifikasi Lead_SA; `< 60` → `Need Clarification`). Threshold ini **tidak** perlu dikonfirmasi lagi. **✅ Diputuskan (sesi grill, 2026-10-21):** **TIDAK** ada step "qualify" manual terpisah di atas gate otomatis — gate BANT ≥ 60% otomatis sudah memenuhi spec. Tidak perlu status/endpoint tambahan untuk ini.
-- [x] 2.4 Verifikasi end-to-end: assign → folder Drive dibuat dengan permission yang benar (Editor SA/Lead, Viewer Sales di Inventory) → `gdrive_folder_id` tersimpan. **Mendarat (#45):** diikat test (`backend/tests/test_assignment_folder_provisioning.py`, `test_reprovision_endpoint.py`, `test_folder_provisioner.py`): jalur sukses mem-persist `gdrive_folder_id` + `gdrive_solutions_folder_id` (ADR 0005) + status `'provisioned'`, jalur gagal → `'failed'` graceful; permission folder diverifikasi di test `FolderProvisioner` (semua I/O Drive di-mock di boundary). Endpoint re-provision `POST /projects/{id}/provision-folder` dengan null-guard idempotency (ADR 0006) + role-guard Lead_SA/Admin.
-
-**Kriteria selesai:** meng-assign SA benar-benar membuat tree folder Drive dengan permission yang benar, dengan state pending/failed yang terlihat.
-
----
-
-## Fase 2A — SLA DQ Number & Gating end-to-end (fitur 12)
-
-**Tujuan:** menyalakan Flow 2 (Dokumen, DQ Number & Gating) dari spec. Kode SLA (`backend/app/services/sla_timer.py`, `backend/app/api/sla.py`) dan read-gating DQ (`backend/app/api/dq_number.py`) sudah ada tapi tidak pernah berjalan karena tidak di-wire. **Ini wiring, bukan fitur baru dari nol** — effort rendah-menengah, tapi dampaknya besar (salah satu dari 4 flow inti). Bergantung pada Fase 2 (folder provisioning, B2) karena auto-lock folder Solutions butuh `gdrive_folder_id` yang terisi.
-
-> **Catatan (#45, kontrak Solutions id):** auto-lock/unlock SLA (2A.1–2A.4) baru benar end-to-end **setelah** kontrak Solutions id mendarat. Sebelumnya consumer (SLA lock/unlock, unlock `doc_ready`, dan `Final_Deliverables` handover) menyasar id folder **master** (`gdrive_folder_id`), sehingga Flow 2 laten salah folder. Kini consumer memakai `gdrive_solutions_folder_id` (ADR 0005), jadi lock/unlock benar-benar mengenai folder Solutions. Cabang **email** eskalasi SLA tetap belum tuntas — lihat 2A.5.
-
-- [x] 2A.1 Wire `sla_timer.start_timer(...)` di `assign_sa_to_project` (`backend/app/api/assignment.py`) setelah `assigned_at` di-set. (fix **B11**) Tanpa ini tidak ada row `SLATracking`, seluruh SLA mati.
-- [x] 2A.2 Jalankan `process_sla_actions()` secara otomatis berbasis waktu. (fix **B12**) **✅ Diputuskan (sesi grill, 2026-10-21):** pakai **background scheduler internal ringan** yang jalan saat startup backend untuk MVP single-instance (bukan cron eksternal). **Catatan:** pilihan ini tidak aman untuk multi-instance (tiap instance akan menduplikasi aksi SLA); saat scale-out pindah ke cron eksternal / leader-election. Lihat [`docs/adr/0003-sla-internal-scheduler-for-mvp.md`](adr/0003-sla-internal-scheduler-for-mvp.md).
-- [x] 2A.3 Emit `doc_ready` + buka permission Drive Solutions untuk Sales saat dokumen menjadi `Reviewed` dengan DQ terisi (cabang "<5 hari"). (fix **B13**) Sitasi: `backend/app/api/documents.py`, `backend/app/services/notification_service.py`. In-app sudah jalan; cabang email mengikuti T1 (2A.5).
-- [x] 2A.4 Verifikasi end-to-end: assign → timer start → (DQ belum diinput >5 hari) reminder H+3 + eskalasi H+5 + auto-lock Solutions; (dokumen Reviewed <5 hari) link Solutions terbuka untuk Sales + email. Diikat test E2E `backend/tests/test_flow2_e2e.py` (T5): kedua cabang + input DQ setelah lock → stop timer + auto-unlock, plus auto-lock di-skip graceful saat `gdrive_folder_id` kosong. Catatan (historis, ditutup oleh 2A.5): cabang **email** eskalasi SLA belum terbukti karena `_send_sla_reminder`/`_send_sla_escalation` menulis `NotificationLog` `in-app` langsung, tidak lewat `notification_service.send_notification` (jalur email) — lihat 2A.5.
-- [x] 2A.5 **Email/Gmail sebagai trigger (gap requirement, spec §4.C).** **Mendarat (#21):** T1 mengganti stub `send_email()` dengan Gmail API nyata; kini `_send_sla_reminder`/`_send_sla_escalation` (`backend/app/services/sla_timer.py`) tetap menulis `NotificationLog` in-app dalam transaksinya **dan** memicu email lewat `notification_service.dispatch_email_for_user` (reminder H+3 ke Sales; eskalasi H+5 ke Lead_SA/Admin + pemberitahuan lock ke Sales). Graceful: no-op tanpa Gmail, kegagalan email tidak menggagalkan `process_sla_actions`. Diikat `backend/tests/test_sla_email_trigger.py`. Catatan: terverifikasi dengan Gmail API di-mock; pengiriman nyata butuh `GMAIL_CREDENTIALS` + domain-wide delegation di environment.
-
-**Kriteria selesai:** assignment benar-benar memulai SLA timer; reminder/eskalasi/auto-lock berjalan otomatis berbasis waktu (atau via cron terdokumentasi); dokumen `Reviewed` membuka akses Solutions untuk Sales dan memicu `doc_ready`; email trigger benar-benar terkirim via Gmail API (bukan stub).
-
----
-
-## Fase 3 — Integrasi Due Date dengan Calendar (fitur 8) — ⏸️ DITUNDA (pasca-MVP)
-
-**Status:** **Ditunda keluar dari MVP (keputusan sesi grill, 2026-10-26).** Calendar tetap **read-only** untuk MVP (fitur sync/map event yang sudah ada). Push due date → Calendar tidak diimplementasikan sekarang karena push yang benar ("event di calendar SA yang di-assign") menuntut penyimpanan refresh token OAuth per-user server-side — permukaan keamanan baru yang signifikan dan bertentangan dengan arah Fase 0. Lihat [`docs/adr/0007-defer-calendar-push-to-post-mvp.md`](adr/0007-defer-calendar-push-to-post-mvp.md). Dilacak sebagai spec deferral di issue tracker.
-
-**Tujuan (saat dikerjakan nanti, "opsi b"):** menghubungkan `target_submit` dengan Google Calendar via push satu arah ke calendar SA yang di-assign, dengan token per-user tersimpan server-side.
-
-- [ ] 3.1 **✅ Diputuskan (sesi grill, 2026-10-21):** push **SATU ARAH** — due date proyek (`target_submit`) → event calendar SA yang di-assign. Edit due date meng-update event tertaut; proyek close/lost menghapus event. Bukan sync dua arah. **(Ditunda pasca-MVP per keputusan 2026-10-26.)**
-- [ ] 3.2 Perluas `CalendarService` dengan create/update event; simpan refresh token calendar per-user server-side agar server bisa menulis ke calendar SA tanpa SA online. Tambah kolom `gcal_duedate_event_id` di `Project`.
-- [ ] 3.3 Saat due date di-edit, update event tertaut; saat proyek close/lost/selesai, **hapus event yang tanggalnya belum terlewati** (event bertanggal masa lalu dibiarkan sebagai jejak), kosongkan `gcal_duedate_event_id` hanya saat event benar-benar dihapus; penghapusan gagal degrade dengan baik (log, jangan gagalkan transisi status).
-- [ ] 3.4 Re-assignment memigrasi event antar-calendar (hapus di SA lama, buat di SA baru). Handle kasus tanpa token calendar dengan baik.
-
-**Kriteria selesai (pasca-MVP):** meng-set atau meng-edit due date proyek tercermin di Google Calendar SA yang di-assign; ketiadaan token degrade dengan baik; re-assignment memindahkan event.
-
----
-
-## Fase 4 — Subtask yang Bisa Di-assign (fitur 6)
-
-**Tujuan:** mengubah "subtask" dari kategori activity-log bebas pilih menjadi work item yang nyata dan bisa di-track. **Ini perubahan model** — effort lebih besar.
-
-- [x] 4.1 Tambah entity `Subtask`: `id`, `id_project`, `title`/`category`, `assigned_sa`, `status` (open → in_progress → done), timestamp. Migration + model + schema.
-- [x] 4.2 Endpoint: buat subtask (Lead SA / template), list per proyek, update status, assign/reassign ke SA.
-- [x] 4.3 Tautkan `ActivityLog` ke subtask (FK `id_subtask` opsional) agar mencatat aktivitas bisa memajukan/menutup subtask ("respons subtask"). **Mendarat (T2):** activity log pertama terhadap subtask `open` memajukannya ke `in_progress` dengan validasi scope `id_project`; `done` selalu eksplisit (ADR 0008).
-- [x] 4.4 **✅ Diputuskan (sesi grill, 2026-10-21):** **YA** — meng-assign proyek otomatis men-seed checklist subtask default (mis. Requirement → BoQ → PropTek → HLD) dari template. Lead SA tetap bisa menambah/menghapus subtask secara manual. **Mendarat (T1):** keempat subtask default langsung ditugaskan ke SA proyek (`assigned_sa`), seeding idempoten pada re-assign.
-- [x] 4.5 Frontend: tampilan to-do list subtask yang di-assign ke SA; UX mencatat aktivitas terhadap subtask; manajemen subtask untuk Lead SA. **Mendarat (T3):** section Subtask di `projects/[id]` (`frontend/src/components/SubtaskSection.tsx`) dengan kontrol per-role — SA melihat to-do list miliknya + tombol "Tandai selesai"; Lead_SA/Admin bisa tambah/hapus/assign-ulang; badge status per item + ringkasan "N/M selesai" di header.
-
-**Kriteria selesai:** SA melihat to-do list subtask, mencatat aktivitas terhadap salah satunya, dan subtask berubah status.
-
----
-
-## Fase 5 — Form Pertanyaan Awal (fitur 3)
-
-**Tujuan:** intake kualifikasi terstruktur saat pembuatan opportunity, dan dokumen Requirement turunan AI sebagai baseline Fase 6. **Dipecah dua (keputusan sesi grill, 2026-11-10):** 5A (kuesioner + skor di backend) dan 5B (generate Requirement). Spec: [#24](https://github.com/NikkiSatmaka/sa-apps/issues/24) (5A), [#25](https://github.com/NikkiSatmaka/sa-apps/issues/25) (5B). Tiket: #26–#37.
-
-### Fase 5A — Kuesioner kualifikasi (spec #24)
-
-- [x] 5.1 ✅ **Diputuskan (2026-11-10):** set pertanyaan **tetap** di kode untuk MVP (12 pertanyaan, 6 wajib), jawaban disimpan bersama `schema_version` agar bisa dikonfigurasi admin kelak (backlog pasca-MVP).
-- [x] 5.2 Skema jawaban (JSONB di proyek) + rubrik skor deterministik **di backend**; `score-manual` dibatasi sebagai override Lead SA/Admin. Lihat [`docs/adr/0010-bant-score-computed-in-backend.md`](adr/0010-bant-score-computed-in-backend.md). Tiket #26, #28, #30.
-- [x] 5.3 Frontend: `projects/new` menjadi form dua langkah (data dasar + file, lalu kuesioner) dengan satu pengiriman; form manual BANT dihapus; detail/edit proyek menampilkan jawaban dan data legacy. Tiket #26, #29, #32.
-- [x] 5.3a Source document: tipe MoM/RFP per file + ekstraksi teks via LLM disimpan di DB (bahan Requirement). Tiket #31.
-- ~~5.4 (Opsional AI) pertanyaan klarifikasi yang di-generate AI.~~ **Ditunda pasca-MVP (2026-11-10):** bertanda opsional dan Fase 6 tidak bergantung padanya. Jalan keluar `Need Clarification` ditangani 5A lewat edit kuesioner + re-score (#32).
-
-**Status 5A:** terimplementasi di branch `feat/phase-5a-kuesioner-kualifikasi` (tiket #26, #28–#32); migration 010–012 baru diverifikasi lewat SQL offline (upgrade/downgrade di database nyata belum dijalankan); Gemini di-mock pada test.
-
-**Kriteria selesai 5A:** Sales mengisi kuesioner saat membuat opportunity; skor BANT dihitung backend (rubrik + gabungan AI max per kriteria); `Need Clarification` bisa diperbaiki dan dinilai ulang; Lead SA bisa override dengan alasan tercatat; teks MoM/RFP tersimpan sebagai Source document.
-
-### Fase 5B — Generate dokumen Requirement (spec #25)
-
-- [x] 5.5 **Generate dokumen Requirement (summary turunan AI).** Dokumen `Requirement` BUKAN file yang di-upload user, melainkan **konten turunan**: daftar butir terstruktur (`kategori` + `butir`) yang di-generate Gemini dari **kuesioner + Source document (MoM/RFP)**, disimpan sebagai `Document` dengan `doc_type="Requirement"` (`gdrive_link` nullable lewat CHECK khusus Requirement, `folder_type=Inventory`), muncul di daftar dokumen proyek dan menjadi baseline Fase 6. Di-generate otomatis saat proyek pertama kali lolos gate; di-resummarize saat `source_hash` berubah. **Keputusan (2026-10-19, product owner):** derived content, bukan upload; di-resummarize saat source berubah; hidup di tabel `Document`. **✅ Diputuskan (sesi grill, 2026-10-21):** SA **BOLEH** meng-edit/override hasil generate, ditandai flag `is_overridden`; saat source berubah dan sudah di-override, re-summarize **tidak** menimpa diam-diam — notifikasi dan konfirmasi dulu. Lihat [`docs/adr/0004-requirement-override-blocks-silent-resummarize.md`](adr/0004-requirement-override-blocks-silent-resummarize.md). Tiket #33–#37.
-
-**Status 5B:** terimplementasi (tiket #33–#37); migration 014–015 baru diverifikasi lewat SQL offline (upgrade/downgrade di database nyata belum dijalankan); Gemini di-mock pada test.
-
-**Kriteria selesai 5B:** proyek yang lolos gate memiliki dokumen Requirement terstruktur yang di-resummarize saat sumber berubah (kecuali sudah di-override, yang memunculkan notifikasi dan konfirmasi).
-
-**Kriteria selesai Fase 5:** 5A dan 5B selesai.
-
-> **Catatan Drive:** persistensi file MoM/RFP ke Google Drive (staging folder lalu dipindah ke `Inventory`) **belum** termasuk Fase 5 dan menunggu verifikasi Drive nyata ([#27](https://github.com/NikkiSatmaka/sa-apps/issues/27)). Untuk sekarang hanya teks ekstraksi yang disimpan di DB.
-
----
-
-## Fase 6 — BoQ Compare vs Requirement (fitur 10) — ⏸ dikerjakan setelah Fase 9 (keputusan 2026-11-13)
-
-**Tujuan:** analisis gap bertenaga AI antara dokumen Requirement dan dokumen BoQ. **Fitur baru dengan kompleksitas tertinggi** — bergantung pada Fase 1.2 (tipe dokumen `Requirement` di enum), **Fase 5.5 (konten Requirement turunan AI di-generate dari MoM/RFP + field Sales)**, dan guardrails dari Fase 7. Catatan model: dokumen Requirement adalah summary turunan (lihat 5.5), bukan upload customer — jadi perbandingan selalu punya baseline terstruktur untuk dibandingkan, meski customer tidak memberi file requirement formal.
-
-- [ ] 6.1 Service: diberi dokumen `Requirement` (summary turunan dari Fase 5.5) dan dokumen BoQ sebuah proyek, kirim keduanya ke Gemini via path multimodal `parse_document` / `structure_text` yang sudah ada.
-- [ ] 6.2 Definisikan schema output terstruktur: `covered[]`, `missing[]`, `extra[]`, dan `coverage_percentage`.
-- [ ] 6.3 Endpoint `GET/POST /projects/{id}/boq-compare`; persist hasil comparison terbaru untuk proyek.
-- [ ] 6.4 Frontend: tampilan comparison yang menunjukkan item covered/missing/extra dan skor coverage, dengan tombol run ulang.
-- [ ] 6.5 Handle edge case: Requirement belum di-generate (belum ada MoM/RFP/field Sales), BoQ tidak ada, atau LLM gagal (pakai ulang pola retry scoring engine).
-
-**Kriteria selesai:** memilih Requirement + BoQ untuk sebuah proyek mengembalikan analisis gap terstruktur dengan skor coverage, dirender di UI.
-
----
-
-## Fase 7 — Guardrails LLM (fitur 11, sisanya)
-
-**Tujuan:** lapisan keamanan di sekitar semua pemanggilan Gemini. (Hardening auth sudah dikerjakan di Fase 0.) Sebaiknya mendarat sebelum/bersama Fase 6 karena fitur itu mengirim dokumen utuh ke LLM.
-
-- [x] 7.1 Input safety: batas ukuran/konten dan mitigasi prompt-injection sebelum pemanggilan di `scoring_engine.py` / `activity_logger.py` / `activity_logs.py` (size/byte clamp + delimiter-wrap + neutralize).
-- [x] 7.2 Output validation: paksa schema JSON yang diharapkan pada response terstruktur; tolak/retry pada output malformed atau di luar kontrak (`validate_llm_json` + Pydantic contracts).
-- [x] 7.3 **Keputusan diambil:** handling PII memakai flag-and-log untuk MVP (regex Indonesia-centric, tanpa redaction, tanpa nilai mentah di log); redaction ditunda.
-- [x] 7.4 Sentralisasi guardrails dalam satu module `backend/app/utils/guardrails.py` yang dilewati setiap Call_Site LLM.
-
-**Kriteria selesai:** tidak ada konten user yang sampai ke Gemini tanpa melewati guardrail input; semua output terstruktur tervalidasi schema.
-
----
-
-## Fase 8A — Role dan Akses (fitur 13)
-
-**Tujuan:** satu role fungsional per user plus flag `is_admin`, dan role `Product`. Prasyarat Fase 8B. Lihat [ADR 0012](adr/0012-role-fungsional-tunggal-dan-flag-admin.md).
-
-- [x] 8A.1 (#114, PR #128) Migration + model: `role` ∈ `Sales, Product, SA, Lead_SA`; kolom `is_admin` (default `false`); user berrole `Admin` dimigrasi ke `is_admin = true` dengan role fungsional yang dipilih. Test upgrade, downgrade, dan constraint.
-- [x] 8A.2 `privileged` = `role == Lead_SA or is_admin`; semua cek `role in ("Lead_SA", "Admin")` dan `Admin` di backend (74 pemakaian `.role` di 21 file) dan frontend (~30 file) diganti; endpoint admin memakai `is_admin`. **Frontend selesai di #116** (`frontend/src/lib/roles.ts` memusatkan pengecekan hak; persona test `Admin` = SA + `is_admin`).
-- [x] 8A.3 (#115) Kandidat dan validasi `assigned_sa`: `SA` dan `Lead_SA` (satu himpunan; hapus `sa_user.role != "SA"`).
-- [x] 8A.4 Role gate `POST /projects`: `Sales`, `Product`, `Lead_SA`, `is_admin`; `SA` ditolak (menyelesaikan poin #96).
-- [x] 8A.5 `Product` memakai tingkat izin yang sama dengan `Sales` di `_ATURAN`.
-
-**Kriteria selesai:** dev bisa ditugaskan sebagai SA dengan `is_admin`; Product bisa membuat dan memantau project; tidak ada nilai `Admin` di enum role.
-
----
-
-## Fase 8B — Orang per Project dan Multi-SA (fitur 13)
-
-**Tujuan:** `product_pic` wajib, `sales_pic` opsional, `lead_sa`, `created_by`, SA tambahan, dan akses Drive/SLA/notifikasi yang mengikuti orang yang ditugaskan. Lihat [ADR 0014](adr/0014-orang-per-project-dan-multi-sa.md) dan [ADR 0015](adr/0015-matriks-akses-drive-dan-gate-dq.md). Sebaiknya dikerjakan setelah verifikasi Drive nyata (#27).
-
-- [x] 8B.1 Migration + model: `created_by`, `product_pic` (wajib), `sales_pic` nullable, `lead_sa`; tabel `ProjectAssignments`. Test migration. _Kolom orang di #117 (migration 018); tabel `project_assignments` di #119 (migration 019)._
-- [ ] 8B.2 Pembuatan project mengisi `created_by`/`product_pic`; Sales memilih Product; `lead_sa` terisi saat assign. _Sebagian (#117): pembuatan project dan form frontend selesai; `lead_sa` terisi saat assign selesai (#118)._
-- [ ] 8B.3 Endpoint Lead_SA/Admin untuk mengganti `product_pic`/`sales_pic`/`lead_sa` dan menambah, melepas, mengganti SA utama/tambahan; aturan "minimal satu SA setelah `Assigned`"; audit log. _Sebagian: `PATCH /projects/{id}/people` + audit `people_change` + UI (#118); `GET/POST /projects/{id}/tim-sa`, `DELETE .../tim-sa/{user_id}`, `PUT .../tim-sa/utama`, minimal satu SA, audit log, UI "Tim SA" (#119). Sisa: pilihan Lead SA di UI assign._
-- [ ] 8B.4 `_ATURAN` per hubungan (id) pada semua field orang dan `ProjectAssignments`; "SA ditugaskan" = SA utama atau tambahan; hak SA tambahan setara SA utama. _Sebagian (#119): "SA ditugaskan" = SA utama atau tambahan, hak setara teruji lewat matriks rute; hubungan `lead_sa` menunggu Orang-2/Orang-4._
-- [ ] 8B.5 Drive: Viewer `Inventory` untuk Sales **dan Product**; Viewer `Solutions` untuk keduanya setelah DQ terisi; penggantian orang mencabut dan memberi akses; cek apakah contributor saat ini mendapat Editor.
-- [ ] 8B.6 SLA dan notifikasi: reminder H+3 ke Sales dan Product (Product saja bila tanpa Sales); eskalasi H+5 ke `lead_sa` dan semua `is_admin`; `Need Clarification` ke `created_by`, `product_pic`, `sales_pic`; notifikasi "buat HLD" ke semua SA; DQ boleh diisi Sales, Product, Lead_SA; validasi format `dq_number` di PATCH (#96).
-- [x] 8B.7 Subtask: assignee harus SA project (utama/tambahan) atau Lead_SA. _(#119)_
-
-**Kriteria selesai:** project tanpa Sales berjalan penuh; dua SA bisa bekerja di satu project dengan hak setara; mengganti orang memindahkan akses Drive dan timer SLA tidak direset.
-
----
-
-## Fase 8C — Model Status (fitur 14)
-
-**Tujuan:** menerapkan [ADR 0013](adr/0013-model-status-dua-field.md): `status` siklus kerja + `qualification_state`. Dikerjakan setelah 8A dan 8B karena menyentuh `workflow.py` dan `_ATURAN` yang sama.
-
-- [ ] 8C.1 Migration + model: enum `status` baru, `qualification_state`, `previous_status`, `lost_reason`; pemetaan data lama; test upgrade, downgrade, dan constraint.
-- [ ] 8C.2 State machine dan hak per transisi sesuai tabel spec §2.0 (`Submitted` butuh PropTek/BOQ/Mandays ≥ `Reviewed`; `Handed Over` hanya lewat handover; `Closed`/`Lost` read-only; buka kembali hanya `is_admin`).
-- [ ] 8C.3 `In Progress` otomatis dari activity log atau subtask `in_progress` pertama.
-- [ ] 8C.4 `On Hold` dan lanjut; timer SLA berhenti selama `On Hold`.
-- [ ] 8C.5 `scoring_engine.apply_threshold` dan notifikasi memakai `qualification_state`; `Won` memicu notifikasi HLD ke semua SA; `Closed` membuat subtask dan log read-only.
-- [ ] 8C.6 Frontend: badge, filter, dan aksi status mengikuti nama dan hak baru.
-
-**Kriteria selesai:** tidak ada nama status lama di kode atau UI; semua transisi di spec §2.0 punya test.
-
----
-
-## Fase 9 — Inti Tracker dan Workload (fitur 15)
-
-**Tujuan:** menjadikan portal tracker yang berguna untuk manajemen project sehari-hari. Lihat spec §2.5.
-
-- [ ] 9.1 Subtask: `description`, `due_date`, `estimate_hours` (migration + API + UI).
-- [ ] 9.2 Komentar project (`ProjectComments`): tulis oleh orang yang ditugaskan dan Admin, baca semua pengguna, notifikasi komentar baru.
-- [ ] 9.3 "Tugas saya" lintas project untuk SA/Lead_SA.
-- [ ] 9.4 Dashboard requester bersama untuk Sales dan Product.
-- [ ] 9.5 Filter `involved=me` untuk semua peran di daftar proyek (menggantikan `sales_pic=me`/`assigned_to=me`; revisi issue #109).
-- [ ] 9.6 Tampilan Lead_SA: beban SA, due date, project macet, project yang butuh aksi.
-
-**Kriteria selesai:** Lead_SA dapat menjawab "siapa yang overload" dan "apa yang terlambat atau butuh aksi" dari satu layar; Sales/Product bisa bertanya ke SA lewat komentar.
+## Berkas per Fase
+
+Rincian tiap fase (checkbox, kriteria selesai) ada di berkas sendiri. Buka hanya berkas fase yang dikerjakan.
+
+| Fase |
+|------|
+| [Fase 0 — Hardening Keamanan & Correctness (bagian dari Guardrails, fitur 11)](roadmap/fase-0.md) |
+| [Fase 1 — Menutup Partial yang Mudah (quick wins)](roadmap/fase-1.md) |
+| [Fase 2 — Folder Provisioning & Assignment (fitur 5)](roadmap/fase-2.md) |
+| [Fase 2A — SLA DQ Number & Gating end-to-end (fitur 12)](roadmap/fase-2a.md) |
+| [Fase 3 — Integrasi Due Date dengan Calendar (fitur 8) — ⏸️ DITUNDA (pasca-MVP)](roadmap/fase-3.md) |
+| [Fase 4 — Subtask yang Bisa Di-assign (fitur 6)](roadmap/fase-4.md) |
+| [Fase 5 — Form Pertanyaan Awal (fitur 3)](roadmap/fase-5.md) |
+| [Fase 6 — BoQ Compare vs Requirement (fitur 10) — ⏸ dikerjakan setelah Fase 9 (keputusan 2026-11-13)](roadmap/fase-6.md) |
+| [Fase 7 — Guardrails LLM (fitur 11, sisanya)](roadmap/fase-7.md) |
+| [Fase 8A — Role dan Akses (fitur 13)](roadmap/fase-8a.md) |
+| [Fase 8B — Orang per Project dan Multi-SA (fitur 13)](roadmap/fase-8b.md) |
+| [Fase 8C — Model Status (fitur 14)](roadmap/fase-8c.md) |
+| [Fase 9 — Inti Tracker dan Workload (fitur 15)](roadmap/fase-9.md) |
 
 ---
 

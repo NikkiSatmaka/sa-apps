@@ -250,13 +250,13 @@ Image Docker dirilis ke registry via `mise run publish [backend|frontend]` (wrap
 <!-- BEGIN: current-overhaul-workflow (sementara — hapus ketika overhaul MVP selesai) -->
 ## Workflow Overhaul Saat Ini (sementara)
 
-_Ditambahkan 2026-10-12. Bagian ini mendokumentasikan proses untuk overhaul MVP yang sedang berjalan, dilacak di [`docs/ROADMAP.md`](docs/ROADMAP.md). Hapus bagian ini begitu overhaul mendarat._
+_Ditambahkan 2026-10-12. Bagian ini mendokumentasikan proses untuk overhaul MVP yang sedang berjalan, dilacak di [`docs/ROADMAP.md`](docs/ROADMAP.md) (indeks; rincian per fase di `docs/roadmap/`). Hapus bagian ini begitu overhaul mendarat._
 
 Overhaul dikerjakan **satu fase roadmap per branch**:
 
 - Nama branch: `feat/phase-<N>-<slug>` (mis. `feat/phase-0-security-hardening`), di-branch dari `main` terbaru.
 - Scope: satu fase per branch — bisa di-review dan di-revert sebagai satu unit. Fase berikutnya di-branch hanya setelah fase sebelumnya di-merge ke `main`.
-- Setiap fase diverifikasi terhadap **kriteria selesai**-nya di `docs/ROADMAP.md` sebelum PR dibuka.
+- Setiap fase diverifikasi terhadap **kriteria selesai**-nya di `docs/roadmap/fase-<N>.md` sebelum PR dibuka.
 - Checkbox roadmap (`- [ ]` → `- [x]`) di-update di branch yang sama dengan pekerjaan yang di-track-nya, agar roadmap tetap menjadi progress tracker yang hidup.
 - Pacing: satu fase per waktu. Sebuah fase diselesaikan dan di-review sebelum fase berikutnya dimulai. Fase yang independen (sesuai diagram dependency di roadmap) hanya di-parallelize atas kesepakatan eksplisit.
 

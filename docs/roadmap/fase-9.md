@@ -8,7 +8,7 @@
 - [x] 9.2 Komentar project (`ProjectComments`): tulis oleh orang yang ditugaskan dan Admin, baca semua pengguna, notifikasi komentar baru.
 - [ ] 9.3 "Tugas saya" lintas project untuk SA/Lead_SA.
 - [ ] 9.4 Dashboard requester bersama untuk Sales dan Product.
-- [ ] 9.5 Filter `involved=me` untuk semua peran di daftar proyek (menggantikan `sales_pic=me`/`assigned_to=me`; revisi issue #109).
+- [ ] 9.5 Filter `involved=me` untuk semua peran di daftar proyek (menggantikan `sales_pic=me`/`assigned_to=me`; revisi issue #109). Alias lama dipensiunkan di #155: dashboard SA pindah ke `involved=me`; backend menjawab 422 bila `sales_pic`/`assigned_to` dikirim.
 - [ ] 9.6 Tampilan Lead_SA: beban SA, due date, project macet, project yang butuh aksi.
 
 **Kriteria selesai:** Lead_SA dapat menjawab "siapa yang overload" dan "apa yang terlambat atau butuh aksi" dari satu layar; Sales/Product bisa bertanya ke SA lewat komentar.

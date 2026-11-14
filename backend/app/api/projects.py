@@ -20,6 +20,7 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     status,
 )
@@ -84,6 +85,21 @@ def _terlibat(user_id: uuid.UUID):
             select(ProjectCollaborator.id_project).where(ProjectCollaborator.user_id == user_id)
         ),
     )
+
+
+_PARAM_ALIAS_PENSIUN = ("sales_pic", "assigned_to")
+
+
+def _tolak_param_lama(request: Request) -> None:
+    """Alias `sales_pic=me` / `assigned_to=me` dipensiunkan (#155), diganti `involved=me`.
+    Tanpa penolakan, FastAPI mengabaikan param tak dikenal dan klien lama diam-diam menerima
+    SEMUA proyek sebagai "proyek saya"; jadi dijawab 422 yang menyebut penggantinya."""
+    dipakai = [k for k in _PARAM_ALIAS_PENSIUN if k in request.query_params]
+    if dipakai:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Parameter {', '.join(dipakai)} sudah dihapus; gunakan involved=me.",
+        )
 
 
 # Konstanta file upload
@@ -308,12 +324,6 @@ async def _tentukan_orang(
     ),
 )
 async def list_projects(
-    sales_pic: Optional[str] = Query(
-        None, description="Filter: 'me' untuk proyek milik user login"
-    ),
-    assigned_to: Optional[str] = Query(
-        None, description="Filter: 'me' untuk proyek yang ditugaskan ke user login"
-    ),
     involved: Optional[str] = Query(
         None, description="Filter: 'me' untuk proyek yang melibatkan user login (semua peran)"
     ),
@@ -324,6 +334,7 @@ async def list_projects(
         "-updated_at", description="Sort: field name, prefix '-' untuk desc"
     ),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(_tolak_param_lama),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -331,8 +342,6 @@ async def list_projects(
 
     Filter:
     - involved=me → proyek yang melibatkan user saat ini (semua peran, ADR 0014)
-    - sales_pic=me → proyek yang dibuat oleh user saat ini
-    - assigned_to=me → proyek yang ditugaskan ke user saat ini
     - status=<value> → filter berdasarkan status
 
     Sort:
@@ -343,18 +352,10 @@ async def list_projects(
     query = select(Project)
 
     # Semua proyek dapat dilihat semua pengguna terautentikasi (keputusan 2026-11-10); hanya akses
-    # TULIS yang dibatasi. Query param sales_pic=me / assigned_to=me hanyalah penyempit opsional.
-    # Penyempit opsional dari query param (hanya mempersempit, tidak memperluas akses)
+    # TULIS yang dibatasi. Query param `involved=me` hanyalah penyempit opsional (hanya
+    # mempersempit, tidak memperluas akses).
     if involved == "me":
         query = query.where(_terlibat(current_user.id))
-    elif sales_pic == "me":
-        # Product PIC setara Sales PIC (ADR 0012/0014). Dipertahankan untuk kompatibilitas;
-        # UI memakai `involved=me` (#109).
-        query = query.where(
-            or_(Project.sales_pic == current_user.id, Project.product_pic == current_user.id)
-        )
-    elif assigned_to == "me":
-        query = query.where(_sa_ditugaskan_ke(current_user.id))
 
     # Filter status
     if status_filter:
@@ -420,16 +421,11 @@ async def list_projects(
     description="Mengembalikan count proyek per status untuk overview dashboard.",
 )
 async def get_status_summary(
-    sales_pic: Optional[str] = Query(
-        None, description="Filter: 'me' untuk proyek milik user login"
-    ),
-    assigned_to: Optional[str] = Query(
-        None, description="Filter: 'me' untuk proyek yang ditugaskan ke user login"
-    ),
     involved: Optional[str] = Query(
         None, description="Filter: 'me' untuk proyek yang melibatkan user login (semua peran)"
     ),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(_tolak_param_lama),
     db: AsyncSession = Depends(get_db),
 ):
     """Hitung jumlah proyek per status, dengan filter berbasis role."""
@@ -439,13 +435,6 @@ async def get_status_summary(
     # Penyempit opsional dari query param
     if involved == "me":
         query = query.where(_terlibat(current_user.id))
-    elif sales_pic == "me":
-        # Product PIC setara Sales PIC (ADR 0012/0014); dipertahankan untuk kompatibilitas.
-        query = query.where(
-            or_(Project.sales_pic == current_user.id, Project.product_pic == current_user.id)
-        )
-    elif assigned_to == "me":
-        query = query.where(_sa_ditugaskan_ke(current_user.id))
 
     result = await db.execute(
         query.group_by(Project.status).order_by(func.count(Project.id_project).desc())

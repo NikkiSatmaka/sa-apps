@@ -45,8 +45,8 @@ Referensi lengkap API backend Portal SA. Disusun dari router di `backend/app/api
 | Method & Path | Auth / Role | Request | Response | Purpose |
 |---|---|---|---|---|
 | `POST /projects` | `get_current_user` (Sales/SA/Lead_SA) | multipart form: `project_name`, `customer_name`, `target_submit`, `estimasi_nilai`, `dq_number?`, `files[]` (PDF/DOCX, max 20MB, max 5) | `ProjectResponse` + hasil upload per file | Buat opportunity baru (status `New`), trigger scoring async. **`estimasi_nilai` divalidasi tapi tidak dipersist (B4).** |
-| `GET /projects` | `get_current_user` (scoped by role) | query `sales_pic`, `assigned_to`, `status`, `sort` | array ringkasan proyek | Daftar proyek. Lead_SA/Admin lihat semua; Sales/SA lihat proyek terkait + collaborator (scoping server-side). |
-| `GET /projects/status-summary` | `get_current_user` (scoped) | query `sales_pic`, `assigned_to` | `[{status, count}]` | Ringkasan jumlah proyek per status. |
+| `GET /projects` | `get_current_user` (scoped by role) | query `involved` (`me`), `status`, `sort` | array ringkasan proyek | Daftar proyek. Lead_SA/Admin lihat semua; Sales/SA lihat proyek terkait + collaborator (scoping server-side). |
+| `GET /projects/status-summary` | `get_current_user` (scoped) | query `involved` (`me`) | `[{status, count}]` | Ringkasan jumlah proyek per status. `sales_pic`/`assigned_to` dipensiunkan (#155): dijawab 422. |
 | `GET /projects/{project_id}` | `get_current_user` + cek akses (privileged/sales_pic/assigned_sa/collaborator) | — | detail proyek + PIC + collaborators | Detail satu proyek. 403 jika tidak punya akses. |
 | `PATCH /projects/{project_id}` | `get_current_user` | body dict (`project_name`, `customer_name`, `dq_number`, `target_submit`, `bant_detail`) | `{id_project, status}` | Update field proyek. **Catatan risiko: tidak ada pengecekan role/akses eksplisit di handler ini.** |
 | `DELETE /projects/{project_id}` | `get_current_user` (Lead_SA/Admin) | — | `{id_project}` | Hapus proyek. |

@@ -81,6 +81,15 @@ describe("TugasSayaSection", () => {
     expect(dicatat[0].get("sertakan_project_selesai")).toBeNull();
   });
 
+  it("checkbox project selesai memakai ukuran 18px dan label target 44px", async () => {
+    serve();
+    renderWithProviders(<TugasSayaSection />, { role: "SA" });
+    const checkbox = await screen.findByRole("checkbox", { name: "Sertakan project Closed/Lost" });
+
+    expect(checkbox).toHaveClass("h-[18px]", "w-[18px]", "min-h-[18px]", "min-w-[18px]");
+    expect(checkbox.closest("label")).toHaveClass("min-h-[44px]");
+  });
+
   it("filter status mengirim ?status= lalu memuat ulang daftar", async () => {
     const dicatat: URLSearchParams[] = [];
     server.use(

@@ -105,11 +105,12 @@ export function TugasSayaSection() {
               ))}
             </select>
           </div>
-          <label className="flex items-center gap-2 text-sm text-neutral-600 min-h-[36px]">
+          <label className="flex items-center gap-2 text-sm text-neutral-600 min-h-[44px]">
             <input
               type="checkbox"
               checked={sertakanSelesai}
               onChange={(e) => setSertakanSelesai(e.target.checked)}
+              className="h-[18px] w-[18px] min-h-[18px] min-w-[18px] shrink-0 accent-primary-600"
             />
             Sertakan project Closed/Lost
           </label>

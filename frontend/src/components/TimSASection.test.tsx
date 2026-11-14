@@ -47,6 +47,18 @@ describe("TimSASection — tampilan", () => {
     },
   );
 
+  it("checkbox pertahankan SA memakai ukuran 18px dan label target 44px", async () => {
+    serve();
+    const { user } = setup("Admin");
+    await user.click(await screen.findByRole("button", { name: "Ganti SA utama" }));
+    const checkbox = screen.getByRole("checkbox", {
+      name: "Pertahankan Andi Utama sebagai SA tambahan",
+    });
+
+    expect(checkbox).toHaveClass("h-[18px]", "w-[18px]", "min-h-[18px]", "min-w-[18px]");
+    expect(checkbox.closest("label")).toHaveClass("min-h-[44px]");
+  });
+
   it.each(["Sales", "Product", "SA"] as const)("%s tidak melihat kontrol kelola tim dan tidak memuat /sa/available", async (role) => {
     serve();
     let dipanggil = false;

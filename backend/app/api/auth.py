@@ -103,12 +103,12 @@ DEMO_USERS = {
         "name": "Demo Product",
         "google_id": "demo-google-id-product",
     },
-    # Persona Admin = SA dengan flag admin (admin menempel pada satu role fungsional, ADR 0012).
+    # Persona Admin = Lead_SA dengan flag admin (admin menempel pada role fungsional, ADR 0012).
     "Admin": {
         "email": "demo-admin@portal-sa.local",
         "name": "Demo Admin",
         "google_id": "demo-google-id-admin",
-        "role": "SA",
+        "role": "Lead_SA",
         "is_admin": True,
     },
 }

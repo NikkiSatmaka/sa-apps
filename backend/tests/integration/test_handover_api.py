@@ -577,7 +577,12 @@ async def test_handover_drive_gagal_status_tetap_dan_sa_serta_lead_sa_diberitahu
     ).scalars().all() == []
     notif = await notifikasi(db_session, event_type="status_change", reference_id=proyek.id_project)
     penerima = {n.recipient_user_id for n in notif}
-    assert penerima == {dunia.user["SA"].id, dunia.user["Lead_SA"].id, lead_lain.id}
+    assert penerima == {
+        dunia.user["SA"].id,
+        dunia.user["Lead_SA"].id,
+        dunia.user["Admin"].id,
+        lead_lain.id,
+    }
     for n in notif:
         assert n.notification_metadata["status"] == "Handover Failed"
         assert n.notification_metadata["error"] == "kuota Drive habis"
@@ -597,7 +602,10 @@ async def test_handover_drive_gagal_tanpa_sa_ditugaskan_hanya_lead_sa_diberitahu
 
     assert resp.status_code == 400
     notif = await notifikasi(db_session, event_type="status_change", reference_id=proyek.id_project)
-    assert [n.recipient_user_id for n in notif] == [dunia.user["Lead_SA"].id]
+    assert {n.recipient_user_id for n in notif} == {
+        dunia.user["Lead_SA"].id,
+        dunia.user["Admin"].id,
+    }
 
 
 async def test_handover_drive_pulih_setelah_gagal_sekali_dapat_dicoba_ulang(

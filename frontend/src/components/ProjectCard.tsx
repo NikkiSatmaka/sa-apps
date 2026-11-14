@@ -35,6 +35,10 @@ export interface ProjectCardProps {
   slaDaysElapsed?: number | null;
   /** Apakah folder Solutions terkunci (SLA auto-lock) */
   slaIsLocked?: boolean;
+  /** qualification_state (hanya ditampilkan saat Intake) */
+  qualificationState?: string | null;
+  /** Apakah timer SLA dijeda (On Hold) */
+  slaIsPaused?: boolean;
   /** Callback saat card diklik */
   onClick?: () => void;
 }

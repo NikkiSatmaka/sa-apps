@@ -28,3 +28,19 @@ describe("SLABadge", () => {
     expect(screen.getByLabelText(/SLA countdown/)).not.toHaveAttribute("title", expect.stringContaining("terkunci"));
   });
 });
+
+describe("SLABadge — timer dijeda (On Hold)", () => {
+  it("menandai dijeda di teks, label, dan title", () => {
+    render(<SLABadge daysElapsed={3} isLocked={false} isPaused />);
+    const badge = screen.getByLabelText("SLA countdown: H+3 hari, timer dijeda");
+    expect(badge).toHaveTextContent("H+3");
+    expect(badge).toHaveTextContent("Dijeda");
+    expect(badge).toHaveAttribute("title", "SLA DQ Number: H+3 hari (timer dijeda)");
+  });
+
+  it("tanpa isPaused tidak menampilkan Dijeda", () => {
+    render(<SLABadge daysElapsed={3} isLocked={false} />);
+    expect(screen.getByLabelText("SLA countdown: H+3 hari")).not.toHaveTextContent("Dijeda");
+  });
+});
+

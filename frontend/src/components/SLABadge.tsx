@@ -17,6 +17,8 @@ export interface SLABadgeProps {
   daysElapsed: number;
   /** Apakah folder Solutions sudah di-lock */
   isLocked: boolean;
+  /** Apakah timer dijeda (proyek On Hold) */
+  isPaused?: boolean;
 }
 
 /**

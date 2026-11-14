@@ -139,8 +139,22 @@ async def get_or_create_project(
     existing = result.scalar_one_or_none()
 
     if existing:
-        # Update bant_detail jika berubah
-        if project_data.get("bant_detail") and existing.bant_detail != project_data["bant_detail"]:
+        jawaban = project_data.get("qualification_answers")
+        if jawaban is not None:
+            versi = QUESTIONNAIRE_SCHEMA_VERSION
+            berubah = (
+                existing.qualification_answers != jawaban
+                or existing.qualification_schema_version != versi
+            )
+            if berubah:
+                existing.qualification_answers = jawaban
+                existing.qualification_schema_version = versi
+                await db.flush()
+                print(f"  [~] Kualifikasi proyek diperbarui: {project_data['project_name']}")
+            else:
+                print(f"  [ok] Proyek sudah ada: {project_data['project_name']}")
+        # Pembaruan legacy tetap berlaku hanya untuk payload tanpa jawaban kuesioner.
+        elif project_data.get("bant_detail") and existing.bant_detail != project_data["bant_detail"]:
             existing.bant_detail = project_data["bant_detail"]
             await db.flush()
             print(f"  [~] Proyek diupdate: {project_data['project_name']}")

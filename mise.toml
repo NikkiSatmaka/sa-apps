@@ -11,6 +11,7 @@
 # tambahkan tool baru ke blok [tools] agar seluruh contributor memakai versi sama.
 
 [tools]
+codegraph = "latest"
 node = "26"
 # pnpm: package manager untuk frontend/ (sumber kebenaran dependency via
 # package.json + pnpm-lock.yaml). Di-pin ke major 12 selaras dengan Dockerfile

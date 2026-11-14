@@ -19,6 +19,8 @@ import type { QualificationView } from "@/lib/qualification";
 import { BANTOverride } from "@/components/BANTOverride";
 import { SourceDocumentSection, type SourceDocumentItem } from "@/components/SourceDocumentSection";
 import type { HandoverStatus } from "@/lib/api/handover";
+import { StatusActions } from "@/components/StatusActions";
+import { StatusBadge } from "@/components/StatusBadge";
 import { isPrivileged } from "@/lib/roles";
 
 /**
@@ -39,6 +41,11 @@ interface ProjectDetail {
   project_name: string;
   customer_name: string;
   status: string;
+  /** Hanya bermakna saat `status = Intake` (ADR 0013). */
+  qualification_state?: string | null;
+  /** Status sebelum jeda/Lost/Closed; tujuan lanjut dan buka kembali. */
+  previous_status?: string | null;
+  lost_reason?: string | null;
   dq_number: string | null;
   bant_score: number | null;
   bant_detail: {
@@ -94,21 +101,21 @@ export default function ProjectDetailPage() {
     fetcher
   );
 
-  // Fetch handover status (hanya jika proyek Closed-Win)
+  // Fetch handover status (hanya jika proyek Won)
   const {
     data: handoverStatus,
     error: handoverError,
     mutate: mutateHandoverStatus,
   } = useSWR<HandoverStatus>(
-    project?.status === "Closed-Win" ? `/projects/${projectId}/handover-status` : null,
+    project?.status === "Won" ? `/projects/${projectId}/handover-status` : null,
     fetcher
   );
 
   const shouldShowHandoverModal =
-    project?.status === "Closed-Win" && showHandoverModal && user?.role === "SA";
+    project?.status === "Won" && showHandoverModal && user?.role === "SA";
 
   const shouldShowConfigForm =
-    project?.status === "Closed-Win" &&
+    project?.status === "Won" &&
     handoverStatus &&
     (!handoverStatus.pmo_email || !handoverStatus.delivery_email);
 
@@ -162,8 +169,8 @@ export default function ProjectDetailPage() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {/* Tombol Assign SA — hanya Lead_SA/Admin dan status Pending Assignment */}
-              {project.status === "Pending Assignment" &&
+              {/* Tombol Assign SA — hanya Lead_SA/Admin dan status Awaiting Assignment */}
+              {project.status === "Awaiting Assignment" &&
                 isPrivileged(user) && (
                 <button
                   onClick={() => setShowAssignModal(true)}
@@ -177,12 +184,13 @@ export default function ProjectDetailPage() {
               <BANTOverride
                 projectId={project.id_project}
                 status={project.status}
+                qualificationState={project.qualification_state}
                 actor={user}
                 currentScores={project.bant_detail}
               />
               {/* Tombol Reassign SA — hanya Lead_SA/Admin dan proyek sudah punya SA */}
               {project.assigned_sa &&
-                ["Assigned", "Ready", "Pending Assignment"].includes(project.status) &&
+                ["Awaiting Assignment", "Assigned", "In Progress", "Submitted"].includes(project.status) &&
                 isPrivileged(user) && (
                 <button
                   onClick={() => setShowReassignModal(true)}
@@ -210,20 +218,16 @@ export default function ProjectDetailPage() {
                   Hapus
                 </button>
               )}
-              <span
-                className={`inline-block px-3 py-1 rounded-full text-xs font-medium shrink-0 ${
-                  project.status === "Closed-Win" ? "bg-green-100 text-green-700"
-                  : project.status === "Lost" ? "bg-red-100 text-red-700"
-                  : project.status === "Ready" ? "bg-emerald-100 text-emerald-700"
-                  : project.status === "Assigned" ? "bg-blue-100 text-blue-700"
-                  : project.status === "Pending Assignment" ? "bg-yellow-100 text-yellow-700"
-                  : "bg-neutral-100 text-neutral-700"
-                }`}
-              >
-                {project.status}
-              </span>
+              <StatusBadge
+                status={project.status}
+                qualificationState={project.qualification_state}
+                className="px-3 py-1 rounded-full text-xs shrink-0"
+              />
             </div>
           </div>
+
+          {/* Aksi status (spec §2.0): tombol hanya tampil bila peran berhak */}
+          <StatusActions project={project} onChanged={() => mutateProject()} />
 
           {/* Section: PIC & Info Utama */}
           <div className="bg-white border border-neutral-200 rounded-lg p-5">
@@ -345,7 +349,7 @@ export default function ProjectDetailPage() {
           />
 
           {/* Gagal memuat status handover: form konfigurasi tak boleh hilang tanpa penjelasan */}
-          {project.status === "Closed-Win" && handoverError && !handoverStatus && (
+          {project.status === "Won" && handoverError && !handoverStatus && (
             <LoadError
               message="Gagal memuat status handover."
               onRetry={() => mutateHandoverStatus()}
@@ -446,7 +450,7 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Modal Closed-Win */}
+      {/* Modal Won */}
       {shouldShowHandoverModal && project && (
         <HandoverModal
           projectId={projectId}

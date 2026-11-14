@@ -38,17 +38,36 @@ describe("ProjectCard", () => {
   });
 
   it.each([
-    ["New", "bg-neutral-100"],
-    ["Pending Assignment", "bg-yellow-100"],
+    ["Intake", "bg-neutral-100"],
+    ["Awaiting Assignment", "bg-yellow-100"],
     ["Assigned", "bg-blue-100"],
-    ["Ready", "bg-green-100"],
-    ["Closed-Win", "bg-emerald-100"],
+    ["In Progress", "bg-indigo-100"],
+    ["Submitted", "bg-green-100"],
+    ["Won", "bg-emerald-100"],
+    ["Handed Over", "bg-teal-100"],
+    ["Closed", "bg-slate-200"],
     ["Lost", "bg-red-100"],
-    ["Need Clarification", "bg-orange-100"],
+    ["On Hold", "bg-amber-100"],
     ["Status Lain", "bg-neutral-100"],
   ])("status %s berwarna %s", (status, kelas) => {
     setup({ status });
     expect(screen.getByText(status).className).toContain(kelas);
+  });
+
+  it("Intake menampilkan qualification_state di samping status", () => {
+    setup({ status: "Intake", qualificationState: "Need Clarification" });
+    expect(screen.getByText("Intake")).toBeInTheDocument();
+    expect(screen.getByText("Need Clarification").className).toContain("bg-orange-100");
+  });
+
+  it("qualification_state tidak tampil di luar Intake", () => {
+    setup({ status: "Assigned", qualificationState: "Qualified" });
+    expect(screen.queryByText("Qualified")).not.toBeInTheDocument();
+  });
+
+  it("SLA yang dijeda (On Hold) ditandai Dijeda", () => {
+    setup({ status: "On Hold", dqNumber: null, slaDaysElapsed: 3, slaIsPaused: true });
+    expect(screen.getByLabelText("SLA countdown: H+3 hari, timer dijeda")).toBeInTheDocument();
   });
 
   it("SLA badge tampil hanya bila DQ belum diinput dan slaDaysElapsed ada", () => {
@@ -69,16 +88,16 @@ describe("ProjectCard", () => {
 
   it("menampilkan BANT Passed / not passed menurut ambang 60, dan tidak bila tanpa skor", () => {
     const { unmount } = render(
-      <ProjectCard id="a" projectName="A" customerName="C" status="New" dqNumber="x" lastUpdated="2025-01-01" bantScore={60} />,
+      <ProjectCard id="a" projectName="A" customerName="C" status="Intake" dqNumber="x" lastUpdated="2025-01-01" bantScore={60} />,
     );
     expect(screen.getByText("BANT Passed")).toBeInTheDocument();
     unmount();
     const r2 = render(
-      <ProjectCard id="a" projectName="A" customerName="C" status="New" dqNumber="x" lastUpdated="2025-01-01" bantScore={59} />,
+      <ProjectCard id="a" projectName="A" customerName="C" status="Intake" dqNumber="x" lastUpdated="2025-01-01" bantScore={59} />,
     );
     expect(screen.getByText("BANT not passed")).toBeInTheDocument();
     r2.unmount();
-    render(<ProjectCard id="a" projectName="A" customerName="C" status="New" dqNumber="x" lastUpdated="2025-01-01" bantScore={null} />);
+    render(<ProjectCard id="a" projectName="A" customerName="C" status="Intake" dqNumber="x" lastUpdated="2025-01-01" bantScore={null} />);
     expect(screen.queryByText(/BANT/)).not.toBeInTheDocument();
   });
 
@@ -99,7 +118,7 @@ describe("ProjectCard", () => {
   });
 
   it("tidak error saat onClick tidak diberikan", async () => {
-    render(<ProjectCard id="a" projectName="A" customerName="C" status="New" dqNumber="x" lastUpdated="2025-01-01" />);
+    render(<ProjectCard id="a" projectName="A" customerName="C" status="Intake" dqNumber="x" lastUpdated="2025-01-01" />);
     const card = screen.getByRole("button");
     card.focus();
     await userEvent.keyboard("{Enter}");
@@ -108,12 +127,12 @@ describe("ProjectCard", () => {
 
   it("tanggal kosong atau tak valid tidak tampil sebagai 'Invalid Date'", () => {
     const { unmount } = render(
-      <ProjectCard id="a" projectName="A" customerName="C" status="New" dqNumber="x" lastUpdated="" />,
+      <ProjectCard id="a" projectName="A" customerName="C" status="Intake" dqNumber="x" lastUpdated="" />,
     );
     expect(screen.getByText("Update:")).toBeInTheDocument();
     expect(screen.queryByText(/Invalid Date/)).not.toBeInTheDocument();
     unmount();
-    render(<ProjectCard id="a" projectName="A" customerName="C" status="New" dqNumber="x" lastUpdated="bukan-tanggal" />);
+    render(<ProjectCard id="a" projectName="A" customerName="C" status="Intake" dqNumber="x" lastUpdated="bukan-tanggal" />);
     expect(screen.getByText("Update: bukan-tanggal")).toBeInTheDocument();
   });
 });

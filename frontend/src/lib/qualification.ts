@@ -122,7 +122,7 @@ export function toPayload(
 /** Bagian `qualification` dari GET /projects/{id} (dihitung backend; read-only). */
 export interface QualificationView {
   legacy: boolean;
-  /** True selama status Scoring Pending: skor/feedback belum final dan disembunyikan. */
+  /** True selama qualification_state Scoring: skor/feedback belum final dan disembunyikan. */
   scoring_pending?: boolean;
   schema_version: number | null;
   answers: Record<string, string | number | null> | null;
@@ -138,23 +138,24 @@ export interface QualificationView {
   } | null;
 }
 
-/** Status ketika jawaban kuesioner boleh diedit Sales PIC (dan memicu re-score). */
-export const EDITABLE_STATUS = "Need Clarification";
-/** Status sebelum/di luar gate yang menolak edit jawaban (menunggu scoring/review). */
-const LOCKED_STATUSES = ["New", "Scoring Pending", "Manual Review Required"];
+/** qualification_state ketika jawaban kuesioner boleh diedit Sales PIC (dan memicu re-score). */
+export const EDITABLE_QUALIFICATION_STATE = "Need Clarification";
+/** Status read-only (ADR 0013): tidak ada edit jawaban, siapa pun. */
+const STATUS_READ_ONLY = ["Closed", "Lost"];
 
 export type AnswerEditMode = "rescore" | "correct" | "none";
 
 /**
  * Mode edit jawaban kuesioner (mencerminkan aturan backend; backend tetap penentu):
- * - "rescore": Need Clarification untuk Sales/Product PIC, Lead_SA, atau admin → skor dihitung ulang.
+ * - "rescore": Intake + Need Clarification untuk Sales/Product PIC, Lead_SA, atau admin → skor dihitung ulang.
  * - "correct": Lead_SA/admin setelah lolos gate → koreksi tanpa re-score.
  * - "none": selain itu (kontrol edit tidak ditampilkan).
  */
 export function answerEditMode(
   user: (Actor & { id?: string }) | null | undefined,
   picIds: string | null | undefined | ReadonlyArray<string | null | undefined>,
-  status: string
+  status: string,
+  qualificationState?: string | null
 ): AnswerEditMode {
   const privileged = isPrivileged(user);
   // PIC project: Product PIC (selalu ada) atau Sales PIC (opsional), ADR 0014. Pembuat yang bukan
@@ -162,9 +163,12 @@ export function answerEditMode(
   const pics = Array.isArray(picIds) ? picIds : [picIds];
   const isPic = isRequester(user) && !!user?.id && pics.includes(user.id);
   if (!privileged && !isPic) return "none";
-  if (status === EDITABLE_STATUS) return "rescore";
-  if (privileged && !LOCKED_STATUSES.includes(status)) return "correct";
-  return "none";
+  if (STATUS_READ_ONLY.includes(status)) return "none";
+  // `qualification_state` hanya bermakna saat Intake; nilai yang tersisa sesudahnya diabaikan.
+  if (status === "Intake") {
+    return qualificationState === EDITABLE_QUALIFICATION_STATE ? "rescore" : "none";
+  }
+  return privileged ? "correct" : "none";
 }
 
 /** Ubah jawaban dari backend (string | number | null) menjadi state form. */

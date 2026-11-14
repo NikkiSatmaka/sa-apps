@@ -45,13 +45,13 @@ describe("CalendarSyncPage", () => {
     expect(screen.queryByText("Tidak ada proyek tersedia untuk di-mapping.")).not.toBeInTheDocument();
   });
 
-  it("status proyek diteruskan: memilih proyek Handover Complete mengisi fase Implementation (bukan selalu Pre-Implementation)", async () => {
+  it("status proyek diteruskan: memilih proyek Handed Over mengisi fase Implementation (bukan selalu Pre-Implementation)", async () => {
     server.use(
       http.get(api("/projects"), () =>
         HttpResponse.json(
           successEnvelope([
             makeProject({ id_project: "p-1", project_name: "Masih Pre-Sales", status: "Assigned" }),
-            makeProject({ id_project: "p-2", project_name: "Sudah Handover", status: "Handover Complete" }),
+            makeProject({ id_project: "p-2", project_name: "Sudah Handover", status: "Handed Over" }),
           ])
         )
       )

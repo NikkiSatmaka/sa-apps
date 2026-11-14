@@ -58,7 +58,7 @@ export interface ProjectStatusSummary {
 // === API Functions ===
 
 /**
- * Ambil daftar proyek berstatus "Pending Assignment"
+ * Ambil daftar proyek berstatus "Awaiting Assignment"
  * Digunakan di dashboard Lead_SA untuk antrian assignment
  */
 export async function getPendingAssignment(): Promise<PendingProject[]> {

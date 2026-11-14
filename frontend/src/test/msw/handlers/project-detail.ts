@@ -15,6 +15,6 @@ export const projectDetailHandlers = [
   http.get(api("/sa/available"), () => HttpResponse.json(successEnvelope([]))),
   http.delete(api("/projects/:id"), () => HttpResponse.json(successEnvelope(null))),
   http.post(api("/projects/:id/score-manual"), () =>
-    HttpResponse.json(successEnvelope({ total_score: 72, sub_scores: { budget: 18, authority: 18, need: 18, timeline: 18 }, status: "Pending Assignment" })),
+    HttpResponse.json(successEnvelope({ total_score: 72, sub_scores: { budget: 18, authority: 18, need: 18, timeline: 18 }, status: "Awaiting Assignment" })),
   ),
 ];

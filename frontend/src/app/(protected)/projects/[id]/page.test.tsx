@@ -189,16 +189,32 @@ describe("Detail proyek — informasi", () => {
   });
 
   it.each([
-    ["Closed-Win", "bg-green-100"],
+    ["Won", "bg-emerald-100"],
     ["Lost", "bg-red-100"],
-    ["Ready", "bg-emerald-100"],
+    ["Submitted", "bg-green-100"],
     ["Assigned", "bg-blue-100"],
-    ["Pending Assignment", "bg-yellow-100"],
-    ["New", "bg-neutral-100"],
+    ["Awaiting Assignment", "bg-yellow-100"],
+    ["Intake", "bg-neutral-100"],
+    ["In Progress", "bg-indigo-100"],
+    ["Handed Over", "bg-teal-100"],
+    ["Closed", "bg-slate-200"],
+    ["On Hold", "bg-amber-100"],
   ])("badge status %s berwarna %s", async (status, kelas) => {
     setup("Sales", { status });
     const badge = await screen.findByText(status, { selector: "span" });
     expect(badge.className).toContain(kelas);
+  });
+
+  it("Intake menampilkan badge qualification_state di samping status", async () => {
+    setup("Sales", { status: "Intake", qualification_state: "Need Clarification" });
+    expect(await screen.findByText("Need Clarification", { selector: "span" })).toHaveAttribute("title", "Kualifikasi: Need Clarification");
+    expect(screen.getByText("Intake", { selector: "span" })).toBeInTheDocument();
+  });
+
+  it("di luar Intake qualification_state tidak ditampilkan", async () => {
+    setup("Sales", { status: "Awaiting Assignment", qualification_state: "Qualified" });
+    await screen.findByText("Awaiting Assignment", { selector: "span" });
+    expect(screen.queryByText("Qualified", { selector: "span" })).not.toBeInTheDocument();
   });
 });
 
@@ -227,7 +243,7 @@ describe("Detail proyek — status BANT", () => {
 
 describe("Detail proyek — kontrol per peran dan status", () => {
   it.each(["Sales", "Product", "SA"] as const)("%s tidak melihat Hapus, Assign SA, Reassign, maupun Override", async (role) => {
-    setup(role, { status: "Pending Assignment" });
+    setup(role, { status: "Awaiting Assignment" });
     await screen.findByRole("heading", { level: 1 });
     expect(screen.queryByRole("button", { name: "Hapus" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Assign SA" })).not.toBeInTheDocument();
@@ -237,7 +253,7 @@ describe("Detail proyek — kontrol per peran dan status", () => {
   });
 
   it("tanpa user terautentikasi: tidak ada kontrol privileged", async () => {
-    setup(undefined, { status: "Need Clarification" });
+    setup(undefined, { status: "Intake", qualification_state: "Need Clarification" });
     await screen.findByRole("heading", { level: 1 });
     expect(screen.queryByRole("button", { name: "Hapus" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Override skor BANT" })).not.toBeInTheDocument();
@@ -251,23 +267,23 @@ describe("Detail proyek — kontrol per peran dan status", () => {
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
   });
 
-  it.each(["Lead_SA", "Admin"] as const)("%s melihat Assign SA hanya pada status Pending Assignment", async (role) => {
-    setup(role, { status: "Pending Assignment", assigned_sa: null });
+  it.each(["Lead_SA", "Admin"] as const)("%s melihat Assign SA hanya pada status Awaiting Assignment", async (role) => {
+    setup(role, { status: "Awaiting Assignment", assigned_sa: null });
     expect(await screen.findByRole("button", { name: "Assign SA" })).toBeInTheDocument();
   });
 
-  it("Assign SA tidak muncul pada status selain Pending Assignment", async () => {
+  it("Assign SA tidak muncul pada status selain Awaiting Assignment", async () => {
     setup("Lead_SA", { status: "Assigned" });
     await screen.findByRole("heading", { level: 1 });
     expect(screen.queryByRole("button", { name: "Assign SA" })).not.toBeInTheDocument();
   });
 
-  it.each(["Assigned", "Ready", "Pending Assignment"])("Reassign SA muncul untuk Lead_SA pada status %s bila sudah ada SA", async (status) => {
+  it.each(["Awaiting Assignment", "Assigned", "In Progress", "Submitted"])("Reassign SA muncul untuk Lead_SA pada status %s bila sudah ada SA", async (status) => {
     setup("Lead_SA", { status });
     expect(await screen.findByRole("button", { name: "Reassign SA" })).toBeInTheDocument();
   });
 
-  it.each(["New", "Closed-Win", "Lost", "Need Clarification"])("Reassign SA tidak muncul pada status %s", async (status) => {
+  it.each(["Intake", "Won", "Handed Over", "Closed", "Lost", "On Hold"])("Reassign SA tidak muncul pada status %s", async (status) => {
     setup("Lead_SA", { status });
     await screen.findByRole("heading", { level: 1 });
     expect(screen.queryByRole("button", { name: "Reassign SA" })).not.toBeInTheDocument();
@@ -279,13 +295,13 @@ describe("Detail proyek — kontrol per peran dan status", () => {
     expect(screen.queryByRole("button", { name: "Reassign SA" })).not.toBeInTheDocument();
   });
 
-  it.each(["Need Clarification", "Manual Review Required"])("Override skor BANT muncul untuk Lead_SA pada %s", async (status) => {
-    setup("Lead_SA", { status });
+  it.each(["Need Clarification", "Manual Review"])("Override skor BANT muncul untuk Lead_SA pada Intake dengan qualification_state %s", async (qualification_state) => {
+    setup("Lead_SA", { status: "Intake", qualification_state });
     expect(await screen.findByRole("button", { name: "Override skor BANT" })).toBeInTheDocument();
   });
 
   it("Override skor BANT tidak muncul pada status Assigned", async () => {
-    setup("Lead_SA", { status: "Assigned" });
+    setup("Lead_SA", { status: "Assigned", qualification_state: "Qualified" });
     await screen.findByRole("heading", { level: 1 });
     expect(screen.queryByRole("button", { name: "Override skor BANT" })).not.toBeInTheDocument();
   });
@@ -333,10 +349,10 @@ describe("Detail proyek — override BANT terpasang", () => {
     server.use(
       http.post(api(`/projects/${DETAIL_ID}/score-manual`), async ({ request }) => {
         body = await request.json();
-        return HttpResponse.json(successEnvelope({ total_score: 72, sub_scores: {}, status: "Pending Assignment" }));
+        return HttpResponse.json(successEnvelope({ total_score: 72, sub_scores: {}, status: "Awaiting Assignment" }));
       }),
     );
-    const { user } = setup("Lead_SA", { status: "Need Clarification" });
+    const { user } = setup("Lead_SA", { status: "Intake", qualification_state: "Need Clarification" });
     await user.click(await screen.findByRole("button", { name: "Override skor BANT" }));
     await user.type(screen.getByLabelText(/Alasan override/), "Konfirmasi manual");
     await user.click(screen.getByRole("button", { name: "Simpan override" }));
@@ -347,7 +363,7 @@ describe("Detail proyek — override BANT terpasang", () => {
 describe("Detail proyek — Assign / Reassign", () => {
   it("Assign SA membuka modal dengan data proyek, Tutup menutup, sukses memuat ulang halaman", async () => {
     const loc = stubLocation();
-    const { user } = setup("Lead_SA", { status: "Pending Assignment", assigned_sa: null, bant_score: null, target_submit: null });
+    const { user } = setup("Lead_SA", { status: "Awaiting Assignment", assigned_sa: null, bant_score: null, target_submit: null });
     await user.click(await screen.findByRole("button", { name: "Assign SA" }));
     const modal = screen.getByRole("dialog", { name: "stub assign" });
     expect(modal).toHaveTextContent("Assign Migrasi Cloud ACME bant=0 target=");
@@ -361,7 +377,7 @@ describe("Detail proyek — Assign / Reassign", () => {
   });
 
   it("Assign SA meneruskan skor dan target submit bila ada", async () => {
-    const { user } = setup("Admin", { status: "Pending Assignment", bant_score: 80 });
+    const { user } = setup("Admin", { status: "Awaiting Assignment", bant_score: 80 });
     await user.click(await screen.findByRole("button", { name: "Assign SA" }));
     expect(screen.getByRole("dialog", { name: "stub assign" })).toHaveTextContent("bant=80 target=2025-12-31");
   });
@@ -442,7 +458,7 @@ describe("Detail proyek — hapus proyek", () => {
   });
 });
 
-describe("Detail proyek — handover Closed-Win", () => {
+describe("Detail proyek — handover Won", () => {
   function serveHandover(status: Record<string, unknown>) {
     server.use(
       http.get(api(`/projects/${DETAIL_ID}/handover-status`), () =>
@@ -451,9 +467,9 @@ describe("Detail proyek — handover Closed-Win", () => {
     );
   }
 
-  it("SA melihat modal handover pada Closed-Win dan dapat menutupnya", async () => {
+  it("SA melihat modal handover pada Won dan dapat menutupnya", async () => {
     serveHandover({ pmo_email: "pmo@x", delivery_email: "d@x" });
-    const { user } = setup("SA", { status: "Closed-Win" });
+    const { user } = setup("SA", { status: "Won" });
     const modal = await screen.findByRole("dialog", { name: "stub handover" });
     expect(modal).toHaveTextContent("Handover Migrasi Cloud ACME");
     await user.click(within(modal).getByRole("button", { name: "Ack handover" }));
@@ -462,18 +478,18 @@ describe("Detail proyek — handover Closed-Win", () => {
 
   it("Admin (SA dengan is_admin) tetap melihat modal handover sebagai SA", async () => {
     serveHandover({ pmo_email: "pmo@x", delivery_email: "d@x" });
-    setup("Admin", { status: "Closed-Win" });
+    setup("Admin", { status: "Won" });
     expect(await screen.findByRole("dialog", { name: "stub handover" })).toBeInTheDocument();
   });
 
   it.each(["Sales", "Product", "Lead_SA"] as const)("%s tidak melihat modal handover", async (role) => {
     serveHandover({ pmo_email: "pmo@x", delivery_email: "d@x" });
-    setup(role, { status: "Closed-Win" });
+    setup(role, { status: "Won" });
     await screen.findByRole("heading", { level: 1 });
     expect(screen.queryByRole("dialog", { name: "stub handover" })).not.toBeInTheDocument();
   });
 
-  it("modal handover tidak muncul bila status bukan Closed-Win", async () => {
+  it("modal handover tidak muncul bila status bukan Won", async () => {
     setup("SA", { status: "Assigned" });
     await screen.findByRole("heading", { level: 1 });
     expect(screen.queryByRole("dialog", { name: "stub handover" })).not.toBeInTheDocument();
@@ -481,7 +497,7 @@ describe("Detail proyek — handover Closed-Win", () => {
 
   it("form konfigurasi handover muncul bila email PMO/Delivery belum lengkap", async () => {
     serveHandover({ pmo_email: "pmo@x", delivery_email: null });
-    setup("Lead_SA", { status: "Closed-Win" });
+    setup("Lead_SA", { status: "Won" });
     expect(await screen.findByText("Konfigurasi Handover")).toBeInTheDocument();
     expect(screen.getByText("Email PMO Lead dan Delivery Lead belum dikonfigurasi.")).toBeInTheDocument();
     expect(screen.getByText("Stub config form pmo=pmo@x delivery=-")).toBeInTheDocument();
@@ -489,7 +505,7 @@ describe("Detail proyek — handover Closed-Win", () => {
 
   it("form konfigurasi handover tidak muncul bila email sudah lengkap", async () => {
     serveHandover({ pmo_email: "pmo@x", delivery_email: "d@x" });
-    setup("Lead_SA", { status: "Closed-Win" });
+    setup("Lead_SA", { status: "Won" });
     await screen.findByRole("heading", { level: 1 });
     await waitFor(() => expect(screen.queryByText("Konfigurasi Handover")).not.toBeInTheDocument());
   });
@@ -500,7 +516,7 @@ describe("Detail proyek — handover Closed-Win", () => {
         is_ready: true, has_hld_final: true, is_closed_win: true, pmo_email: null, delivery_email: null,
       }),
     );
-    const { user } = setup("Lead_SA", { status: "Closed-Win" });
+    const { user } = setup("Lead_SA", { status: "Won" });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat status handover.");
     expect(screen.queryByText("Stub config form pmo=- delivery=-")).not.toBeInTheDocument();
@@ -511,7 +527,7 @@ describe("Detail proyek — handover Closed-Win", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("handover-status tidak diminta bila bukan Closed-Win", async () => {
+  it("handover-status tidak diminta bila bukan Won", async () => {
     let dipanggil = false;
     server.use(http.get(api(`/projects/${DETAIL_ID}/handover-status`), () => { dipanggil = true; return HttpResponse.json(successEnvelope({})); }));
     setup("Lead_SA", { status: "Assigned" });
@@ -624,5 +640,46 @@ describe("Detail proyek — Project Story", () => {
     const { user } = setup("Lead_SA");
     await user.click(await screen.findByRole("button", { name: "Summarize" }));
     expect(await screen.findByText("Gagal menghasilkan ringkasan. Silakan coba lagi.")).toBeInTheDocument();
+  });
+});
+
+describe("Detail proyek — aksi status terpasang", () => {
+  it("Lead_SA pada Submitted melihat aksi status; konfirmasi mengirim PATCH lalu memuat ulang detail", async () => {
+    let patch: unknown;
+    let jumlahGetDetail = 0;
+    server.use(
+      http.get(api("/projects/:id"), () => {
+        jumlahGetDetail += 1;
+        return HttpResponse.json(successEnvelope(makeProjectDetail({ status: jumlahGetDetail > 1 ? "Won" : "Submitted" })));
+      }),
+      http.patch(api(`/projects/${DETAIL_ID}/status`), async ({ request }) => {
+        patch = await request.json();
+        return HttpResponse.json(successEnvelope({ id_project: DETAIL_ID, old_status: "Submitted", new_status: "Won" }));
+      }),
+    );
+    const { user } = renderWithProviders(<ProjectDetailPage />, { role: "Lead_SA" });
+    await user.click(await screen.findByRole("button", { name: "Tandai Won" }));
+    await user.click(within(screen.getByRole("dialog", { name: "Tandai Won" })).getByRole("button", { name: "Konfirmasi" }));
+
+    await waitFor(() => expect(patch).toEqual({ new_status: "Won" }));
+    expect(await screen.findByText("Won", { selector: "span" })).toBeInTheDocument();
+    expect(jumlahGetDetail).toBeGreaterThan(1);
+  });
+
+  it("SA ditugaskan pada Assigned melihat Tandai Submitted; Sales PIC tidak", async () => {
+    setup("SA", { status: "Assigned", assigned_sa: { id: "00000000-0000-4000-8000-000000000002", name: "SA Demo", email: "sa@example.com" } });
+    expect(await screen.findByRole("button", { name: "Tandai Submitted" })).toBeInTheDocument();
+  });
+
+  it("Lost menampilkan alasan Lost dan Admin dapat membuka kembali", async () => {
+    setup("Admin", { status: "Lost", previous_status: "Submitted", lost_reason: "Customer batal" });
+    expect(await screen.findByText(/Customer batal/)).toHaveTextContent("Alasan Lost: Customer batal");
+    expect(screen.getByRole("button", { name: "Buka Kembali" })).toBeInTheDocument();
+  });
+
+  it("Lead_SA non-admin tidak melihat Buka Kembali pada Closed", async () => {
+    setup("Lead_SA", { status: "Closed", previous_status: "Handed Over" });
+    await screen.findByText(/read-only/i);
+    expect(screen.queryByRole("button", { name: "Buka Kembali" })).not.toBeInTheDocument();
   });
 });

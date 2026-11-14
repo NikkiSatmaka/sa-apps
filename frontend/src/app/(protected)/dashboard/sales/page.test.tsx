@@ -34,7 +34,7 @@ describe("Dashboard Sales", () => {
 
     const overview = screen.getByRole("heading", { name: "Overview Proyek" }).closest("section")!;
     expect(await within(overview).findByText("Assigned")).toBeInTheDocument();
-    expect(within(overview).getByText("Ready")).toBeInTheDocument();
+    expect(within(overview).getByText("Submitted")).toBeInTheDocument();
     expect(within(overview).getByText("5")).toBeInTheDocument(); // total 3 + 2
   });
 

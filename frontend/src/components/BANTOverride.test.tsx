@@ -8,7 +8,7 @@ const SCORES = { budget: 10, authority: 12, need: 14, timeline: 16 };
 
 function setup(props: Partial<Parameters<typeof BANTOverride>[0]> = {}) {
   return renderWithProviders(
-    <BANTOverride projectId="p1" status="Need Clarification" actor={{ role: "Lead_SA" }} currentScores={SCORES} {...props} />,
+    <BANTOverride projectId="p1" status="Intake" qualificationState="Need Clarification" actor={{ role: "Lead_SA" }} currentScores={SCORES} {...props} />,
   );
 }
 
@@ -22,27 +22,29 @@ describe("BANTOverride — visibilitas", () => {
 
   it.each([
     ["Lead_SA", "Need Clarification"],
-    ["Lead_SA", "Manual Review Required"],
+    ["Lead_SA", "Manual Review"],
     ["Admin", "Need Clarification"],
-    ["Admin", "Manual Review Required"],
-  ])("tombol muncul untuk %s pada status %s", (role, status) => {
+    ["Admin", "Manual Review"],
+  ])("tombol muncul untuk %s pada Intake dengan qualification_state %s", (role, qualificationState) => {
     // "Admin" = SA dengan flag is_admin
-    setup({ actor: role === "Admin" ? aktor("SA", true) : aktor(role), status });
+    setup({ actor: role === "Admin" ? aktor("SA", true) : aktor(role), qualificationState });
     expect(screen.getByRole("button", { name: "Override skor BANT" })).toBeInTheDocument();
   });
 
   it.each([
-    ["SA", "Need Clarification"],
-    ["Sales", "Manual Review Required"],
-    ["Product", "Need Clarification"],
-    [undefined, "Need Clarification"],
-    [null, "Need Clarification"],
-    ["Lead_SA", "Assigned"],
-    ["Admin", "Pending Assignment"],
-    ["Lead_SA", "New"],
-  ])("tombol TIDAK muncul untuk peran %s pada status %s", (role, status) => {
+    ["SA", "Intake", "Need Clarification"],
+    ["Sales", "Intake", "Manual Review"],
+    ["Product", "Intake", "Need Clarification"],
+    [undefined, "Intake", "Need Clarification"],
+    [null, "Intake", "Need Clarification"],
+    ["Lead_SA", "Intake", "Scoring"],
+    ["Lead_SA", "Awaiting Assignment", "Qualified"],
+    ["Admin", "Assigned", "Qualified"],
+    ["Admin", "Awaiting Assignment", "Need Clarification"],
+    ["Lead_SA", "Closed", "Qualified"],
+  ])("tombol TIDAK muncul untuk peran %s pada status %s dengan qualification_state %s", (role, status, qualificationState) => {
     const actor = role === "Admin" ? aktor("SA", true) : role ? aktor(role) : undefined;
-    const { container } = setup({ actor, status });
+    const { container } = setup({ actor, status, qualificationState });
     expect(container).toBeEmptyDOMElement();
   });
 });
@@ -73,13 +75,13 @@ describe("BANTOverride — form", () => {
     expect(screen.getByLabelText(/Budget/)).toHaveValue(0);
   });
 
-  it("total >= 60 menampilkan hasil Pending Assignment", async () => {
+  it("total >= 60 menampilkan hasil Awaiting Assignment", async () => {
     const { user } = setup();
     const dialog = await bukaForm(user);
     await user.clear(screen.getByLabelText(/Budget/));
     await user.type(screen.getByLabelText(/Budget/), "18");
     expect(dialog).toHaveTextContent("Total: 60");
-    expect(dialog).toHaveTextContent("→ Pending Assignment");
+    expect(dialog).toHaveTextContent("→ Awaiting Assignment");
   });
 
   it("alasan wajib: tombol simpan nonaktif sampai alasan terisi (spasi saja tidak cukup)", async () => {
@@ -128,7 +130,7 @@ describe("BANTOverride — submit", () => {
     server.use(
       http.post(api("/projects/p1/score-manual"), async ({ request }) => {
         body = await request.json();
-        return HttpResponse.json(successEnvelope({ total_score: 70, sub_scores: SCORES, status: "Pending Assignment" }));
+        return HttpResponse.json(successEnvelope({ total_score: 70, sub_scores: SCORES, status: "Awaiting Assignment" }));
       }),
     );
     const { user } = setup();
@@ -139,7 +141,7 @@ describe("BANTOverride — submit", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(body).toEqual({ ...SCORES, reason: "Sudah klarifikasi" });
     expect(useToastStore.getState().toasts).toEqual([
-      expect.objectContaining({ type: "success", message: "Skor BANT dioverride: 70 (Pending Assignment)." }),
+      expect.objectContaining({ type: "success", message: "Skor BANT dioverride: 70 (Awaiting Assignment)." }),
     ]);
   });
 
@@ -186,7 +188,7 @@ describe("BANTOverride — submit", () => {
     server.use(
       http.post(api("/projects/p1/score-manual"), async () => {
         await tunggu;
-        return HttpResponse.json(successEnvelope({ total_score: 70, sub_scores: SCORES, status: "Pending Assignment" }));
+        return HttpResponse.json(successEnvelope({ total_score: 70, sub_scores: SCORES, status: "Awaiting Assignment" }));
       }),
     );
     const { user } = setup();

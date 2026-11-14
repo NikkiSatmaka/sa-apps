@@ -7,6 +7,7 @@ import { fetcher } from "@/lib/fetcher";
 import { LoadError } from "@/components/LoadError";
 import { useAuthStore } from "@/store/auth";
 import { ProjectCard } from "@/components/ProjectCard";
+import { STATUS_PROYEK } from "@/lib/status";
 import { bisaMembuatProyek, isPrivileged, isRequester } from "@/lib/roles";
 
 /**
@@ -18,6 +19,7 @@ interface ProjectItem {
   project_name: string;
   customer_name: string;
   status: string;
+  qualification_state?: string | null;
   dq_number: string | null;
   bant_score: number | null;
   use_case_tags: string[];
@@ -25,16 +27,6 @@ interface ProjectItem {
   updated_at: string | null;
 }
 
-const ALL_STATUSES = [
-  "New",
-  "Pending Assignment",
-  "Assigned",
-  "Ready",
-  "Closed-Win",
-  "Handover Complete",
-  "Need Clarification",
-  "Lost",
-];
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -147,7 +139,7 @@ export default function ProjectsPage() {
             focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
         >
           <option value="">Semua Status</option>
-          {ALL_STATUSES.map((s) => (
+          {STATUS_PROYEK.map((s) => (
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
@@ -219,6 +211,7 @@ export default function ProjectsPage() {
                   projectName={project.project_name}
                   customerName={project.customer_name}
                   status={project.status}
+                  qualificationState={project.qualification_state}
                   dqNumber={project.dq_number}
                   lastUpdated={project.updated_at || ""}
                   bantScore={project.bant_score}

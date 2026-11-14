@@ -5,8 +5,8 @@ import { makeActivityLog } from "@/test/fixtures/operations";
 import { ActivityLogForm } from "./ActivityLogForm";
 
 const projects = [
-  { id: "p-1", project_name: "Migrasi Cloud", status: "New" },
-  { id: "p-2", project_name: "Rollout Jaringan", status: "Handover Complete" },
+  { id: "p-1", project_name: "Migrasi Cloud", status: "Intake" },
+  { id: "p-2", project_name: "Rollout Jaringan", status: "Handed Over" },
 ];
 
 function setup(props: Partial<React.ComponentProps<typeof ActivityLogForm>> = {}) {
@@ -46,7 +46,7 @@ describe("ActivityLogForm — tampilan awal", () => {
     expect(screen.getByText("0/5000")).toBeInTheDocument();
   });
 
-  it("defaultProjectId memilih proyek otomatis dan fase dari status (Handover Complete → Implementation)", () => {
+  it("defaultProjectId memilih proyek otomatis dan fase dari status (Handed Over → Implementation)", () => {
     setup({ defaultProjectId: "p-2" });
     expect(project()).toHaveValue("p-2");
     expect(phase()).toHaveValue("Implementation");

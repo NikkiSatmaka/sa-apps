@@ -159,7 +159,7 @@ describe("DocumentsPage", () => {
     it("badge Menunggu DQ hanya saat dq_number null", async () => {
       mockBackend({
         documents: [makeDocument()],
-        project: { id_project: PID, project_name: "A", customer_name: "B", status: "New", dq_number: null },
+        project: { id_project: PID, project_name: "A", customer_name: "B", status: "Intake", dq_number: null },
       });
       renderPage("SA");
       expect(await screen.findByText("Menunggu DQ")).toBeInTheDocument();
@@ -378,7 +378,7 @@ describe("DocumentsPage", () => {
           id_project: PID,
           project_name: "A",
           customer_name: "B",
-          status: "New",
+          status: "Intake",
           dq_number: "DQ-1",
           use_case_tags: ["Cloud"],
         },
@@ -437,7 +437,7 @@ describe("DocumentsPage", () => {
             id_project: PID,
             project_name: "A",
             customer_name: "B",
-            status: "New",
+            status: "Intake",
             dq_number: "DQ-1",
             assigned_sa: { id: "orang-lain" },
           },
@@ -453,7 +453,7 @@ describe("DocumentsPage", () => {
     it("SA tanpa penugasan (assigned_sa null): read-only", async () => {
       withRequirement(
         {},
-        { project: { id_project: PID, project_name: "A", customer_name: "B", status: "New", dq_number: "DQ-1", assigned_sa: null } }
+        { project: { id_project: PID, project_name: "A", customer_name: "B", status: "Intake", dq_number: "DQ-1", assigned_sa: null } }
       );
       renderPage("SA");
       await loaded();
@@ -462,7 +462,7 @@ describe("DocumentsPage", () => {
     });
 
     it.each<Role>(["Lead_SA", "Admin"])("%s: editor butir tersedia tanpa perlu penugasan", async (role) => {
-      withRequirement({}, { project: { id_project: PID, project_name: "A", customer_name: "B", status: "New", dq_number: "DQ-1" } });
+      withRequirement({}, { project: { id_project: PID, project_name: "A", customer_name: "B", status: "Intake", dq_number: "DQ-1" } });
       renderPage(role);
       await loaded();
       expect(await screen.findByRole("button", { name: "+ Tambah butir" })).toBeInTheDocument();

@@ -6,7 +6,7 @@ import { HandoverModal } from "./HandoverModal";
 describe("HandoverModal", () => {
   it("tampil sebagai alertdialog modal dengan judul, nama proyek, dan instruksi HLD", () => {
     renderWithProviders(<HandoverModal projectId="p-1" projectName="Migrasi Cloud" />, { role: "SA" });
-    const dialog = screen.getByRole("alertdialog", { name: "Proyek Closed-Win!" });
+    const dialog = screen.getByRole("alertdialog", { name: "Proyek Won!" });
     expect(dialog).toHaveAttribute("aria-modal", "true");
     expect(dialog).toHaveAccessibleDescription(/High Level Design \(HLD\)/);
     expect(screen.getByText("Migrasi Cloud")).toBeInTheDocument();

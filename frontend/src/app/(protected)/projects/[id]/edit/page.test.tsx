@@ -47,7 +47,7 @@ function arrange(detail: Detail | null = makeProjectDetail(), opts: { putStatus?
       rec.put = await request.json();
       if (opts.putStatus) return HttpResponse.json(opts.putBody, { status: opts.putStatus });
       return HttpResponse.json(
-        successEnvelope(opts.putBody ?? { total_score: 72, status: "Pending Assignment", rescored: true }),
+        successEnvelope(opts.putBody ?? { total_score: 72, status: "Awaiting Assignment", rescored: true }),
       );
     }),
   );
@@ -215,10 +215,10 @@ describe("EditProjectPage — simpan metadata proyek", () => {
 });
 
 describe("EditProjectPage — kunci edit jawaban kuesioner per peran dan status", () => {
-  const KUNCI = /Jawaban kuesioner hanya dapat diubah saat status Need Clarification/;
+  const KUNCI = /Jawaban kuesioner hanya dapat diubah saat qualification_state Need Clarification/;
 
   it("Sales PIC saat Need Clarification: bisa edit dengan hitung ulang skor", async () => {
-    arrange(makeProjectDetail({ status: "Need Clarification" }));
+    arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }));
     render("Sales");
     await tungguHalaman();
     expect(await screen.findByText(/Menyimpan akan menghitung ulang skor BANT/)).toBeInTheDocument();
@@ -227,7 +227,7 @@ describe("EditProjectPage — kunci edit jawaban kuesioner per peran dan status"
   });
 
   it("Product PIC saat Need Clarification: bisa edit dengan hitung ulang skor (setara Sales)", async () => {
-    arrange(makeProjectDetail({ status: "Need Clarification" }));
+    arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }));
     setParams({ id: ID });
     // PIC tercatat di `sales_pic` sampai product_pic ada (#117): Product pembuat = PIC.
     seedAuth("Product", { id: users.Sales.id });
@@ -237,8 +237,8 @@ describe("EditProjectPage — kunci edit jawaban kuesioner per peran dan status"
     expect(screen.getByRole("button", { name: "Simpan Jawaban & Hitung Ulang Skor" })).toBeInTheDocument();
   });
 
-  it("Sales PIC setelah lolos gate (Pending Assignment): terkunci", async () => {
-    arrange(makeProjectDetail({ status: "Pending Assignment" }));
+  it("Sales PIC setelah lolos gate (Awaiting Assignment): terkunci", async () => {
+    arrange(makeProjectDetail({ status: "Awaiting Assignment", qualification_state: "Qualified" }));
     render("Sales");
     await tungguHalaman();
     expect(await screen.findByText(KUNCI)).toBeInTheDocument();
@@ -246,15 +246,15 @@ describe("EditProjectPage — kunci edit jawaban kuesioner per peran dan status"
     expect(screen.queryByRole("button", { name: /Simpan (Jawaban|Koreksi)/ })).not.toBeInTheDocument();
   });
 
-  it.each(["New", "Scoring Pending", "Manual Review Required"])("Sales PIC pada status %s: terkunci", async (status) => {
-    arrange(makeProjectDetail({ status }));
+  it.each(["Scoring", "Manual Review"])("Sales PIC pada Intake dengan qualification_state %s: terkunci", async (qualification_state) => {
+    arrange(makeProjectDetail({ status: "Intake", qualification_state }));
     render("Sales");
     await tungguHalaman();
     expect(await screen.findByText(KUNCI)).toBeInTheDocument();
   });
 
   it("Sales yang bukan PIC proyek saat Need Clarification: terkunci", async () => {
-    arrange(makeProjectDetail({ status: "Need Clarification" }));
+    arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }));
     render("other-sales");
     await tungguHalaman();
     expect(await screen.findByText(KUNCI)).toBeInTheDocument();
@@ -262,36 +262,36 @@ describe("EditProjectPage — kunci edit jawaban kuesioner per peran dan status"
   });
 
   it("Sales saat proyek tanpa PIC tercatat: terkunci", async () => {
-    arrange(makeProjectDetail({ status: "Need Clarification", sales_pic: undefined }));
+    arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification", sales_pic: undefined }));
     render("Sales");
     await tungguHalaman();
     expect(await screen.findByText(KUNCI)).toBeInTheDocument();
   });
 
   it.each(["SA"] as Role[])("peran %s tidak bisa mengedit jawaban pada Need Clarification maupun setelah gate", async (role) => {
-    arrange(makeProjectDetail({ status: "Need Clarification" }));
+    arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }));
     render(role);
     await tungguHalaman();
     expect(await screen.findByText(KUNCI)).toBeInTheDocument();
   });
 
   it("tanpa pengguna ter-autentikasi: terkunci", async () => {
-    arrange(makeProjectDetail({ status: "Need Clarification" }));
+    arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }));
     render();
     await tungguHalaman();
     expect(await screen.findByText(KUNCI)).toBeInTheDocument();
   });
 
   it.each(["Lead_SA", "Admin"] as Role[])("%s pada Need Clarification: edit dengan hitung ulang skor", async (role) => {
-    arrange(makeProjectDetail({ status: "Need Clarification" }));
+    arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }));
     render(role);
     await tungguHalaman();
     expect(await screen.findByRole("button", { name: "Simpan Jawaban & Hitung Ulang Skor" })).toBeInTheDocument();
   });
 
   it.each([
-    ["Lead_SA", "Pending Assignment"],
-    ["Admin", "Pending Assignment"],
+    ["Lead_SA", "Awaiting Assignment"],
+    ["Admin", "Awaiting Assignment"],
     ["Lead_SA", "Assigned"],
     ["Admin", "In Progress"],
   ] as [Role, string][])("%s pasca-gate (%s): koreksi tanpa hitung ulang", async (role, status) => {
@@ -302,8 +302,8 @@ describe("EditProjectPage — kunci edit jawaban kuesioner per peran dan status"
     expect(screen.getByRole("button", { name: "Simpan Koreksi Jawaban" })).toBeInTheDocument();
   });
 
-  it.each(["New", "Scoring Pending", "Manual Review Required"])("Lead_SA/Admin pada status %s: terkunci", async (status) => {
-    arrange(makeProjectDetail({ status }));
+  it.each(["Scoring", "Manual Review"])("Lead_SA/Admin pada Intake dengan qualification_state %s: terkunci", async (qualification_state) => {
+    arrange(makeProjectDetail({ status: "Intake", qualification_state }));
     render("Admin");
     await tungguHalaman();
     expect(await screen.findByText(KUNCI)).toBeInTheDocument();
@@ -329,7 +329,7 @@ describe("EditProjectPage — kunci edit jawaban kuesioner per peran dan status"
 
 describe("EditProjectPage — simpan jawaban kuesioner", () => {
   it("menghitung ulang: mengirim payload ter-normalisasi, lalu memuat ulang proyek dan memberi tahu lolos", async () => {
-    const rec = arrange(makeProjectDetail({ status: "Need Clarification" }));
+    const rec = arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }));
     const { user } = render("Sales");
     await tungguHalaman();
     const mrr = await screen.findByLabelText(/Anggaran bulanan/);
@@ -351,8 +351,8 @@ describe("EditProjectPage — simpan jawaban kuesioner", () => {
   });
 
   it("skor masih di bawah ambang: pesan masih perlu klarifikasi", async () => {
-    arrange(makeProjectDetail({ status: "Need Clarification" }), {
-      putBody: { total_score: 45, status: "Need Clarification", rescored: true },
+    arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }), {
+      putBody: { total_score: 45, status: "Intake", qualification_state: "Need Clarification", rescored: true },
     });
     const { user } = render("Sales");
     await tungguHalaman();
@@ -362,8 +362,8 @@ describe("EditProjectPage — simpan jawaban kuesioner", () => {
   });
 
   it("koreksi (rescored=false): pesan skor tidak dihitung ulang", async () => {
-    arrange(makeProjectDetail({ status: "Pending Assignment" }), {
-      putBody: { total_score: null, status: "Pending Assignment", rescored: false },
+    arrange(makeProjectDetail({ status: "Awaiting Assignment" }), {
+      putBody: { total_score: null, status: "Awaiting Assignment", rescored: false },
     });
     const { user } = render("Lead_SA");
     await tungguHalaman();
@@ -373,7 +373,7 @@ describe("EditProjectPage — simpan jawaban kuesioner", () => {
   });
 
   it("validasi klien: field wajib dikosongkan → error per field, tanpa permintaan PUT", async () => {
-    const rec = arrange(makeProjectDetail({ status: "Need Clarification" }));
+    const rec = arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }));
     const { user } = render("Sales");
     await tungguHalaman();
     await user.clear(await screen.findByLabelText(/Nama PIC/));
@@ -384,7 +384,7 @@ describe("EditProjectPage — simpan jawaban kuesioner", () => {
   });
 
   it("422 server: pesan ditempel ke field kuesioner terkait dan toast error ditampilkan", async () => {
-    arrange(makeProjectDetail({ status: "Need Clarification" }), {
+    arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }), {
       putStatus: 422,
       putBody: {
         status: "error",
@@ -407,7 +407,7 @@ describe("EditProjectPage — simpan jawaban kuesioner", () => {
   });
 
   it("403 server (mis. status sudah berubah): menampilkan pesan server tanpa mengubah form", async () => {
-    arrange(makeProjectDetail({ status: "Need Clarification" }), {
+    arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }), {
       putStatus: 403,
       putBody: { status: "error", message: "Jawaban tidak dapat diedit pada status ini", data: null },
     });
@@ -420,13 +420,13 @@ describe("EditProjectPage — simpan jawaban kuesioner", () => {
   });
 
   it("menonaktifkan form dan menampilkan 'Menyimpan...' selama jawaban disimpan", async () => {
-    arrange(makeProjectDetail({ status: "Need Clarification" }));
+    arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }));
     let lepas!: () => void;
     const tunggu = new Promise<void>((r) => (lepas = r));
     server.use(
       http.put(api("/projects/:id/qualification-answers"), async () => {
         await tunggu;
-        return HttpResponse.json(successEnvelope({ total_score: 70, status: "Pending Assignment", rescored: true }));
+        return HttpResponse.json(successEnvelope({ total_score: 70, status: "Awaiting Assignment", rescored: true }));
       }),
     );
     const { user } = render("Sales");
@@ -441,7 +441,7 @@ describe("EditProjectPage — simpan jawaban kuesioner", () => {
   });
 
   it("perubahan jawaban yang belum disimpan tidak hilang saat metadata proyek diubah", async () => {
-    arrange(makeProjectDetail({ status: "Need Clarification" }));
+    arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }));
     const { user } = render("Sales");
     await tungguHalaman();
     const mrr = await screen.findByLabelText(/Anggaran bulanan/);

@@ -299,7 +299,7 @@ export default function NewProjectPage() {
       if (response.scoring_triggered) {
         showToast("success", "Proyek berhasil dibuat! File sedang diproses untuk scoring.");
         // Redirect ke detail proyek setelah 2 detik: lihat useEffect di bawah (dibersihkan saat unmount)
-      } else if (response.status === "Pending Assignment") {
+      } else if (response.status === "Awaiting Assignment") {
         showToast("success", `BANT Score: ${response.bant_score} — Proyek masuk antrian assignment!`);
       } else {
         showToast("error", `BANT Score: ${response.bant_score} — Perlu klarifikasi tambahan.`);
@@ -787,7 +787,7 @@ function ProjectCreatedNotice({
 }) {
   const detail = result.scoring_triggered
     ? "File sedang dianalisis AI untuk scoring. Anda akan diarahkan ke detail proyek."
-    : result.status === "Pending Assignment"
+    : result.status === "Awaiting Assignment"
       ? `BANT Score ${result.bant_score} — proyek masuk antrian assignment.`
       : `BANT Score ${result.bant_score} — perlu klarifikasi tambahan.`;
 

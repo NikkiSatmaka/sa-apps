@@ -134,7 +134,7 @@ export async function triggerHandover(
  * Endpoint: GET /api/v1/projects/{id}/handover-status
  *
  * @param projectId - ID proyek
- * @returns Status kesiapan (HLD final? Closed-Win? Email configured?)
+ * @returns Status kesiapan (HLD final? Won? Email configured?)
  */
 export async function getHandoverStatus(
   projectId: string

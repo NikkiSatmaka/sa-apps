@@ -4,9 +4,9 @@ import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 
 /**
- * Modal Blocking — Instruksi HLD setelah Closed-Win
+ * Modal Blocking — Instruksi HLD setelah Won
  *
- * Modal non-dismissable yang ditampilkan saat proyek berubah status ke "Closed-Win".
+ * Modal non-dismissable yang ditampilkan saat proyek berubah status ke "Won".
  * SA harus meng-acknowledge dengan klik tombol "Buat HLD" yang akan
  * mengarahkan ke halaman pembuatan dokumen.
  *
@@ -20,7 +20,7 @@ import { useRouter } from "next/navigation";
  */
 
 interface HandoverModalProps {
-  /** ID proyek yang baru Closed-Win */
+  /** ID proyek yang baru Won */
   projectId: string;
   /** Nama proyek untuk ditampilkan di modal */
   projectName: string;
@@ -88,7 +88,7 @@ export function HandoverModal({
           id="handover-modal-title"
           className="text-lg font-bold text-neutral-900 text-center"
         >
-          Proyek Closed-Win!
+          Proyek Won!
         </h2>
 
         {/* Nama proyek */}
@@ -99,7 +99,7 @@ export function HandoverModal({
         {/* Instruksi */}
         <div id="handover-modal-desc" className="mt-5 space-y-3">
           <p className="text-sm text-neutral-700 text-center">
-            Selamat! Proyek ini sudah Closed-Win. Langkah selanjutnya adalah 
+            Selamat! Proyek ini sudah Won. Langkah selanjutnya adalah 
             membuat dokumen <strong>High Level Design (HLD)</strong> untuk 
             proses handover ke tim PMO dan Delivery.
           </p>

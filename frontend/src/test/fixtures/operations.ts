@@ -20,7 +20,7 @@ export function makePendingProject(overrides: Partial<PendingProject> = {}): Pen
     customer_name: "PT Contoh",
     bant_score: 72,
     use_case_tags: ["Cloud Migration"],
-    status: "Pending Assignment",
+    status: "Awaiting Assignment",
     target_submit: "2025-12-31",
     gdrive_folder_id: null,
     folder_provisioning_status: null,

@@ -1,5 +1,6 @@
 "use client";
 
+import { statusBadgeClass } from "@/lib/status";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
@@ -39,20 +40,6 @@ interface StatusCount {
   status: string;
   count: number;
 }
-
-/** Warna badge per status proyek */
-const STATUS_BADGE_COLORS: Record<string, string> = {
-  "Pending Assignment": "bg-yellow-100 text-yellow-700",
-  Assigned: "bg-blue-100 text-blue-700",
-  Ready: "bg-green-100 text-green-700",
-  "Closed-Win": "bg-emerald-100 text-emerald-700",
-  "Need Clarification": "bg-orange-100 text-orange-700",
-  New: "bg-neutral-100 text-neutral-700",
-  Lost: "bg-red-100 text-red-700",
-  "Scoring Pending": "bg-purple-100 text-purple-700",
-  "Manual Review Required": "bg-pink-100 text-pink-700",
-  "Handover Complete": "bg-teal-100 text-teal-700",
-};
 
 export default function SalesDashboard() {
   const router = useRouter();
@@ -138,7 +125,7 @@ export default function SalesDashboard() {
                     <span
                       className={`
                         px-2.5 py-1 text-xs font-medium rounded-full
-                        ${STATUS_BADGE_COLORS[item.status] || "bg-neutral-100 text-neutral-600"}
+                        ${statusBadgeClass(item.status)}
                       `}
                     >
                       {item.status}

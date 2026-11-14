@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { HttpResponse, api, errorEnvelope, gagalLaluBerhasil, http, renderWithProviders, server, successEnvelope, type Role } from "@/test";
+import { HttpResponse, api, errorEnvelope, gagalLaluBerhasil, http, pasangHubungan, renderWithProviders, server, successEnvelope, type Hubungan, type Role } from "@/test";
 import { makeCollaborator, makeUserSearchResult } from "@/test/fixtures/operations";
 import { CollaboratorSection } from "./CollaboratorSection";
 
@@ -14,7 +14,21 @@ function useSearchPool() {
   server.use(http.get(api("/projects/users/search"), () => HttpResponse.json(successEnvelope(SEARCH_POOL))));
 }
 
-function setup(role: Role = "SA", props: Partial<React.ComponentProps<typeof CollaboratorSection>> = {}) {
+// Hubungan bawaan: pengguna berhak (SA = SA utama, Sales/Product = PIC); privileged tak terkait.
+const HUBUNGAN_BAWAAN: Record<Role, Hubungan> = {
+  SA: "sa_utama",
+  Sales: "sales_pic",
+  Product: "product_pic",
+  Lead_SA: "tak_terkait",
+  Admin: "tak_terkait",
+};
+
+function setup(
+  role: Role = "SA",
+  props: Partial<React.ComponentProps<typeof CollaboratorSection>> = {},
+  hubungan: Hubungan = HUBUNGAN_BAWAAN[role],
+) {
+  pasangHubungan(role, hubungan);
   const onMutate = vi.fn();
   const utils = renderWithProviders(<CollaboratorSection projectId="p-1" onMutate={onMutate} {...props} />, { role });
   return { onMutate, ...utils };
@@ -100,6 +114,39 @@ describe("CollaboratorSection — hak akses per peran", () => {
     await screen.findByText("Citra Dewi");
     expect(screen.getByRole("button", { name: "+ Tambah" })).toBeInTheDocument();
     expect(screen.getByTitle("Hapus kolaborator")).toBeInTheDocument();
+  });
+
+  // Hak tambah/hapus kolaborator = TingkatAkses.TAMBAH_/HAPUS_KOLABORATOR (#154): SA ditugaskan
+  // (utama/tambahan) dan Sales/Product PIC; contributor, viewer, dan pengguna tak terkait ditolak.
+  const KASUS: { role: Role; hubungan: Hubungan; berhak: boolean }[] = [
+    { role: "SA", hubungan: "sa_utama", berhak: true },
+    { role: "SA", hubungan: "sa_tambahan", berhak: true },
+    { role: "Sales", hubungan: "sales_pic", berhak: true },
+    { role: "Product", hubungan: "product_pic", berhak: true },
+    { role: "Lead_SA", hubungan: "tak_terkait", berhak: true },
+    { role: "Admin", hubungan: "tak_terkait", berhak: true },
+    { role: "SA", hubungan: "contributor", berhak: false },
+    { role: "SA", hubungan: "viewer", berhak: false },
+    { role: "Sales", hubungan: "contributor", berhak: false },
+    { role: "SA", hubungan: "tak_terkait", berhak: false },
+    { role: "Sales", hubungan: "tak_terkait", berhak: false },
+    { role: "Product", hubungan: "tak_terkait", berhak: false },
+    { role: "Sales", hubungan: "viewer", berhak: false },
+  ];
+
+  it.each(KASUS)("$role sebagai $hubungan: kontrol kelola tampil=$berhak, daftar tetap terbaca", async ({ role, hubungan, berhak }) => {
+    setup(role, {}, hubungan);
+    expect(await screen.findByText("Citra Dewi")).toBeInTheDocument();
+    if (berhak) {
+      expect(await screen.findByRole("button", { name: "+ Tambah" })).toBeInTheDocument();
+      expect(screen.getByTitle("Hapus kolaborator")).toBeInTheDocument();
+    } else {
+      // Beri waktu hubungan (detail + tim SA) selesai dimuat sebelum menyimpulkan "tersembunyi".
+      await waitFor(() => expect(screen.getByText("Citra Dewi")).toBeInTheDocument());
+      await new Promise((r) => setTimeout(r, 50));
+      expect(screen.queryByRole("button", { name: "+ Tambah" })).not.toBeInTheDocument();
+      expect(screen.queryByTitle("Hapus kolaborator")).not.toBeInTheDocument();
+    }
   });
 
   it("pengguna tanpa peran (belum login) tidak bisa mengelola", async () => {

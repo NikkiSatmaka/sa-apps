@@ -45,7 +45,7 @@ describe("fetcher (GET)", () => {
     expect(auth).toBeNull();
   });
 
-  it("401: hapus kedua token, arahkan ke /login, lempar ApiError 401", async () => {
+  it("refresh gagal: hapus token dan arahkan ke login dengan kode sesi berakhir", async () => {
     setAccessToken("a");
     const loc = stubLocation();
     server.use(
@@ -55,7 +55,7 @@ describe("fetcher (GET)", () => {
 
     await expect(fetcher("/secure")).rejects.toMatchObject({ name: "ApiError", status: 401, message: "Unauthorized" });
     clearAccessToken();
-    expect(loc.href).toBe("/login");
+    expect(loc.href).toBe("/login?error=session_expired");
   });
 
   it("401: refresh sekali lalu ulangi request dengan access token memory baru", async () => {

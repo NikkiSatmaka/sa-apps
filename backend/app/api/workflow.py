@@ -27,11 +27,11 @@ from app.core.database import get_db
 from app.core.dependencies import (
     PERAN_REQUESTER,
     TingkatAkses,
-    adalah_privileged,
     ensure_project_access,
     get_current_user,
 )
 from app.models.audit_log import AuditLog
+from app.models.document import Document
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.response import error_response, success_response
@@ -46,50 +46,98 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Workflow"])
 
-# === Definisi State Machine ===
+# === Definisi State Machine (ADR 0013, spec §2.0 "Siklus status") ===
 
-# Transisi forward yang valid (urutan linear)
-VALID_FORWARD_TRANSITIONS: dict[str, str] = {
-    status_konst.AWAITING_ASSIGNMENT: status_konst.ASSIGNED,
-    status_konst.ASSIGNED: status_konst.SUBMITTED,
-    status_konst.SUBMITTED: status_konst.WON,
-    # `Won` → `Handed Over` SENGAJA tidak ada di sini (issue #76): status itu hanya
-    # boleh dicapai lewat `POST /projects/{id}/handover`, yang memeriksa prasyarat (HLD Final,
-    # email PMO/Delivery, folder Drive), membuat folder, dan mengirim notifikasi.
+# Transisi yang boleh lewat PATCH /projects/{id}/status, beserta tingkat akses yang berhak
+# (di atas gerbang UBAH_STATUS: hubungan ke proyek). Lead_SA dan Admin selalu berhak.
+#
+# TIDAK ada di tabel ini, dengan sengaja:
+# - `Intake` → `Awaiting Assignment`: otomatis oleh sistem saat gate BANT lolos.
+# - `Awaiting Assignment` → `Assigned`: penugasan SA (POST /projects/{id}/assign).
+# - `Assigned` → `In Progress`: otomatis dari activity log/subtask pertama (#122).
+# - `Won` → `Handed Over`: hanya POST /projects/{id}/handover (issue #76: memeriksa HLD Final,
+#   email PMO/Delivery, folder Drive).
+# - `On Hold`, lanjut, dan buka kembali `Closed`/`Lost`: #122.
+_SEBELUM_HANDED_OVER = (
+    status_konst.INTAKE,
+    status_konst.AWAITING_ASSIGNMENT,
+    status_konst.ASSIGNED,
+    status_konst.IN_PROGRESS,
+    status_konst.SUBMITTED,
+    status_konst.WON,
+    status_konst.ON_HOLD,
+)
+
+TRANSISI_HAK: dict[tuple[str, str], TingkatAkses] = {
+    (status_konst.ASSIGNED, status_konst.SUBMITTED): TingkatAkses.UBAH_STATUS_SA,
+    (status_konst.IN_PROGRESS, status_konst.SUBMITTED): TingkatAkses.UBAH_STATUS_SA,
+    (status_konst.SUBMITTED, status_konst.IN_PROGRESS): TingkatAkses.UBAH_STATUS_SA,
+    (status_konst.SUBMITTED, status_konst.WON): TingkatAkses.UBAH_STATUS_PIC,
+    (status_konst.HANDED_OVER, status_konst.CLOSED): TingkatAkses.UBAH_STATUS_LEAD,
+    # Lost: dari status mana pun sebelum Handed Over; alasan wajib.
+    **{(dari, status_konst.LOST): TingkatAkses.UBAH_STATUS_LEAD for dari in _SEBELUM_HANDED_OVER},
 }
 
-# Status yang hanya dapat dicapai lewat endpoint khusus, bukan PATCH /status
-STATUS_VIA_ENDPOINT_KHUSUS: dict[str, str] = {
-    status_konst.HANDED_OVER: "POST /projects/{id}/handover",
+# Transisi sah yang HANYA boleh lewat endpoint khusus: ditolak di PATCH dan diarahkan.
+TRANSISI_VIA_ENDPOINT: dict[tuple[str, str], str] = {
+    (status_konst.WON, status_konst.HANDED_OVER): "POST /projects/{id}/handover",
+    (status_konst.AWAITING_ASSIGNMENT, status_konst.ASSIGNED): "POST /projects/{id}/assign",
 }
 
-# Status yang tidak bisa diubah ke "Lost"
-LOST_EXCLUDED_STATUSES = (status_konst.HANDED_OVER, status_konst.LOST)
+# Dokumen wajib untuk `Submitted`: masing-masing minimal satu dokumen berstatus ini.
+DOKUMEN_WAJIB_SUBMITTED = ("PropTek", "BOQ", "Mandays")
+STATUS_DOKUMEN_MINIMAL_REVIEWED = ("Reviewed", "Final")
 
 
-def _get_valid_next_statuses(current_status: str, privileged: bool) -> list[str]:
-    """
-    Mendapatkan daftar status yang valid dari status saat ini.
-    Mempertimbangkan hak privileged (Lead_SA/admin) untuk status khusus (Lost).
-    """
-    valid = []
-
-    # Transisi forward
-    next_status = VALID_FORWARD_TRANSITIONS.get(current_status)
-    if next_status:
-        valid.append(next_status)
-
-    # Status "Lost" — hanya Lead_SA/Admin, dari status manapun kecuali "Handed Over" dan "Lost" sendiri
-    if privileged and current_status not in LOST_EXCLUDED_STATUSES:
-        valid.append(status_konst.LOST)
-
-    return valid
+def status_berikutnya(status_sekarang: str) -> list[str]:
+    """Tujuan yang valid lewat PATCH /status dari `status_sekarang` (tanpa memandang peran)."""
+    return [ke for (dari, ke) in TRANSISI_HAK if dari == status_sekarang]
 
 
-def _is_valid_transition(current_status: str, new_status: str, privileged: bool) -> bool:
-    """Validasi apakah transisi status yang diminta valid."""
-    valid_statuses = _get_valid_next_statuses(current_status, privileged)
-    return new_status in valid_statuses
+def transisi_valid(status_sekarang: str, status_baru: str) -> bool:
+    """Apakah (`status_sekarang` → `status_baru`) ada di tabel transisi PATCH?"""
+    return (status_sekarang, status_baru) in TRANSISI_HAK
+
+
+def hak_transisi(status_sekarang: str, status_baru: str) -> TingkatAkses | None:
+    """Tingkat akses yang diminta transisi, atau None bila transisinya tidak valid."""
+    return TRANSISI_HAK.get((status_sekarang, status_baru))
+
+
+_PESAN_HAK_TRANSISI: dict[TingkatAkses, str] = {
+    TingkatAkses.UBAH_STATUS_SA: (
+        "Hanya SA yang ditugaskan, Lead_SA, atau Admin yang dapat menjalankan transisi status ini."
+    ),
+    TingkatAkses.UBAH_STATUS_PIC: (
+        "Hanya Sales/Product PIC proyek ini, Lead_SA, atau Admin yang dapat mengubah status "
+        "proyek menjadi 'Won'."
+    ),
+    TingkatAkses.UBAH_STATUS_LEAD: (
+        "Hanya Lead_SA atau Admin yang dapat menjalankan transisi status ini "
+        "('Lost' atau 'Closed')."
+    ),
+}
+
+
+async def _pastikan_syarat_submitted(db: AsyncSession, project: Project) -> None:
+    """`Submitted` butuh PropTek, BOQ, dan Mandays masing-masing minimal `Reviewed` (400)."""
+    hasil = await db.execute(
+        select(Document.doc_type).where(
+            Document.id_project == project.id_project,
+            Document.doc_type.in_(DOKUMEN_WAJIB_SUBMITTED),
+            Document.status.in_(STATUS_DOKUMEN_MINIMAL_REVIEWED),
+        )
+    )
+    ada = set(hasil.scalars().all())
+    kurang = [tipe for tipe in DOKUMEN_WAJIB_SUBMITTED if tipe not in ada]
+    if kurang:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Status 'Submitted' butuh dokumen PropTek, BOQ, dan Mandays masing-masing "
+                f"minimal berstatus 'Reviewed'. Belum terpenuhi: {', '.join(kurang)}."
+            ),
+        )
 
 
 def _generate_audit_id() -> str:
@@ -162,8 +210,9 @@ async def _notify_mandatory_hld(project: Project, db: AsyncSession) -> None:
     description=(
         "Mengubah status proyek sesuai workflow yang valid. "
         "Mencatat perubahan di audit log. "
-        "Role-based: Sales (proyek sendiri), SA (proyek ditugaskan), "
-        "Lead_SA (semua proyek + status Lost; wajib `reason`)."
+        "Hak per transisi (spec §2.0): Submitted/revisi oleh SA ditugaskan, Lead_SA, Admin; "
+        "Won oleh Sales/Product PIC, Lead_SA, Admin; Lost dan Closed oleh Lead_SA/Admin "
+        "(Lost wajib `reason`). Assigned lewat penugasan dan Handed Over lewat handover."
     ),
 )
 async def update_project_status(
@@ -177,8 +226,8 @@ async def update_project_status(
 
     Flow:
     1. Validasi proyek ada
-    2. Validasi akses user terhadap proyek (role-based)
-    3. Validasi transisi status (state machine)
+    2. Validasi hubungan user ke proyek (gerbang UBAH_STATUS)
+    3. Validasi transisi (state machine), hak per transisi, lalu syarat (dokumen/alasan)
     4. Update status proyek
     5. Catat perubahan di audit log
     6. Return response dengan data proyek dan audit log
@@ -211,26 +260,21 @@ async def update_project_status(
     old_status = project.status
     new_status = body.new_status
 
-    # Khusus status "Lost" — hanya Lead_SA/Admin yang bisa
-    if new_status == status_konst.LOST and not adalah_privileged(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Hanya Lead_SA atau Admin yang dapat mengubah status proyek menjadi 'Lost'.",
-        )
-
-    # Status yang hanya boleh dicapai lewat endpoint khusus: arahkan, jangan hanya "tidak valid".
-    if new_status in STATUS_VIA_ENDPOINT_KHUSUS:
+    # Transisi sah yang hanya boleh lewat endpoint khusus: arahkan, jangan hanya "tidak valid".
+    endpoint_khusus = TRANSISI_VIA_ENDPOINT.get((old_status, new_status))
+    if endpoint_khusus is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 f"Status '{new_status}' tidak dapat diubah lewat endpoint ini. "
-                f"Gunakan {STATUS_VIA_ENDPOINT_KHUSUS[new_status]}."
+                f"Gunakan {endpoint_khusus}."
             ),
         )
 
     # Validasi transisi menggunakan state machine
-    if not _is_valid_transition(old_status, new_status, adalah_privileged(current_user)):
-        valid_next = _get_valid_next_statuses(old_status, adalah_privileged(current_user))
+    tingkat_transisi = hak_transisi(old_status, new_status)
+    if tingkat_transisi is None:
+        valid_next = status_berikutnya(old_status)
         valid_str = ", ".join(f"'{s}'" for s in valid_next) if valid_next else "tidak ada (status terminal)"
 
         raise HTTPException(
@@ -241,7 +285,16 @@ async def update_project_status(
             ),
         )
 
-    # `Lost` wajib beralasan (CHECK `chk_projects_lost_reason`); alasan disimpan di proyek.
+    # Hak per transisi (spec §2.0): diperiksa SEBELUM syarat agar kondisi dokumen/alasan tidak
+    # bocor ke peran yang tidak berhak.
+    await ensure_project_access(
+        db, project, current_user, tingkat_transisi, pesan=_PESAN_HAK_TRANSISI[tingkat_transisi]
+    )
+
+    # Syarat transisi: `Submitted` butuh dokumen wajib; `Lost` wajib beralasan (CHECK
+    # `chk_projects_lost_reason`) dan alasan disimpan di proyek.
+    if new_status == status_konst.SUBMITTED:
+        await _pastikan_syarat_submitted(db, project)
     alasan = (body.reason or "").strip()
     if new_status == status_konst.LOST and not alasan:
         raise HTTPException(
@@ -253,7 +306,10 @@ async def update_project_status(
     now = datetime.now(timezone.utc)
     nilai_baru: dict = {"status": new_status}
     if new_status == status_konst.LOST:
-        project.previous_status = old_status
+        # Dari On Hold: `previous_status` sudah menyimpan status sebelum jeda; jangan ditimpa
+        # dengan 'On Hold' (CHECK `chk_projects_previous_status`).
+        if old_status != status_konst.ON_HOLD:
+            project.previous_status = old_status
         project.lost_reason = alasan
         nilai_baru["lost_reason"] = alasan
     project.status = new_status

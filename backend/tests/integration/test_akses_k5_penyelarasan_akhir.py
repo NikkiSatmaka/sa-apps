@@ -171,8 +171,11 @@ RUTE_MIGRASI = [
     ("daftar-kolaborator", "GET", "/projects/{p}/collaborators", None, list(SEMUA_AKTOR), {200}),
     ("hapus-kolaborator", "DELETE", "/projects/{p}/collaborators/{kolab_lain_id}", None,
      ["sales_pic", "sa", "lead", "admin"], {200, 404}),
+    # Gerbang UBAH_STATUS + hak per transisi (#121): Assigned -> Submitted hanya SA ditugaskan,
+    # Lead_SA, Admin (Sales PIC 403). Proyek uji tanpa dokumen wajib, jadi yang berhak mencapai
+    # syarat dokumen (400); matriks per transisi lengkap: `test_workflow_transisi.py`.
     ("ubah-status", "PATCH", "/projects/{p}/status", {"new_status": "Submitted"},
-     ["sales_pic", "sa", "lead", "admin"], {200}),
+     ["sa", "lead", "admin"], {400}),
     ("status-handover", "GET", "/projects/{p}/handover-status", None,
      ["sa", "lead", "admin"], {200}),
     ("picu-handover", "POST", "/projects/{p}/handover", None,

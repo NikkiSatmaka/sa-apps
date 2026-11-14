@@ -73,8 +73,8 @@ def _patch_status_response():
     return patch("app.api.workflow.notification_service.send_notification", new_callable=AsyncMock)
 
 
-class TestClosedWinNotifikasiHLD:
-    def test_closed_win_kirim_notifikasi_wajib_hld_ke_sa(self, client):
+class TestWonNotifikasiHLD:
+    def test_won_kirim_notifikasi_wajib_hld_ke_sa(self, client):
         sa = _user("SA")
         project = _project("Submitted", sa.id)
         lead = _user("Lead_SA")
@@ -96,14 +96,14 @@ class TestClosedWinNotifikasiHLD:
 
     def test_status_lain_tidak_kirim_notifikasi_hld(self, client):
         sa = _user("SA")
-        project = _project("Assigned", sa.id)
+        project = _project("Submitted", sa.id)
         lead = _user("Lead_SA")
         _setup(lead, [_scalar(project)])
 
         with _patch_status_response() as notify:
             resp = client.patch(
                 f"/api/v1/projects/{project.id_project}/status",
-                json={"new_status": "Submitted"},
+                json={"new_status": "In Progress"},
             )
 
         assert resp.status_code == 200

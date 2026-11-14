@@ -205,6 +205,10 @@ class TingkatAkses(StrEnum):
     TAMBAH_KOLABORATOR = "tambah_kolaborator"
     HAPUS_KOLABORATOR = "hapus_kolaborator"
     UBAH_STATUS = "ubah_status"
+    # Hak per transisi status (#121, ADR 0013). Dipakai SETELAH gerbang UBAH_STATUS.
+    UBAH_STATUS_SA = "ubah_status_sa"
+    UBAH_STATUS_PIC = "ubah_status_pic"
+    UBAH_STATUS_LEAD = "ubah_status_lead"
     HANDOVER = "handover"
     KELOLA_REQUIREMENT = "kelola_requirement"
     EDIT_KUESIONER = "edit_kuesioner"
@@ -335,6 +339,20 @@ _ATURAN: dict[TingkatAkses, Aturan] = {
         sales_pic=True,
         sa_ditugaskan=True,
         cocokkan_peran=True,
+    ),
+    TingkatAkses.UBAH_STATUS_SA: Aturan(
+        "Transisi Submitted dan revisi (Submitted -> In Progress): SA ditugaskan berperan SA "
+        "(utama atau tambahan); Sales/Product PIC ditolak",
+        sa_ditugaskan=True,
+        cocokkan_peran=True,
+    ),
+    TingkatAkses.UBAH_STATUS_PIC: Aturan(
+        "Transisi Won: Sales/Product PIC proyek itu (cocok id DAN peran); SA ditolak",
+        sales_pic=True,
+        cocokkan_peran=True,
+    ),
+    TingkatAkses.UBAH_STATUS_LEAD: Aturan(
+        "Transisi Closed dan Lost: hanya Lead_SA/Admin; PIC dan SA ditugaskan ditolak"
     ),
     TingkatAkses.HANDOVER: Aturan(
         "Handover (cek kesiapan + eksekusi): SA ditugaskan berperan SA; Sales (termasuk PIC) "

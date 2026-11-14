@@ -182,11 +182,11 @@ async def test_respons_pembuatan_memuat_tiga_orang_dengan_id_nama_email(api, db_
 
 
 async def _proyek_dengan_orang(db, *, sales, produk, pembuat, **o) -> Project:
+    o.setdefault("status", "Assigned")
     proyek = bangun_project(
         sales.id if sales else None,
         product_pic=produk.id,
         created_by=pembuat.id,
-        status="Assigned",
         **o,
     )
     await simpan(db, proyek)
@@ -266,11 +266,13 @@ async def test_filter_sales_pic_me_mencakup_proyek_product_pic_untuk_product(api
 async def test_product_pic_setara_sales_pic_walau_sales_pic_orang_lain(api, db_session):
     produk = await user_baru(db_session, "Product")
     sales = await user_baru(db_session, "Sales")
-    proyek = await _proyek_dengan_orang(db_session, sales=sales, produk=produk, pembuat=sales)
+    proyek = await _proyek_dengan_orang(
+        db_session, sales=sales, produk=produk, pembuat=sales, status="Submitted"
+    )
 
     ubah_status = await api.client.patch(
         f"{API}/projects/{proyek.id_project}/status",
-        json={"new_status": "Submitted"},
+        json={"new_status": "Won"},
         headers=bearer(produk),
     )
     isi_dq = await api.client.patch(

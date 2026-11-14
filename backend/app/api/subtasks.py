@@ -5,7 +5,7 @@ Subtask adalah konsep work item yang bisa ditugaskan ke SA dalam suatu proyek,
 berbeda dengan ActivityCategory (activity_logs.subtask_category).
 
 Endpoints:
-- POST   /projects/{project_id}/subtasks        — buat subtask (Lead_SA/Admin)
+- POST   /projects/{project_id}/subtasks        — buat subtask (SA ditugaskan/Lead_SA/Admin)
 - GET    /projects/{project_id}/subtasks        — daftar subtask proyek (read-set)
 - PATCH  /subtasks/{id_subtask}                 — ubah description/due_date/estimate_hours
                                                   (owner SA / privileged)
@@ -164,7 +164,12 @@ def _subtask_response(subtask: Subtask, assigned_sa_name: str | None = None) -> 
     "/{project_id}/subtasks",
     status_code=status.HTTP_201_CREATED,
     summary="Buat subtask baru",
-    description="Membuat work item subtask pada proyek. Hanya Lead_SA atau Admin.",
+    description=(
+        "Membuat work item subtask pada proyek. Boleh oleh SA yang ditugaskan di proyek "
+        "(utama atau tambahan), Lead_SA, atau Admin; Sales/Product dan SA yang tidak "
+        "ditugaskan 403, proyek Closed/Lost 409. Subtask baru belum punya assignee: "
+        "Lead_SA/Admin yang menugaskan lewat endpoint assign."
+    ),
 )
 async def create_subtask(
     project_id: str,
@@ -172,9 +177,9 @@ async def create_subtask(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Buat subtask baru untuk proyek tertentu (Lead_SA/Admin)."""
-    _require_lead_sa(current_user)
+    """Buat subtask baru (SA ditugaskan/Lead_SA/Admin). Assignee awal kosong."""
     project = await _verify_project_exists(project_id, db)
+    await ensure_project_access(db, project, current_user, TingkatAkses.BUAT_SUBTASK)
     pastikan_proyek_bisa_ditulis(project)
 
     subtask = Subtask(

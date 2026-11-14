@@ -66,7 +66,9 @@ ALASAN_ROLE_GATE = (
 # dimigrasikan ke titik keputusan bersama dan dikeluarkan dari daftar ini. Yang tersisa hanya
 # role gate murni Lead_SA/Admin. `PATCH .../subtasks/{id}/status` (dulu SAH-4, kepemilikan
 # subtask) kini memanggil titik keputusan (TULIS) sehingga keluar dari daftar; nomor SAH-4
-# tidak dipakai ulang. Menambah entri baru memerlukan alasan spesifik + nomor SAH berikutnya +
+# tidak dipakai ulang. `POST .../subtasks` (dulu SAH-10) keluar sejak #147 (SA ditugaskan boleh
+# membuat subtask, spec §2.0/§2.5); nomor SAH-10 juga tidak dipakai ulang. Menambah entri baru
+# memerlukan alasan spesifik + nomor SAH berikutnya +
 # test integrasi yang mengunci aturannya.
 PENGECUALIAN: dict[tuple[str, str], tuple[str, str]] = {
     ("DELETE", "/api/v1/projects/subtasks/{id_subtask}"): (
@@ -104,10 +106,6 @@ PENGECUALIAN: dict[tuple[str, str], tuple[str, str]] = {
     ("POST", "/api/v1/projects/{project_id}/score-manual"): (
         ALASAN_ROLE_GATE,
         "SAH-9",
-    ),
-    ("POST", "/api/v1/projects/{project_id}/subtasks"): (
-        ALASAN_ROLE_GATE,
-        "SAH-10",
     ),
 }
 

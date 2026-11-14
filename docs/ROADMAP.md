@@ -4,7 +4,7 @@ Dokumen pelacakan untuk fitur yang dibutuhkan agar mencapai MVP yang layak. Stat
 
 > **Asumsi yang dipakai menyusun roadmap ini** (dipilih sebagai default; ubah fase terkait jika ada yang keliru):
 > - **Form pertanyaan awal** = hybrid: kuesioner kualifikasi statis yang diisi Sales saat membuat opportunity, dengan opsi pertanyaan klarifikasi yang di-generate AI untuk area BANT yang lemah.
-> - **Subtask** = subtask yang benar-benar bisa ditugaskan: Lead SA (atau template proyek) membuat subtask per proyek; SA melihatnya sebagai to-do list dengan status (open → in progress → done) dan mencatat aktivitas terhadap subtask tertentu.
+> - **Subtask** = subtask yang benar-benar bisa ditugaskan: Lead SA (atau template proyek) dan SA yang ditugaskan di proyek membuat subtask per proyek; SA melihatnya sebagai to-do list dengan status (open → in progress → done) dan mencatat aktivitas terhadap subtask tertentu.
 > - **BoQ compare vs Requirement** = analisis gap AI **+ skor coverage**: pilih dokumen Requirement dan dokumen BoQ, Gemini mengembalikan item yang covered / missing / extra beserta persentase coverage.
 > - **Guardrails** = hardening auth/keamanan dulu (default yang tidak aman untuk produksi), baru keamanan input/output LLM.
 > - **Urutan pengerjaan** = keamanan dulu, lalu menutup fitur yang partial, baru fitur baru.

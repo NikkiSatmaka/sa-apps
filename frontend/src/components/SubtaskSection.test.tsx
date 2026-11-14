@@ -62,12 +62,24 @@ describe("SubtaskSection — visibilitas per peran", () => {
     expect(screen.getAllByRole("button", { name: "Tandai selesai" })).toHaveLength(1);
   });
 
-  it("SA tidak memicu fetch tim SA untuk kontrol assign", async () => {
+  // #147: SA memuat tim SA untuk mengetahui apakah ia ditugaskan (hak tambah subtask), bukan
+  // lagi "tidak memicu fetch" seperti sebelumnya; kontrol assign tetap hanya untuk Lead_SA/Admin.
+  it("SA memuat tim SA untuk mengetahui penugasannya, tanpa kontrol assign", async () => {
     serve();
     let dipanggil = false;
     server.use(http.get(api("/projects/p1/tim-sa"), () => { dipanggil = true; return HttpResponse.json(successEnvelope(makeTimSA())); }));
     setup("SA");
     await screen.findByText("Milik SA");
+    await waitFor(() => expect(dipanggil).toBe(true));
+    expect(screen.queryByRole("button", { name: "Tugaskan" })).not.toBeInTheDocument();
+  });
+
+  it.each(["Sales", "Product"] as const)("%s tidak memicu fetch tim SA", async (role) => {
+    serve();
+    let dipanggil = false;
+    server.use(http.get(api("/projects/p1/tim-sa"), () => { dipanggil = true; return HttpResponse.json(successEnvelope(makeTimSA())); }));
+    setup(role);
+    await new Promise((r) => setTimeout(r, 50));
     expect(dipanggil).toBe(false);
   });
 
@@ -202,6 +214,64 @@ describe("SubtaskSection — Lead_SA/Admin menambah", () => {
     // membuka/menutup form menghapus error
     await user.click(screen.getByRole("button", { name: "Batal" }));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("SubtaskSection — SA ditugaskan menambah (#147)", () => {
+  const timDengan = (saUtama: string, tambahan: string[] = []) =>
+    http.get(api("/projects/p1/tim-sa"), () =>
+      HttpResponse.json(
+        successEnvelope(
+          makeTimSA({
+            sa_utama: { id: saUtama, name: "SA Utama", email: "u@x" },
+            sa_tambahan: tambahan.map((id) => makeSATambahan({ id, name: "SA Tambahan", email: "t@x" })),
+          }),
+        ),
+      ),
+    );
+
+  it.each([
+    ["SA utama", () => timDengan(SA_ID)],
+    ["SA tambahan", () => timDengan("sa-lain", [SA_ID])],
+  ])("%s melihat tombol tambah dan bisa mengirim subtask baru", async (_nama, handlerTim) => {
+    let body: unknown;
+    server.use(
+      handlerTim(),
+      http.get(api("/projects/p1/subtasks"), () => HttpResponse.json(successEnvelope({ items: [], total: 0 }))),
+      http.post(api("/projects/p1/subtasks"), async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(successEnvelope(makeSubtask({ id_subtask: "baru", title: "Dari SA" })), { status: 201 });
+      }),
+    );
+    const { user } = setup("SA");
+    await user.click(await screen.findByRole("button", { name: "+ Tambah" }));
+    await user.type(screen.getByLabelText("Judul subtask:"), "Dari SA");
+    await user.click(screen.getByRole("button", { name: "Tambah Subtask" }));
+    await waitFor(() => expect(body).toMatchObject({ title: "Dari SA" }));
+  });
+
+  it("SA yang tidak ditugaskan tidak melihat tombol tambah", async () => {
+    serve();
+    server.use(timDengan("sa-lain", ["sa-lain-2"]));
+    setup("SA");
+    await screen.findByText("Milik SA");
+    expect(screen.queryByRole("button", { name: "+ Tambah" })).not.toBeInTheDocument();
+  });
+
+  it("SA yang ditugaskan tetap tanpa kontrol tugaskan/hapus dan melihat teks perannya", async () => {
+    serve();
+    server.use(timDengan(SA_ID));
+    setup("SA");
+    await screen.findByRole("button", { name: "+ Tambah" });
+    expect(screen.queryByRole("button", { name: "Tugaskan" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Hapus subtask/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Tambah work item, atau kerjakan yang ditugaskan kepada Anda.")).toBeInTheDocument();
+  });
+
+  it.each(["Sales", "Product"] as const)("%s tidak melihat tombol tambah (section tidak dirender)", (role) => {
+    serve();
+    const { container } = setup(role);
+    expect(container).toBeEmptyDOMElement();
   });
 });
 

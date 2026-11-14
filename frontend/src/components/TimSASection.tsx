@@ -269,7 +269,7 @@ export function TimSASection({ projectId }: TimSASectionProps) {
                         ))}
                       </select>
                     </div>
-                    <label className="flex items-center gap-2 text-xs text-neutral-600">
+                    <label className="flex items-center gap-2 text-xs text-neutral-600 min-h-[44px]">
                       <input
                         type="checkbox"
                         checked={pertahankan}

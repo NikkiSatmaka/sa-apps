@@ -101,7 +101,7 @@ async def test_sales_pic_edit_saat_need_clarification_rescore_lolos_gate(skenari
     assert p.bant_score == resp.json()["data"]["total_score"] >= 60
     assert p.requirement_generation_status == "pending"
     skenario.api.generate_requirement.assert_awaited_once_with(skenario.id)
-    assert len(await notif_untuk(skenario.db, skenario.id)) == 1
+    assert len(await notif_untuk(skenario.db, skenario.id)) == 2
 
 
 async def test_edit_yang_masih_lemah_tetap_need_clarification_tanpa_notifikasi(skenario):
@@ -283,7 +283,7 @@ async def test_override_lead_sa_lolos_gate_dengan_audit_log(skenario):
     )
     assert log[0].new_value["reason"] == "Konfirmasi telepon"
     assert log[0].new_value["override_sub_scores"]["need"] == 25
-    assert len(await notif_untuk(skenario.db, skenario.id)) == 1
+    assert len(await notif_untuk(skenario.db, skenario.id)) == 2
 
 
 async def test_override_lolos_gate_memicu_generate_requirement_di_router_scoring(

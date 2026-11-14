@@ -105,7 +105,7 @@ export function TugasSayaSection() {
               ))}
             </select>
           </div>
-          <label className="flex items-center gap-2 text-sm text-neutral-600 min-h-[36px]">
+          <label className="flex items-center gap-2 text-sm text-neutral-600 min-h-[44px]">
             <input
               type="checkbox"
               checked={sertakanSelesai}

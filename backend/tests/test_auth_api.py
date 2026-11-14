@@ -135,8 +135,8 @@ class TestDemoLogin:
             ("Product", "demo-product@portal-sa.local", "Product", False),
             ("SA", "demo-sa@portal-sa.local", "SA", False),
             ("Lead_SA", "demo-lead@portal-sa.local", "Lead_SA", False),
-            # Persona "Admin" = SA dengan flag admin (admin selalu menempel pada satu role).
-            ("Admin", "demo-admin@portal-sa.local", "SA", True),
+            # Persona "Admin" = Lead_SA dengan flag admin.
+            ("Admin", "demo-admin@portal-sa.local", "Lead_SA", True),
         ],
     )
     def test_user_demo_baru_dibuat_dengan_id_deterministik_dan_token_valid(

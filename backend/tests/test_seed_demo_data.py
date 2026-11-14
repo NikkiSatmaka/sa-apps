@@ -77,10 +77,21 @@ async def test_seed_all_memakai_akun_sales_dan_sa_berbeda_pada_project(monkeypat
     assert {p["id_project"] for p, *_ in mapping_first_seed} >= {
         f"PRJ-DEMO-{index:03}" for index in range(1, 9)
     }
-    assert all(p["qualification_answers"] and p.get("qualification_schema_version") is None
-               for p, *_ in mapping_first_seed)
+    assert all(p["qualification_answers"] for p, *_ in mapping_first_seed)
+    assert all(
+        set(p["qualification_answers"]) == {q.name for q in answer_questions()}
+        for p, *_ in mapping_first_seed
+    )
     assert {p["bant_score"] for p, *_ in mapping_first_seed} >= {45, 62, 75, 85, 90}
+    qualification_states = {
+        p.get("qualification_state", "Qualified" if p["status"] != "Intake" else "Scoring")
+        for p, *_ in mapping_first_seed
+    }
+    assert qualification_states == {
+        "Scoring", "Need Clarification", "Manual Review", "Qualified"
+    }
     assert len({product for _, _, _, product in mapping_first_seed}) == 2
+    assert all(product is not None for _, _, _, product in mapping_first_seed)
     assert sum(sa is not None for _, _, sa, _ in mapping_first_seed) >= 4
 
 

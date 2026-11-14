@@ -79,7 +79,13 @@ class Skenario:
         return self._header[role]
 
     async def user(self, role: str) -> User:
-        await self.header(role)
+        header = await self.header(role)
+        if role == "Admin":
+            from app.services.auth_service import auth_service
+
+            return await auth_service.get_current_user(
+                header["Authorization"].removeprefix("Bearer "), self.db
+            )
         email = {
             "Sales": "demo-sales@portal-sa.local",
             "SA": "demo-sa@portal-sa.local",

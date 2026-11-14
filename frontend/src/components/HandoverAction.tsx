@@ -53,15 +53,13 @@ export function HandoverAction({ project, onDone }: HandoverActionProps) {
   const [error, setError] = useState<string | null>(null);
   const [sibuk, setSibuk] = useState(false);
 
-  const {
-    data: kesiapan,
-    error: gagalMuat,
-    isValidating,
-  } = useSWR<HandoverReadiness>(terbuka ? `/projects/${project.id_project}/handover-status` : null, fetcher);
+  const { data: kesiapan, error: gagalMuat } = useSWR<HandoverReadiness>(terbuka ? `/projects/${project.id_project}/handover-status` : null, fetcher);
 
   if (!bisaHandover({ actor: user, status: project.status, saIds })) return null;
 
-  const bisaKirim = terbuka && !sibuk && !isValidating && !!kesiapan && kesiapan.ready;
+  // Hanya data kesiapan yang menentukan; revalidasi key yang sama oleh pelanggan lain (halaman
+  // detail) tidak boleh menonaktifkan tombol, karena klik yang jatuh saat itu hilang tanpa jejak.
+  const bisaKirim = terbuka && !sibuk && !!kesiapan && kesiapan.ready;
 
   const buka = () => {
     setError(null);

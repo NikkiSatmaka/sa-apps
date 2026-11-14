@@ -173,20 +173,56 @@ async def test_callback_kode_tidak_valid_tidak_menyimpan_user(api, db_session, m
     assert await _jumlah_user(db_session) == 0
 
 
+async def test_callback_handoff_hanya_dapat_ditukar_satu_kali(api, monkeypatch):
+    pasang_google(monkeypatch)
+    callback = await api.client.get(f"{AUTH}/callback", params={"code": "kode-ok"})
+    assert callback.status_code == 200
+    code = callback.json()["handoff_code"]
+    assert "access_token" not in callback.text
+    assert "refresh_token" not in callback.text
+
+    tukar = await api.client.post(f"{AUTH}/callback/exchange", json={"code": code})
+    assert tukar.status_code == 200
+    assert tukar.json()["user"]["email"] == "budi@perusahaan.id"
+    assert tukar.json()["access_token"]
+    assert "refresh_token" not in tukar.json()
+    assert "HttpOnly" in tukar.headers["set-cookie"]
+
+    pakai_ulang = await api.client.post(f"{AUTH}/callback/exchange", json={"code": code})
+    assert pakai_ulang.status_code == 401
+
+
 # ------------------------------------------------------------------------- refresh / logout / sesi
 
 
 async def test_refresh_menghasilkan_access_token_baru_yang_valid(api):
     login = (await api.client.post(f"{AUTH}/demo-login", json={"role": "SA"})).json()
 
-    resp = await api.client.post(
-        f"{AUTH}/refresh", json={"refresh_token": login["tokens"]["refresh_token"]}
-    )
+    resp = await api.client.post(f"{AUTH}/refresh")
 
     assert resp.status_code == 200
     me = await api.client.get(f"{AUTH}/me", headers=_bearer(resp.json()["access_token"]))
     assert me.status_code == 200
     assert me.json()["id"] == login["user"]["id"]
+
+
+async def test_refresh_cookie_rotasi_reuse_mencabut_sesi(api):
+    login = await api.client.post(f"{AUTH}/demo-login", json={"role": "SA"})
+    cookie_awal = login.cookies.get("refresh_token")
+    assert cookie_awal
+    assert "refresh_token" not in login.json()["tokens"]
+
+    pertama = await api.client.post(f"{AUTH}/refresh", cookies={"refresh_token": cookie_awal})
+    assert pertama.status_code == 200
+    cookie_baru = pertama.cookies.get("refresh_token")
+    assert cookie_baru and cookie_baru != cookie_awal
+
+    reuse = await api.client.post(f"{AUTH}/refresh", cookies={"refresh_token": cookie_awal})
+    assert reuse.status_code == 401
+    assert "refresh_token=;" in reuse.headers["set-cookie"]
+
+    setelah_reuse = await api.client.post(f"{AUTH}/refresh", cookies={"refresh_token": cookie_baru})
+    assert setelah_reuse.status_code == 401
 
 
 async def test_refresh_token_tidak_diterima_sebagai_kredensial_api(api):

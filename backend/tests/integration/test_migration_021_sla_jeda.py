@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy.exc import DBAPIError
 
 from tests.integration.conftest import jalankan_alembic
-from tests.integration.test_migration import _head, _sql, _versi
+from tests.integration.test_migration import _head, _revisi_lama_ke_baru, _sql, _versi
 from tests.integration.test_migration_020_status import _proyek, _user
 
 REVISI_BARU = "021"
@@ -38,10 +38,13 @@ def _sla(url: str, id_project: str, **kolom) -> None:
     )
 
 
-def test_revisi_021_adalah_head(database_kosong_url):
+def test_revisi_021_ada_di_rantai_dan_head_mengikutinya(database_kosong_url):
+    """Head bergeser seiring revisi baru; yang dijaga: 021 tetap dalam rantai tepat setelah 020."""
     jalankan_alembic(database_kosong_url, "upgrade", "head")
 
-    assert _versi(database_kosong_url) == _head() == REVISI_BARU
+    urutan = _revisi_lama_ke_baru()
+    assert urutan[urutan.index(REVISI_BARU) - 1] == REVISI_LAMA
+    assert _versi(database_kosong_url) == _head() == urutan[-1]
 
 
 def test_upgrade_mempertahankan_baris_lama_tanpa_jeda(database_kosong_url):

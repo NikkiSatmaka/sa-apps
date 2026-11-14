@@ -63,13 +63,13 @@ def _siapkan_head(url: str, id_project: str = "PRJ-ST") -> str:
     return id_project
 
 
-def test_revisi_022_adalah_head_dan_menyambung_ke_021(database_kosong_url):
+def test_revisi_022_ada_di_rantai_dan_head_mengikutinya(database_kosong_url):
+    # Bukan lagi head sejak migration 023 (#125); head dijaga test migration 023 dan test_migration.
     jalankan_alembic(database_kosong_url, "upgrade", "head")
 
     urutan = _revisi_lama_ke_baru()
-    assert urutan[-1] == REVISI_BARU
     assert urutan[urutan.index(REVISI_BARU) - 1] == REVISI_LAMA
-    assert _versi(database_kosong_url) == _head() == REVISI_BARU
+    assert _versi(database_kosong_url) == _head() == urutan[-1]
 
 
 def test_upgrade_mempertahankan_subtask_lama_dengan_kolom_baru_null(database_kosong_url):
@@ -117,7 +117,7 @@ def test_upgrade_ulang_setelah_downgrade(database_kosong_url):
 
     jalankan_alembic(url, "upgrade", "head")
 
-    assert _versi(url) == REVISI_BARU
+    assert _versi(url) == _head()
     assert KOLOM_BARU <= _kolom(url)
 
 

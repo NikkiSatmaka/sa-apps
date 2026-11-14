@@ -51,6 +51,11 @@ Dilarang, tanpa pengecualian prosedural (bagian 4):
    kodenya ada. Pengecualian terbatas pada dokumentasi murni dan konfigurasi tanpa
    perilaku, dan alasannya wajib tertulis di deskripsi PR.
 
+Catatan penegakan aturan 1, 2, dan 4: ditegakkan mekanis oleh job CI `gerbang-pelemahan`
+(hanya pada PR; hanya baris yang ditambah yang dinilai). Lokal, dari `backend/`:
+`uv run python scripts/gerbang_pelemahan.py --base origin/main`. Aturan 3 (melemahkan
+assertion) tetap review manual.
+
 Catatan penegakan: gerbang cakupan (bagian 1) hanya memeriksa angka **total**, sehingga
 kode tak teruji dalam jumlah kecil bisa lolos tanpa terdeteksi. Aturan 7 karenanya
 ditegakkan lewat checklist di template PR dan review sampai gerbang per-perubahan

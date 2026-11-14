@@ -477,3 +477,15 @@ describe("Dashboard Lead SA — tautan workload", () => {
     );
   });
 });
+
+describe("Dashboard Lead SA — tautan workload disembunyikan", () => {
+  it.each(["SA", "Sales"] as const)("%s tidak melihat tautan workload", (role) => {
+    renderWithProviders(<LeadSADashboard />, { role });
+    expect(screen.queryByRole("link", { name: "Lihat Workload" })).not.toBeInTheDocument();
+  });
+
+  it("Admin (flag is_admin) melihat tautan workload", () => {
+    renderWithProviders(<LeadSADashboard />, { role: "Admin" });
+    expect(screen.getByRole("link", { name: "Lihat Workload" })).toBeInTheDocument();
+  });
+});

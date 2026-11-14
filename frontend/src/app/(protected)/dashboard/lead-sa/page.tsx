@@ -57,6 +57,8 @@ const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "S
 
 export default function LeadSADashboard() {
   const router = useRouter();
+  // Tampilan workload hanya untuk Lead_SA/Admin (spec §2.5)
+  const bolehWorkload = isPrivileged(useAuthStore((s) => s.user));
   // State untuk modal assignment
   const [assigningProject, setAssigningProject] =
     useState<PendingProject | null>(null);
@@ -129,15 +131,27 @@ export default function LeadSADashboard() {
           </p>
         </div>
 
-        {/* Tombol Request SA — Lead SA bisa mengajukan request proyek baru */}
-        <button
-          onClick={() => router.push("/projects/new")}
-          className="px-4 py-2 text-sm font-medium text-white bg-primary-600
-                     rounded-lg hover:bg-primary-700 transition-colors duration-100
-                     min-h-[44px] min-w-[44px] shrink-0"
-        >
-          + Request SA
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {bolehWorkload && (
+            <Link
+              href="/dashboard/lead-sa/workload"
+              className="px-4 py-2 text-sm font-medium text-primary-700 border border-primary-600
+                         rounded-lg hover:bg-primary-50 transition-colors duration-100
+                         min-h-[44px] inline-flex items-center"
+            >
+              Lihat Workload
+            </Link>
+          )}
+          {/* Tombol Request SA — Lead SA bisa mengajukan request proyek baru */}
+          <button
+            onClick={() => router.push("/projects/new")}
+            className="px-4 py-2 text-sm font-medium text-white bg-primary-600
+                       rounded-lg hover:bg-primary-700 transition-colors duration-100
+                       min-h-[44px] min-w-[44px] shrink-0"
+          >
+            + Request SA
+          </button>
+        </div>
       </div>
 
       {/* Toast notification */}

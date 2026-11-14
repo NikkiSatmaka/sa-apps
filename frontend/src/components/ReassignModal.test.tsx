@@ -94,7 +94,7 @@ describe("ReassignModal", () => {
     await user.click(await screen.findByRole("button", { name: /Eka Putri/ }));
     await user.click(screen.getByRole("button", { name: "Konfirmasi Reassign" }));
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
-    expect(body).toEqual({ sa_id: "sa-2", project: "p-1" });
+    expect(body).toEqual({ sa_id: "sa-2", lead_sa_id: users.Lead_SA.id, project: "p-1" });
   });
 
   it("menampilkan status 'Mereassign...' selama request", async () => {

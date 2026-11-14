@@ -452,7 +452,7 @@ class TestSkemaRingan:
             folder_provisioning_triggered=False,
         )
         assert r.project.assigned_sa is None
-        assert SAAvailability(id=uuid.uuid4(), name="A", email="a@x.com", active_project_count=0)
+        assert SAAvailability(id=uuid.uuid4(), name="A", email="a@x.com", role="SA", active_project_count=0)
 
     def test_auth_skema(self):
         pasangan = TokenPair(access_token="a", refresh_token="r", expires_in=60)

@@ -297,6 +297,7 @@ async def get_available_sa(
             id=sa.id,
             name=sa.name,
             email=sa.email,
+            role=str(sa.role),
             active_project_count=active_counts.get(sa.id, 0),
         ).model_dump(mode="json")
         for sa in sa_users

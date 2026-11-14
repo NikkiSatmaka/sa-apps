@@ -185,7 +185,7 @@ describe("Dashboard Lead SA — antrian assignment", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("SA berhasil ditugaskan ke proyek!");
     expect(screen.queryByRole("heading", { name: "Assign SA ke Proyek" })).not.toBeInTheDocument();
-    expect(assigned).toEqual({ id: "pid", body: { sa_id: "sa-1" } });
+    expect(assigned).toEqual({ id: "pid", body: { sa_id: "sa-1", lead_sa_id: "00000000-0000-4000-8000-000000000003" } });
     await waitFor(() => expect(gets).toBeGreaterThanOrEqual(2));
 
     await act(async () => {

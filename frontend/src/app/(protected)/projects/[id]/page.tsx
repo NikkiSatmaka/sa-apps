@@ -401,6 +401,11 @@ export default function ProjectDetailPage() {
           projectName={project.project_name}
           customerName={project.customer_name}
           currentSAName={project.assigned_sa?.name}
+          currentLeadSa={
+            project.lead_sa?.id
+              ? { id: project.lead_sa.id, name: project.lead_sa.name ?? project.lead_sa.id }
+              : null
+          }
           onClose={() => setShowReassignModal(false)}
           onSuccess={() => {
             setShowReassignModal(false);

@@ -3,7 +3,9 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
+import { useAuthStore } from "@/store/auth";
 import { LoadError } from "./LoadError";
+import { LeadSaSelect } from "./LeadSaSelect";
 import {
   AvailableSA,
   PendingProject,
@@ -36,7 +38,12 @@ export function AssignmentModal({
   onClose,
   onSuccess,
 }: AssignmentModalProps) {
+  const user = useAuthStore((s) => s.user);
   const [selectedSA, setSelectedSA] = useState<string | null>(null);
+  // Default Lead SA = yang meng-assign bila ia Lead_SA; admin non-Lead_SA wajib memilih (ADR 0014)
+  const [selectedLead, setSelectedLead] = useState<string>(
+    user?.role === "Lead_SA" ? user.id : ""
+  );
   const [isAssigning, setIsAssigning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,13 +63,13 @@ export function AssignmentModal({
    * Memanggil API assign dan trigger callback on success
    */
   const handleAssign = async () => {
-    if (!selectedSA) return;
+    if (!selectedSA || !selectedLead) return;
 
     setIsAssigning(true);
     setError(null);
 
     try {
-      await assignProject(project.id_project, selectedSA);
+      await assignProject(project.id_project, selectedSA, selectedLead);
       onSuccess();
     } catch (err) {
       const message =
@@ -157,6 +164,13 @@ export function AssignmentModal({
               )}
             </div>
           </div>
+
+          {/* Lead SA proyek */}
+          <LeadSaSelect
+            kandidat={saList ?? []}
+            value={selectedLead}
+            onChange={setSelectedLead}
+          />
 
           {/* Label */}
           <p className="text-sm font-medium text-neutral-700 mb-3">
@@ -279,7 +293,7 @@ export function AssignmentModal({
           </button>
           <button
             onClick={handleAssign}
-            disabled={!selectedSA || isAssigning}
+            disabled={!selectedSA || !selectedLead || isAssigning}
             className="px-4 py-2 text-sm font-medium text-white bg-primary-600
                        rounded-lg hover:bg-primary-700 transition-colors duration-100
                        min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed

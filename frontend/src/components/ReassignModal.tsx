@@ -3,7 +3,9 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
+import { useAuthStore } from "@/store/auth";
 import { LoadError } from "./LoadError";
+import { LeadSaSelect } from "./LeadSaSelect";
 import { AvailableSA, reassignProject } from "@/lib/api/assignment";
 
 /**
@@ -17,6 +19,8 @@ interface ReassignModalProps {
   projectName: string;
   customerName: string;
   currentSAName?: string | null;
+  /** lead_sa proyek saat ini; bila ada, ditampilkan terkunci dan tidak ditimpa (ADR 0014). */
+  currentLeadSa?: { id: string; name: string } | null;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -26,10 +30,18 @@ export function ReassignModal({
   projectName,
   customerName,
   currentSAName,
+  currentLeadSa,
   onClose,
   onSuccess,
 }: ReassignModalProps) {
+  const user = useAuthStore((s) => s.user);
   const [selectedSA, setSelectedSA] = useState<string | null>(null);
+  // Proyek tanpa lead_sa (reassign dari Pending Assignment): default pengassign bila Lead_SA,
+  // admin non-Lead_SA wajib memilih. Bila lead_sa sudah ada, tidak dikirim dan tidak ditimpa.
+  const leadSudahAda = Boolean(currentLeadSa);
+  const [selectedLead, setSelectedLead] = useState<string>(
+    currentLeadSa?.id ?? (user?.role === "Lead_SA" ? user.id : "")
+  );
   const [isReassigning, setIsReassigning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,13 +57,13 @@ export function ReassignModal({
   );
 
   const handleReassign = async () => {
-    if (!selectedSA) return;
+    if (!selectedSA || !selectedLead) return;
 
     setIsReassigning(true);
     setError(null);
 
     try {
-      await reassignProject(projectId, selectedSA);
+      await reassignProject(projectId, selectedSA, leadSudahAda ? undefined : selectedLead);
       onSuccess();
     } catch (err) {
       const message =
@@ -114,6 +126,19 @@ export function ReassignModal({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5">
+          <LeadSaSelect
+            kandidat={saList ?? []}
+            value={selectedLead}
+            onChange={setSelectedLead}
+            disabled={leadSudahAda}
+            namaSaatIni={currentLeadSa?.name}
+            petunjuk={
+              leadSudahAda
+                ? "Lead SA tidak berubah saat reassign. Untuk menggantinya, gunakan bagian Orang pada detail proyek."
+                : undefined
+            }
+          />
+
           <p className="text-sm font-medium text-neutral-700 mb-3">
             Pilih SA baru:
           </p>
@@ -207,7 +232,7 @@ export function ReassignModal({
           </button>
           <button
             onClick={handleReassign}
-            disabled={!selectedSA || isReassigning}
+            disabled={!selectedSA || !selectedLead || isReassigning}
             className="px-4 py-2 text-sm font-medium text-white bg-primary-600
                        rounded-lg hover:bg-primary-700 transition-colors duration-100
                        min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed

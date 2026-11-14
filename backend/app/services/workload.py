@@ -8,6 +8,10 @@ Definisi (keputusan konservatif, lihat `app.core.status.STATUS_TIDAK_AKTIF`):
   (konsisten dengan `/sa/utilization` yang mengelompokkan `created_at` dalam UTC).
 - Jatuh tempo: subtask aktif ber-`due_date` dan project berstatus `STATUS_PANTAU_TARGET_SUBMIT`
   (`target_submit`) yang `due <= hari ini + HARI_PERINGATAN_DUE`; "hari ini" memakai tanggal UTC.
+- Macet: lama di status saat ini sejak audit log `status_change` terakhir yang `new_value.status`-nya
+  sama dengan status sekarang; bila tidak ada (Intake→Awaiting Assignment oleh scoring dan assign
+  tidak menulis audit), dipakai `Project.updated_at` (bisa lebih baru dari kejadian sebenarnya
+  bila project diedit, jadi hanya mengurangi deteksi, tidak menimbulkan alarm palsu).
 - Project dengan banyak SA (SA utama + `ProjectAssignments`) dihitung untuk tiap SA, sekali per SA.
 """
 
@@ -19,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import status as status_konst
 from app.core.dependencies import PERAN_DAPAT_DITUGASKAN
 from app.models.activity_log import ActivityLog
+from app.models.audit_log import AuditLog
 from app.models.project import Project
 from app.models.project_assignment import ProjectAssignment
 from app.models.subtask import Subtask
@@ -26,6 +31,8 @@ from app.models.user import User
 from app.schemas.workload import (
     BebanSA,
     JatuhTempoResponse,
+    MacetResponse,
+    ProjectMacet,
     ProjectJatuhTempo,
     SubtaskJatuhTempo,
 )
@@ -34,6 +41,18 @@ STATUS_SUBTASK_AKTIF = ("open", "in_progress")
 
 # Subtask/project "mendekati due date" bila jatuh tempo dalam N hari ke depan (termasuk hari ini).
 HARI_PERINGATAN_DUE = 3
+
+# Ambang "terlalu lama di satu status" (hari penuh, `>=`). Ubah di sini. Status yang tidak ada di
+# peta ini (On Hold, Closed, Lost) tidak pernah dianggap macet.
+AMBANG_MACET_HARI = {
+    status_konst.INTAKE: 3,
+    status_konst.AWAITING_ASSIGNMENT: 2,
+    status_konst.ASSIGNED: 3,
+    status_konst.IN_PROGRESS: 14,
+    status_konst.SUBMITTED: 14,
+    status_konst.WON: 7,
+    status_konst.HANDED_OVER: 14,
+}
 
 # `target_submit` hanya relevan sampai proposal diserahkan: sesudah `Submitted` tidak lagi dipantau.
 STATUS_PANTAU_TARGET_SUBMIT = (
@@ -171,3 +190,53 @@ async def hitung_jatuh_tempo(db: AsyncSession, hari_ini: date) -> JatuhTempoResp
         for p in baris_project.scalars().all()
     ]
     return JatuhTempoResponse(hari_peringatan=HARI_PERINGATAN_DUE, subtask=subtask, project=project)
+
+
+async def hitung_macet(db: AsyncSession, sekarang: datetime) -> MacetResponse:
+    """Project aktif yang sudah >= ambang hari di status sekarang, terlama dulu."""
+    proyek = (
+        (
+            await db.execute(
+                select(Project).where(
+                    Project.status.in_(AMBANG_MACET_HARI), *_proyek_aktif()
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    status_baru = AuditLog.new_value["status"].astext
+    audit = await db.execute(
+        select(AuditLog.entity_id, status_baru, func.max(AuditLog.created_at))
+        .where(
+            AuditLog.entity_type == "project",
+            AuditLog.action == "status_change",
+            AuditLog.entity_id.in_([p.id_project for p in proyek]),
+        )
+        .group_by(AuditLog.entity_id, status_baru)
+    )
+    terakhir = {(e, st): waktu for e, st, waktu in audit.all()}
+
+    items = []
+    for p in proyek:
+        waktu = terakhir.get((p.id_project, p.status))
+        sumber = "audit"
+        if waktu is None:
+            waktu, sumber = p.updated_at, "updated_at"
+        hari = (sekarang - waktu).days
+        ambang = AMBANG_MACET_HARI[p.status]
+        if hari >= ambang:
+            items.append(
+                ProjectMacet(
+                    id_project=p.id_project,
+                    project_name=p.project_name,
+                    customer_name=p.customer_name,
+                    status=p.status,
+                    masuk_status_sejak=waktu,
+                    hari_di_status=hari,
+                    ambang_hari=ambang,
+                    sumber=sumber,
+                )
+            )
+    items.sort(key=lambda i: (-i.hari_di_status, i.id_project))
+    return MacetResponse(ambang_hari=dict(AMBANG_MACET_HARI), items=items)

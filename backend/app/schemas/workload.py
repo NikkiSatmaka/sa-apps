@@ -1,7 +1,7 @@
 """Skema respons tampilan workload Lead_SA (issue #127, spec §2.5)."""
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -50,3 +50,19 @@ class JatuhTempoResponse(BaseModel):
     hari_peringatan: int
     subtask: list[SubtaskJatuhTempo]
     project: list[ProjectJatuhTempo]
+
+
+class ProjectMacet(BaseModel):
+    id_project: str
+    project_name: str
+    customer_name: str
+    status: str
+    masuk_status_sejak: datetime
+    hari_di_status: int
+    ambang_hari: int
+    sumber: str  # "audit" (jejak status_change) atau "updated_at" (cadangan)
+
+
+class MacetResponse(BaseModel):
+    ambang_hari: dict[str, int]
+    items: list[ProjectMacet]

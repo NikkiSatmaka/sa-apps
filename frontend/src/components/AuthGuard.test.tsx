@@ -13,7 +13,7 @@ const renderGuard = () =>
     </AuthGuard>,
   );
 
-const roles: Role[] = ["Sales", "Product", "SA", "Lead_SA", "Admin"];
+const roles: Role[] = ["Sales", "Product", "SA", "Lead_SA"];
 
 describe("AuthGuard", () => {
   it("tanpa token: mengalihkan ke /login dan tidak pernah menampilkan konten", async () => {

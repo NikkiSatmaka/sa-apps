@@ -116,12 +116,12 @@ describe("halaman /demo — login per peran", () => {
   it("respons gagal dengan pesan: menampilkan pesan backend, tidak menyimpan token, tidak berpindah", async () => {
     server.use(http.post(api("/auth/demo-login"), () => HttpResponse.json({ message: "Demo dinonaktifkan" }, { status: 403 })));
     const { user } = await renderReady();
-    await user.click(screen.getByRole("button", { name: "Login sebagai Admin" }));
+    await user.click(screen.getByRole("button", { name: "Login sebagai Sales" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Demo dinonaktifkan");
     expect(localStorage.getItem("access_token")).toBeNull();
     expect(router.push).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Login sebagai Admin" })).toBeEnabled(); // bisa dicoba lagi
+    expect(screen.getByRole("button", { name: "Login sebagai Sales" })).toBeEnabled(); // bisa dicoba lagi
   });
 
   it("respons gagal tanpa JSON: pesan generik berisi kode status", async () => {

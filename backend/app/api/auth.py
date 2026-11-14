@@ -103,14 +103,6 @@ DEMO_USERS = {
         "name": "Demo Product",
         "google_id": "demo-google-id-product",
     },
-    # Persona Admin = Lead_SA dengan flag admin (admin menempel pada role fungsional, ADR 0012).
-    "Admin": {
-        "email": "demo-admin@portal-sa.local",
-        "name": "Demo Admin",
-        "google_id": "demo-google-id-admin",
-        "role": "Lead_SA",
-        "is_admin": True,
-    },
 }
 
 def _origin(url: str) -> tuple[str, str]:
@@ -128,7 +120,7 @@ def _frontend_url_diizinkan(url: str) -> bool:
 class DemoLoginRequest(BaseModel):
     """Request body untuk demo login."""
 
-    role: Literal["Sales", "Product", "SA", "Lead_SA", "Admin"]
+    role: Literal["Sales", "Product", "SA", "Lead_SA"]
 
 
 @router.post("/demo-login", summary="Demo Login (bypass OAuth)")

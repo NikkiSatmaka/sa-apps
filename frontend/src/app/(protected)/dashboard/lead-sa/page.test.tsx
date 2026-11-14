@@ -467,3 +467,25 @@ describe("Dashboard Lead SA — error pemuatan dibedakan dari keadaan kosong (#8
     expect(await within(s).findByRole("link", { name: "Proyek Effort" })).toBeInTheDocument();
   });
 });
+
+describe("Dashboard Lead SA — tautan workload", () => {
+  it("menampilkan tautan ke halaman workload", async () => {
+    renderWithProviders(<LeadSADashboard />, { role: "Lead_SA" });
+    expect(screen.getByRole("link", { name: "Lihat Workload" })).toHaveAttribute(
+      "href",
+      "/dashboard/lead-sa/workload",
+    );
+  });
+});
+
+describe("Dashboard Lead SA — tautan workload disembunyikan", () => {
+  it.each(["SA", "Sales"] as const)("%s tidak melihat tautan workload", (role) => {
+    renderWithProviders(<LeadSADashboard />, { role });
+    expect(screen.queryByRole("link", { name: "Lihat Workload" })).not.toBeInTheDocument();
+  });
+
+  it("Admin (flag is_admin) melihat tautan workload", () => {
+    renderWithProviders(<LeadSADashboard />, { role: "Admin" });
+    expect(screen.getByRole("link", { name: "Lihat Workload" })).toBeInTheDocument();
+  });
+});

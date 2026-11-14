@@ -76,6 +76,10 @@ async def test_tanpa_login_ditolak(api, bagian):
 # --- (1) beban ---
 
 
+def _log_nonproyek(sa_id, **o):
+    return bangun_log(sa_id, None, work_type="Non-Project", project_phase=None, **o)
+
+
 def _beban(resp) -> dict[str, dict]:
     return {i["name"]: i for i in resp.json()["data"]["items"]}
 
@@ -168,7 +172,7 @@ async def test_beban_jam_terlog_minggu_ini(dunia, api):
     await _simpan(
         dunia,
         bangun_log(dunia.sa.id, p.id_project, duration_hours=Decimal("2.50"), created_at=sekarang),
-        bangun_log(dunia.sa.id, None, duration_hours=Decimal("1.00"), created_at=sekarang),
+        _log_nonproyek(dunia.sa.id, duration_hours=Decimal("1.00"), created_at=sekarang),
         # minggu lalu: tidak dihitung
         bangun_log(
             dunia.sa.id,
@@ -192,20 +196,14 @@ async def test_beban_batas_minggu_senin_00_00_utc(dunia):
     senin = datetime(2030, 1, 7, 0, 0, tzinfo=UTC)
     await _simpan(
         dunia,
-        bangun_log(dunia.sa.id, None, duration_hours=Decimal("1"), created_at=senin),
-        bangun_log(
-            dunia.sa.id,
-            None,
-            duration_hours=Decimal("10"),
-            created_at=senin - timedelta(seconds=1),
+        _log_nonproyek(dunia.sa.id, duration_hours=Decimal("1"), created_at=senin),
+        _log_nonproyek(
+            dunia.sa.id, duration_hours=Decimal("10"), created_at=senin - timedelta(seconds=1)
         ),
-        bangun_log(dunia.sa.id, None, duration_hours=Decimal("2"), created_at=rabu),
-        # sesudah "sekarang" (tidak mungkin di produksi) tetap di luar jendela minggu berjalan
-        bangun_log(
-            dunia.sa.id,
-            None,
-            duration_hours=Decimal("100"),
-            created_at=senin + timedelta(days=7),
+        _log_nonproyek(dunia.sa.id, duration_hours=Decimal("2"), created_at=rabu),
+        # Senin berikutnya: di luar jendela minggu berjalan
+        _log_nonproyek(
+            dunia.sa.id, duration_hours=Decimal("24"), created_at=senin + timedelta(days=7)
         ),
     )
 

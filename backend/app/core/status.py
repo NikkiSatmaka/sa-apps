@@ -62,3 +62,9 @@ STATUS_BOLEH_DQ = (ASSIGNED, IN_PROGRESS, SUBMITTED, WON, HANDED_OVER)
 
 # Status proyek yang sudah selesai/berakhir (tidak lagi mendapat penugasan atau Requirement baru).
 STATUS_AKHIR = (WON, HANDED_OVER, CLOSED, LOST)
+
+# Proyek yang tidak dihitung sebagai beban kerja SA (tampilan workload Lead_SA, spec §2.5):
+# `Closed` dan `Lost` sudah berakhir, `On Hold` dijeda. `Won` dan `Handed Over` tetap aktif karena
+# SA masih bekerja di sana (HLD, handover). Berbeda dari `STATUS_AKHIR` yang dipakai
+# `/sa/available` (mengecualikan Won/Handed Over dan tidak mengecualikan On Hold).
+STATUS_TIDAK_AKTIF = (CLOSED, LOST, ON_HOLD)

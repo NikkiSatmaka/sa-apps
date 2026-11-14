@@ -28,6 +28,7 @@ from app.api.sla import router as sla_router
 from app.api.project_comments import router as project_comments_router
 from app.api.subtasks import router as subtasks_router
 from app.api.subtasks import router_saya as subtasks_saya_router
+from app.api.workload import router as workload_router
 from app.api.tim_sa import router as tim_sa_router
 from app.api.workflow import router as workflow_router
 from app.core.config import settings
@@ -101,6 +102,7 @@ app.include_router(collaborators_router, prefix="/api/v1")
 app.include_router(subtasks_router, prefix="/api/v1")
 app.include_router(project_comments_router, prefix="/api/v1")
 app.include_router(subtasks_saya_router, prefix="/api/v1")
+app.include_router(workload_router, prefix="/api/v1")
 app.include_router(tim_sa_router, prefix="/api/v1")
 
 

@@ -12,12 +12,15 @@ Definisi (keputusan konservatif, lihat `app.core.status.STATUS_TIDAK_AKTIF`):
   sama dengan status sekarang; bila tidak ada (Intake→Awaiting Assignment oleh scoring dan assign
   tidak menulis audit), dipakai `Project.updated_at` (bisa lebih baru dari kejadian sebenarnya
   bila project diedit, jadi hanya mengurangi deteksi, tidak menimbulkan alarm palsu).
+- Butuh aksi: `Awaiting Assignment` (belum di-assign), DQ kosong (`dq_number` NULL pada status
+  `STATUS_BOLEH_DQ`: Assigned dan seterusnya yang aktif, spec Flow 2), dan `Need Clarification`
+  (`qualification_state` pada status `Intake`). On Hold tidak dihitung.
 - Project dengan banyak SA (SA utama + `ProjectAssignments`) dihitung untuk tiap SA, sekali per SA.
 """
 
 from datetime import date, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import status as status_konst
@@ -30,9 +33,11 @@ from app.models.subtask import Subtask
 from app.models.user import User
 from app.schemas.workload import (
     BebanSA,
+    ButuhAksiResponse,
     JatuhTempoResponse,
     MacetResponse,
     ProjectMacet,
+    ProjectButuhAksi,
     ProjectJatuhTempo,
     SubtaskJatuhTempo,
 )
@@ -240,3 +245,41 @@ async def hitung_macet(db: AsyncSession, sekarang: datetime) -> MacetResponse:
             )
     items.sort(key=lambda i: (-i.hari_di_status, i.id_project))
     return MacetResponse(ambang_hari=dict(AMBANG_MACET_HARI), items=items)
+
+
+JENIS_URUT = ("awaiting_assignment", "dq_kosong", "need_clarification")
+
+
+async def hitung_butuh_aksi(db: AsyncSession) -> ButuhAksiResponse:
+    """Project yang menunggu tindakan Lead_SA; urut jenis lalu terlama dibuat dulu."""
+    jenis = case(
+        (Project.status == status_konst.AWAITING_ASSIGNMENT, "awaiting_assignment"),
+        (
+            Project.status.in_(status_konst.STATUS_BOLEH_DQ) & Project.dq_number.is_(None),
+            "dq_kosong",
+        ),
+        (
+            (Project.status == status_konst.INTAKE)
+            & (Project.qualification_state == status_konst.QS_NEED_CLARIFICATION),
+            "need_clarification",
+        ),
+        else_=None,
+    )
+    baris = await db.execute(
+        select(Project, jenis.label("jenis"))
+        .where(jenis.is_not(None), *_proyek_aktif())
+        .order_by(Project.created_at, Project.id_project)
+    )
+    items = [
+        ProjectButuhAksi(
+            jenis=j,
+            id_project=p.id_project,
+            project_name=p.project_name,
+            customer_name=p.customer_name,
+            status=p.status,
+            qualification_state=p.qualification_state,
+        )
+        for p, j in baris.all()
+    ]
+    items.sort(key=lambda i: JENIS_URUT.index(i.jenis))  # stabil: urutan pembuatan terjaga
+    return ButuhAksiResponse(items=items)

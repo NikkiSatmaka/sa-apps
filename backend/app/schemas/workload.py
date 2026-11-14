@@ -66,3 +66,16 @@ class ProjectMacet(BaseModel):
 class MacetResponse(BaseModel):
     ambang_hari: dict[str, int]
     items: list[ProjectMacet]
+
+
+class ProjectButuhAksi(BaseModel):
+    jenis: str  # awaiting_assignment | dq_kosong | need_clarification
+    id_project: str
+    project_name: str
+    customer_name: str
+    status: str
+    qualification_state: str
+
+
+class ButuhAksiResponse(BaseModel):
+    items: list[ProjectButuhAksi]

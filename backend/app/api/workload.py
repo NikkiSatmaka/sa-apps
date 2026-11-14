@@ -4,6 +4,8 @@ API tampilan workload Lead_SA (issue #127, spec §2.5). Hanya Lead_SA atau `is_a
 - GET /workload/beban — beban tiap SA (subtask aktif, project aktif, jam terlog minggu ini)
 - GET /workload/jatuh-tempo — subtask dan project yang lewat atau mendekati due date
 - GET /workload/macet — project terlalu lama di satu status
+- GET /workload/butuh-aksi — project yang menunggu tindakan (belum di-assign, DQ kosong,
+  Need Clarification)
 """
 
 from datetime import UTC, datetime
@@ -59,3 +61,13 @@ async def get_macet(
     _wajib_lead_sa(current_user)
     data = await workload.hitung_macet(db, datetime.now(UTC))
     return success_response(data=data.model_dump(mode="json"), message="Project macet berhasil diambil.")
+
+
+@router.get("/butuh-aksi", summary="Project yang butuh aksi Lead_SA")
+async def get_butuh_aksi(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _wajib_lead_sa(current_user)
+    data = await workload.hitung_butuh_aksi(db)
+    return success_response(data=data.model_dump(mode="json"), message="Project butuh aksi berhasil diambil.")

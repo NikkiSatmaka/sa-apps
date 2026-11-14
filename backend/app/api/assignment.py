@@ -41,6 +41,7 @@ from app.services.folder_provisioner import (
     folder_provisioner,
 )
 from app.services.sla_timer import sla_timer
+from app.services.workload import hitung_project_aktif_per_sa
 
 logger = logging.getLogger(__name__)
 
@@ -271,8 +272,9 @@ async def get_pending_projects(
     "/sa/available",
     summary="Daftar SA yang tersedia dengan workload",
     description=(
-        "Menampilkan semua SA yang terdaftar di sistem beserta "
-        "jumlah proyek aktif masing-masing. Hanya untuk Lead_SA."
+        "Menampilkan semua SA yang terdaftar di sistem beserta jumlah proyek aktif "
+        "masing-masing (definisi sama dengan `/workload/beban`: bukan soft-deleted, status bukan "
+        "Closed/Lost/On Hold, SA utama + SA tambahan). Hanya untuk Lead_SA."
     ),
 )
 async def get_available_sa(
@@ -280,30 +282,17 @@ async def get_available_sa(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Ambil daftar SA beserta jumlah proyek aktif (status bukan terminal).
+    Ambil daftar SA beserta jumlah proyek aktif (definisi workload, lihat `hitung_project_aktif_per_sa`).
     Hanya Lead_SA yang bisa mengakses endpoint ini.
     """
     _require_lead_sa(current_user)
-
-    # Status terminal — proyek yang sudah selesai/tidak aktif
-    terminal_statuses = status_konst.STATUS_AKHIR
 
     # Query semua kandidat SA: user berrole SA atau Lead_SA (ADR 0012)
     sa_result = await db.execute(select(User).where(User.role.in_(PERAN_DAPAT_DITUGASKAN)).order_by(User.name))
     sa_users = sa_result.scalars().all()
 
-    # Hitung jumlah proyek aktif per SA menggunakan subquery
-    active_count_subquery = (
-        select(
-            Project.assigned_sa,
-            func.count(Project.id_project).label("active_count"),
-        )
-        .where(Project.status.notin_(terminal_statuses))
-        .where(Project.assigned_sa.isnot(None))
-        .group_by(Project.assigned_sa)
-    )
-    active_count_result = await db.execute(active_count_subquery)
-    active_counts = {row[0]: row[1] for row in active_count_result.all()}
+    # Definisi "project aktif" sama dengan `/workload/beban` (satu sumber di services/workload).
+    active_counts = await hitung_project_aktif_per_sa(db)
 
     # Format response
     sa_data = [

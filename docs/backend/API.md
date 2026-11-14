@@ -70,7 +70,7 @@ Referensi lengkap API backend Portal SA. Disusun dari router di `backend/app/api
 | Method & Path | Auth / Role | Request | Response | Purpose |
 |---|---|---|---|---|
 | `GET /projects/pending-assignment` | Lead_SA/Admin | — | daftar proyek `Pending Assignment` | Proyek siap di-assign. |
-| `GET /sa/available` | Lead_SA/Admin | — | daftar SA + jumlah proyek aktif | Ketersediaan/workload SA. |
+| `GET /sa/available` | Lead_SA/Admin | — | daftar SA + jumlah proyek aktif | Ketersediaan/workload SA. Definisi "aktif" sama dengan `/workload/beban` (bukan soft-deleted, status bukan Closed/Lost/On Hold, SA utama + tambahan). |
 | `GET /sa/utilization` | Lead_SA/Admin | query `year?`, `sa_id?` | utilisasi jam per SA per bulan | Rekap utilisasi dari activity logs. |
 | `GET /utilization/projects` | Lead_SA/Admin | — | jam + personel per proyek | Effort distribution antar proyek. |
 | `GET /utilization/summary` | Lead_SA/Admin | query `year?` | agregasi work_type & project_phase | Ringkasan dua dimensi untuk dashboard. |

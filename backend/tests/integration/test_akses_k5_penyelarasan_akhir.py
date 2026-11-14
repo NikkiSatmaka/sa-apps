@@ -192,6 +192,10 @@ RUTE_MIGRASI = [
      ["sa", "lead", "admin"], {404}),
     ("jawaban-kuesioner", "PUT", "/projects/{p}/qualification-answers", {},
      ["sales_pic", "lead", "admin"], {400}),
+    # #147: SA ditugaskan boleh membuat subtask (spec §2.0/§2.5); dulu role gate Lead_SA/Admin
+    # (SAH-10), kini lewat titik keputusan. Sales PIC, collaborator, SA luar: 403.
+    ("buat-subtask", "POST", "/projects/{p}/subtasks", {"title": "Subtask uji"},
+     ["sa", "lead", "admin"], {201}),
 ]
 
 
@@ -256,7 +260,6 @@ RUTE_ROLE_GATE = [
     ("provision-folder", "POST", "/projects/{p}/provision-folder", lambda sk: None, "proyek"),
     ("handover-config", "POST", "/projects/{p}/handover-config", lambda sk: BODY_HANDOVER, "proyek"),
     ("score-manual", "POST", "/projects/{p}/score-manual", lambda sk: BODY_SKOR, "proyek"),
-    ("buat-subtask", "POST", "/projects/{p}/subtasks", lambda sk: {"title": "Subtask uji"}, "proyek"),
     ("assign-subtask", "PATCH", "/projects/subtasks/{s}/assign", lambda sk: {"assigned_sa": None}, "subtask"),
     ("hapus-subtask", "DELETE", "/projects/subtasks/{s}", lambda sk: None, "subtask"),
 ]

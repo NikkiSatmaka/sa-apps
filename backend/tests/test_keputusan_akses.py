@@ -93,6 +93,9 @@ MATRIKS = {
     TingkatAkses.KOMENTAR: {"privileged", "sales_pic", "sa_ditugaskan", "kolab_contributor"},
     # Atur tim SA (#119): hanya Lead_SA/Admin; SA utama/tambahan tidak
     TingkatAkses.KELOLA_TIM_SA: {"privileged"},
+    # Buat subtask (#147, spec §2.0/§2.5): SA utama/tambahan, Lead_SA, Admin; Sales PIC dan
+    # collaborator (viewer maupun contributor) ditolak
+    TingkatAkses.BUAT_SUBTASK: {"privileged", "sa_ditugaskan"},
 }
 
 KASUS = [
@@ -340,7 +343,10 @@ def test_product_pic_diperlakukan_sama_dengan_sales_pic_di_semua_tingkat(tingkat
     assert izinkan(PRODUCT_PIC, tingkat) == izinkan(SALES_PIC, tingkat)
 
 
-@pytest.mark.parametrize("tingkat", [TingkatAkses.UBAH_STATUS_SA, TingkatAkses.UBAH_STATUS_PIC])
+@pytest.mark.parametrize(
+    "tingkat",
+    [TingkatAkses.UBAH_STATUS_SA, TingkatAkses.UBAH_STATUS_PIC, TingkatAkses.BUAT_SUBTASK],
+)
 def test_hak_transisi_mencocokkan_id_dan_peran(tingkat):
     """SA ditugaskan harus berperan SA; PIC harus berperan Sales/Product (bukan peran lain)."""
     assert izinkan(HubunganProyek(sa_ditugaskan=True, peran="Sales"), tingkat) is False

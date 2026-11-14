@@ -8,14 +8,14 @@ const projects = (data: unknown) => server.use(http.get(api("/projects"), () => 
 const summary = (data: unknown) =>
   server.use(http.get(api("/projects/status-summary"), () => HttpResponse.json(successEnvelope(data))));
 
-describe("Dashboard Sales", () => {
+describe("Dashboard requester (Sales dan Product)", () => {
   it("memuat: menampilkan skeleton (tanpa daftar maupun empty state)", () => {
     server.use(
       http.get(api("/projects"), () => new Promise(() => {})),
       http.get(api("/projects/status-summary"), () => new Promise(() => {})),
     );
     const { container } = renderWithProviders(<SalesDashboard />, { role: "Sales" });
-    expect(screen.getByRole("heading", { level: 1, name: "Dashboard Sales" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Dashboard Requester" })).toBeInTheDocument();
     expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(4);
     expect(screen.queryByText("Belum ada proyek")).not.toBeInTheDocument();
   });
@@ -38,7 +38,7 @@ describe("Dashboard Sales", () => {
     expect(within(overview).getByText("5")).toBeInTheDocument(); // total 3 + 2
   });
 
-  it("meminta data milik Sales sendiri, diurutkan terbaru", async () => {
+  it.each(["Sales", "Product"] as const)("%s: meminta proyek terlibat (involved=me), diurutkan terbaru", async (role) => {
     const urls: string[] = [];
     server.use(
       http.get(api("/projects"), ({ request }) => {
@@ -50,10 +50,11 @@ describe("Dashboard Sales", () => {
         return HttpResponse.json(successEnvelope([]));
       }),
     );
-    renderWithProviders(<SalesDashboard />, { role: "Sales" });
+    renderWithProviders(<SalesDashboard />, { role });
     await screen.findByText("Belum ada proyek");
-    expect(urls).toContain("?sales_pic=me&sort=-updated_at");
-    expect(urls).toContain("?sales_pic=me");
+    expect(urls).toContain("?involved=me&sort=-updated_at");
+    expect(urls).toContain("?involved=me");
+    expect(urls.some((u) => u.includes("sales_pic"))).toBe(false);
   });
 
   it("kosong: empty state dan ringkasan kosong, CTA membuka form request baru", async () => {

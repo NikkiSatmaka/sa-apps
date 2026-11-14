@@ -203,6 +203,26 @@ jobs:
           name: coverage-xml-gabungan
           path: backend/coverage.xml
 
+  # Gerbang anti-pelemahan (CONSTRAINTS.md bagian 2, butir 1, 2, 4): hanya baris yang
+  # DITAMBAH PR yang dinilai. Gagal bila ambang cakupan turun, skip/xfail baru tanpa issue,
+  # pragma "no cover"/ignore v8 tanpa alasan, atau omit/exclude cakupan diperluas.
+  gerbang-pelemahan:
+    name: Gerbang anti-pelemahan (diff)
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # fetch-depth: 0 agar merge-base terhadap branch dasar PR bisa dihitung.
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # Skrip hanya memakai stdlib (butuh Python >= 3.11, tersedia di runner); tanpa uv sync.
+      - name: Periksa diff terhadap branch dasar
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: python3 backend/scripts/gerbang_pelemahan.py --base "origin/$BASE_REF"
+
   frontend:
     name: Frontend — tsc, test + cakupan, build
     runs-on: ubuntu-latest

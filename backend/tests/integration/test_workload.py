@@ -7,7 +7,7 @@ Empat tampilan: `/workload/beban`, `/workload/jatuh-tempo`, `/workload/macet`,
 Definisi "project aktif": tidak soft-deleted dan status bukan Closed, Lost, On Hold.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -47,7 +47,7 @@ async def _tambahan(dunia, id_project: str, user):
     )
 
 
-BAGIAN = ["beban"]
+BAGIAN = ["beban", "jatuh-tempo"]
 
 
 # --- akses ---
@@ -220,3 +220,109 @@ def test_awal_minggu_adalah_senin_utc():
         2030, 1, 7, tzinfo=UTC
     )
 
+
+
+# --- (2) jatuh tempo ---
+
+
+def _hari_ini() -> date:
+    return datetime.now(UTC).date()
+
+
+def _jt(resp) -> dict:
+    assert resp.status_code == 200, resp.text
+    return resp.json()["data"]
+
+
+async def test_jatuh_tempo_subtask_terlambat_dan_mendekati(dunia, api):
+    hari_ini = _hari_ini()
+    p = await dunia.buat_proyek(status="In Progress", assigned_sa=dunia.sa.id, project_name="Alfa")
+    kemarin = bangun_subtask(
+        p.id_project, assigned_sa=dunia.sa.id, due_date=hari_ini - timedelta(days=1), title="Kemarin"
+    )
+    hari_h = bangun_subtask(p.id_project, due_date=hari_ini, title="HariIni", status="in_progress")
+    h3 = bangun_subtask(p.id_project, due_date=hari_ini + timedelta(days=3), title="Tiga")
+    h4 = bangun_subtask(p.id_project, due_date=hari_ini + timedelta(days=4), title="Empat")
+    await _simpan(dunia, kemarin, hari_h, h3, h4)
+
+    data = _jt(await _get(api, dunia, "jatuh-tempo"))
+
+    assert data["hari_peringatan"] == 3
+    judul = [s["title"] for s in data["subtask"]]
+    assert judul == ["Kemarin", "HariIni", "Tiga"]  # urut due_date naik; "Empat" di luar jendela
+    k, h, t = data["subtask"]
+    assert (k["terlambat"], k["hari_lagi"]) == (True, -1)
+    assert (h["terlambat"], h["hari_lagi"]) == (False, 0)
+    assert (t["terlambat"], t["hari_lagi"]) == (False, 3)
+    assert k["id_subtask"] == kemarin.id_subtask
+    assert k["id_project"] == p.id_project
+    assert k["project_name"] == "Alfa"
+    assert k["status"] == "open"
+    assert k["assigned_sa"] == str(dunia.sa.id)
+    assert k["assigned_sa_name"] == dunia.sa.name
+    assert h["assigned_sa"] is None
+    assert h["assigned_sa_name"] is None
+
+
+async def test_jatuh_tempo_subtask_selesai_atau_tanpa_due_date_tidak_muncul(dunia, api):
+    p = await dunia.buat_proyek(status="In Progress", assigned_sa=dunia.sa.id)
+    lampau = _hari_ini() - timedelta(days=10)
+    await _simpan(
+        dunia,
+        bangun_subtask(p.id_project, due_date=lampau, status="done"),
+        bangun_subtask(p.id_project, due_date=None),
+    )
+
+    data = _jt(await _get(api, dunia, "jatuh-tempo"))
+
+    assert data["subtask"] == []
+
+
+async def test_jatuh_tempo_project_tak_aktif_dikecualikan(dunia, api):
+    lampau = _hari_ini() - timedelta(days=10)
+    tak_aktif = [
+        await dunia.buat_proyek(status=st, assigned_sa=dunia.sa.id, target_submit=lampau)
+        for st in ("On Hold", "Closed", "Lost")
+    ]
+    terhapus = await dunia.buat_proyek(
+        status="In Progress",
+        assigned_sa=dunia.sa.id,
+        target_submit=lampau,
+        deleted_at=datetime.now(UTC),
+        deleted_by=dunia.lead.id,
+    )
+    await _simpan(
+        dunia,
+        *[bangun_subtask(p.id_project, due_date=lampau) for p in (*tak_aktif, terhapus)],
+    )
+
+    data = _jt(await _get(api, dunia, "jatuh-tempo"))
+
+    assert data["subtask"] == []
+    assert data["project"] == []
+
+
+async def test_jatuh_tempo_project_target_submit(dunia, api):
+    hari_ini = _hari_ini()
+    kasus = {
+        "Telat": ("In Progress", hari_ini - timedelta(days=2)),
+        "Dekat": ("Awaiting Assignment", hari_ini + timedelta(days=3)),
+        "Jauh": ("Assigned", hari_ini + timedelta(days=4)),
+        # sudah diserahkan atau menang: target_submit tidak lagi relevan
+        "SudahSubmit": ("Submitted", hari_ini - timedelta(days=2)),
+        "SudahWon": ("Won", hari_ini - timedelta(days=2)),
+    }
+    for nama, (st, target) in kasus.items():
+        await dunia.buat_proyek(
+            status=st, project_name=nama, customer_name="CustX", target_submit=target
+        )
+
+    data = _jt(await _get(api, dunia, "jatuh-tempo"))
+
+    assert [p["project_name"] for p in data["project"]] == ["Telat", "Dekat"]
+    telat, dekat = data["project"]
+    assert (telat["terlambat"], telat["hari_lagi"]) == (True, -2)
+    assert (dekat["terlambat"], dekat["hari_lagi"]) == (False, 3)
+    assert telat["status"] == "In Progress"
+    assert telat["customer_name"] == "CustX"
+    assert telat["target_submit"] == (hari_ini - timedelta(days=2)).isoformat()

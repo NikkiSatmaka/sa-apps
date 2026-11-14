@@ -370,3 +370,191 @@ describe("SubtaskSection — tugaskan (Lead_SA/Admin)", () => {
     expect(screen.getByLabelText("Tugaskan ke SA:")).toBeInTheDocument();
   });
 });
+
+describe("SubtaskSection — due date, penanda terlambat, deskripsi, estimasi (#124)", () => {
+  it("menampilkan due date terformat dan penanda 'Terlambat' hanya bila server menandai terlambat", async () => {
+    serve([
+      makeSubtask({ id_subtask: "t", title: "Telat", due_date: "2030-01-15", terlambat: true }),
+      makeSubtask({ id_subtask: "o", title: "Aman", due_date: "2030-02-03", terlambat: false }),
+      makeSubtask({ id_subtask: "s", title: "Selesai lewat", due_date: "2020-01-01", status: "done", terlambat: false }),
+    ]);
+    setup("Lead_SA");
+    expect(await screen.findByText("Jatuh tempo: 15 Jan 2030")).toBeInTheDocument();
+    expect(screen.getByText("Jatuh tempo: 3 Feb 2030")).toBeInTheDocument();
+    expect(screen.getByText("Jatuh tempo: 1 Jan 2020")).toBeInTheDocument();
+    expect(screen.getAllByText("Terlambat")).toHaveLength(1);
+    const telat = screen.getByText("Telat").closest("li") as HTMLElement;
+    expect(within(telat).getByText("Terlambat")).toBeInTheDocument();
+  });
+
+  it("subtask tanpa due date, deskripsi, atau estimasi tidak menampilkan baris itu", async () => {
+    serve([makeSubtask({ id_subtask: "k", title: "Kosong" })]);
+    setup("Lead_SA");
+    await screen.findByText("Kosong");
+    expect(screen.queryByText(/Jatuh tempo/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Estimasi/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Terlambat")).not.toBeInTheDocument();
+  });
+
+  it("menampilkan deskripsi dan estimasi jam (koma desimal; nol tetap ditampilkan)", async () => {
+    serve([
+      makeSubtask({ id_subtask: "a", title: "Satu", description: "Draf HLD v1", estimate_hours: "12.50" }),
+      makeSubtask({ id_subtask: "b", title: "Dua", estimate_hours: "0.00" }),
+    ]);
+    setup("Lead_SA");
+    expect(await screen.findByText("Draf HLD v1")).toBeInTheDocument();
+    expect(screen.getByText("Estimasi: 12,5 jam")).toBeInTheDocument();
+    expect(screen.getByText("Estimasi: 0 jam")).toBeInTheDocument();
+  });
+
+  it("SA melihat due date dan penanda terlambat pada subtask miliknya", async () => {
+    serve([makeSubtask({ id_subtask: "a", title: "Milik SA", assigned_sa: SA_ID, due_date: "2030-01-15", terlambat: true })]);
+    setup("SA");
+    expect(await screen.findByText("Jatuh tempo: 15 Jan 2030")).toBeInTheDocument();
+    expect(screen.getByText("Terlambat")).toBeInTheDocument();
+  });
+});
+
+describe("SubtaskSection — mengubah description, due date, estimasi (#124)", () => {
+  const dasar = makeSubtask({
+    id_subtask: "a",
+    title: "Susun HLD",
+    assigned_sa: SA_ID,
+    assigned_sa_name: "SA Demo",
+    description: "Lama",
+    due_date: "2030-01-15",
+    estimate_hours: "8.00",
+  });
+
+  function servePatch() {
+    const diterima: { body?: unknown } = {};
+    server.use(
+      http.get(api("/projects/p1/subtasks"), () => HttpResponse.json(successEnvelope({ items: [dasar], total: 1 }))),
+      http.patch(api("/projects/subtasks/a"), async ({ request }) => {
+        diterima.body = await request.json();
+        return HttpResponse.json(successEnvelope(dasar));
+      }),
+    );
+    return diterima;
+  }
+
+  it.each(["Lead_SA", "Admin"] as const)("%s melihat tombol Ubah dan form terisi nilai saat ini", async (role) => {
+    servePatch();
+    const { user } = setup(role);
+    await user.click(await screen.findByRole("button", { name: "Ubah subtask Susun HLD" }));
+    expect(screen.getByLabelText("Deskripsi:")).toHaveValue("Lama");
+    expect(screen.getByLabelText("Due date:")).toHaveValue("2030-01-15");
+    expect(screen.getByLabelText("Estimasi (jam):")).toHaveValue(8);
+  });
+
+  it("SA pemilik boleh mengubah subtask miliknya", async () => {
+    servePatch();
+    setup("SA");
+    expect(await screen.findByRole("button", { name: "Ubah subtask Susun HLD" })).toBeInTheDocument();
+  });
+
+  it("role Sales tidak merender section sehingga tidak ada tombol Ubah", async () => {
+    servePatch();
+    setup("Sales");
+    expect(screen.queryByRole("button", { name: /Ubah subtask/ })).not.toBeInTheDocument();
+  });
+
+  it("menyimpan: PATCH berisi ketiga field, form menutup, daftar dimuat ulang", async () => {
+    const diterima = servePatch();
+    const { user } = setup("Lead_SA");
+    await user.click(await screen.findByRole("button", { name: "Ubah subtask Susun HLD" }));
+    const deskripsi = screen.getByLabelText("Deskripsi:");
+    await user.clear(deskripsi);
+    await user.type(deskripsi, "  Baru  ");
+    await user.clear(screen.getByLabelText("Due date:"));
+    await user.type(screen.getByLabelText("Due date:"), "2030-03-01");
+    await user.clear(screen.getByLabelText("Estimasi (jam):"));
+    await user.type(screen.getByLabelText("Estimasi (jam):"), "12.5");
+    await user.click(screen.getByRole("button", { name: "Simpan" }));
+    await waitFor(() => expect(screen.queryByLabelText("Deskripsi:")).not.toBeInTheDocument());
+    expect(diterima.body).toEqual({ description: "Baru", due_date: "2030-03-01", estimate_hours: "12.5" });
+  });
+
+  it("mengosongkan ketiga field mengirim null", async () => {
+    const diterima = servePatch();
+    const { user } = setup("Lead_SA");
+    await user.click(await screen.findByRole("button", { name: "Ubah subtask Susun HLD" }));
+    await user.clear(screen.getByLabelText("Deskripsi:"));
+    await user.clear(screen.getByLabelText("Due date:"));
+    await user.clear(screen.getByLabelText("Estimasi (jam):"));
+    await user.click(screen.getByRole("button", { name: "Simpan" }));
+    await waitFor(() => expect(diterima.body).toEqual({ description: null, due_date: null, estimate_hours: null }));
+  });
+
+  it("estimasi negatif ditolak di klien tanpa request", async () => {
+    const diterima = servePatch();
+    const { user } = setup("Lead_SA");
+    await user.click(await screen.findByRole("button", { name: "Ubah subtask Susun HLD" }));
+    await user.clear(screen.getByLabelText("Estimasi (jam):"));
+    await user.type(screen.getByLabelText("Estimasi (jam):"), "-2");
+    await user.click(screen.getByRole("button", { name: "Simpan" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Estimasi jam tidak boleh negatif.");
+    expect(diterima.body).toBeUndefined();
+    expect(screen.getByLabelText("Deskripsi:")).toBeInTheDocument();
+  });
+
+  it("gagal (mis. 409 read-only): pesan server tampil dan form tetap terbuka", async () => {
+    server.use(
+      http.get(api("/projects/p1/subtasks"), () => HttpResponse.json(successEnvelope({ items: [dasar], total: 1 }))),
+      http.patch(api("/projects/subtasks/a"), () => HttpResponse.json(errorEnvelope("Proyek berstatus 'Closed' dan bersifat read-only."), { status: 409 })),
+    );
+    const { user } = setup("Lead_SA");
+    await user.click(await screen.findByRole("button", { name: "Ubah subtask Susun HLD" }));
+    await user.click(screen.getByRole("button", { name: "Simpan" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("read-only");
+    expect(screen.getByLabelText("Deskripsi:")).toBeInTheDocument();
+  });
+
+  it("Batal menutup form tanpa request; klik Ubah lagi menutup form", async () => {
+    const diterima = servePatch();
+    const { user } = setup("Lead_SA");
+    await user.click(await screen.findByRole("button", { name: "Ubah subtask Susun HLD" }));
+    await user.click(screen.getByRole("button", { name: "Batal ubah" }));
+    expect(screen.queryByLabelText("Deskripsi:")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Ubah subtask Susun HLD" }));
+    await user.click(screen.getByRole("button", { name: "Ubah subtask Susun HLD" }));
+    expect(screen.queryByLabelText("Deskripsi:")).not.toBeInTheDocument();
+    expect(diterima.body).toBeUndefined();
+  });
+});
+
+describe("SubtaskSection — form tambah dengan field opsional (#124)", () => {
+  it("field opsional yang diisi ikut terkirim (due date, estimasi, deskripsi ter-trim)", async () => {
+    serve([]);
+    let body: unknown;
+    server.use(
+      http.post(api("/projects/p1/subtasks"), async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(successEnvelope(makeSubtask()), { status: 201 });
+      }),
+    );
+    const { user } = setup("Lead_SA");
+    await screen.findByText("Belum ada subtask di proyek ini.");
+    await user.click(screen.getByRole("button", { name: "+ Tambah" }));
+    await user.type(screen.getByLabelText("Judul subtask:"), "Susun HLD");
+    await user.type(screen.getByLabelText("Deskripsi:"), "  Draf v1 ");
+    await user.type(screen.getByLabelText("Due date:"), "2030-03-01");
+    await user.type(screen.getByLabelText("Estimasi (jam):"), "6");
+    await user.click(screen.getByRole("button", { name: "Tambah Subtask" }));
+    await waitFor(() => expect(body).toEqual({ title: "Susun HLD", description: "Draf v1", due_date: "2030-03-01", estimate_hours: "6" }));
+  });
+
+  it("estimasi negatif ditolak di klien tanpa request", async () => {
+    serve([]);
+    let jumlah = 0;
+    server.use(http.post(api("/projects/p1/subtasks"), () => { jumlah++; return HttpResponse.json(successEnvelope(makeSubtask()), { status: 201 }); }));
+    const { user } = setup("Lead_SA");
+    await screen.findByText("Belum ada subtask di proyek ini.");
+    await user.click(screen.getByRole("button", { name: "+ Tambah" }));
+    await user.type(screen.getByLabelText("Judul subtask:"), "X");
+    await user.type(screen.getByLabelText("Estimasi (jam):"), "-1");
+    await user.click(screen.getByRole("button", { name: "Tambah Subtask" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Estimasi jam tidak boleh negatif.");
+    expect(jumlah).toBe(0);
+  });
+});

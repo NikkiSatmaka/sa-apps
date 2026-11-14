@@ -1,4 +1,6 @@
 from unittest.mock import AsyncMock, Mock
+from datetime import date
+from uuid import uuid4
 
 import pytest
 
@@ -23,14 +25,14 @@ async def test_proyek_baru_menyimpan_jawaban_kualifikasi_dan_versi_skema():
         "project_name": "Proyek qualification",
         "customer_name": "PT Contoh",
         "status": "Intake",
-        "target_submit": __import__("datetime").date(2026, 12, 1),
+        "target_submit": date(2026, 12, 1),
         "qualification_answers": jawaban,
     }
     db = Mock()
     db.execute = AsyncMock(return_value=Mock(scalar_one_or_none=Mock(return_value=None)))
     db.flush = AsyncMock()
 
-    project = await get_or_create_project(db, data, sales_id=__import__("uuid").uuid4())
+    project = await get_or_create_project(db, data, sales_id=uuid4())
 
     assert project.qualification_answers == jawaban
     assert project.qualification_schema_version == QUESTIONNAIRE_SCHEMA_VERSION
@@ -46,8 +48,12 @@ async def test_proyek_existing_tidak_diubah_oleh_seed_kualifikasi():
 
     result = await get_or_create_project(
         db,
-        {"id_project": "PRJ-EXISTING", "project_name": "Existing", "qualification_answers": {"mrr": 1}},
-        sales_id=__import__("uuid").uuid4(),
+        {
+            "id_project": "PRJ-EXISTING",
+            "project_name": "Existing",
+            "qualification_answers": {"mrr": 1},
+        },
+        sales_id=uuid4(),
     )
 
     assert result is existing

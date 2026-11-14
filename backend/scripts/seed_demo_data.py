@@ -28,11 +28,34 @@ from app.models.user import User
 from app.models.project import Project
 from app.models.document import Document
 from app.models.activity_log import ActivityLog
+from app.schemas.qualification_definition import QUESTIONNAIRE_SCHEMA_VERSION
 
 
 def deterministic_uuid(seed_string: str) -> uuid.UUID:
     """Generate UUID deterministic berdasarkan string (selalu sama untuk input sama)."""
     return uuid.UUID(hashlib.md5(seed_string.encode()).hexdigest())
+
+
+def qualification_answers_for_demo(
+    mrr: int | None, pic_name: str, pic_position: str, pic_email: str, need: str, target: date
+) -> dict:
+    """Jawaban demo mengikuti nama field dan pilihan skema kualifikasi aktif."""
+    return {
+        "mrr": mrr,
+        "budget_dialokasikan": "Ya",
+        "pic_nama": pic_name,
+        "pic_jabatan": pic_position,
+        "pic_email": pic_email,
+        "peran_pic": "Pengambil keputusan",
+        "stakeholder_lain": None,
+        "masalah_bisnis": need,
+        "jenis_workload": "Data warehouse/analytics",
+        "lingkungan": "Hybrid",
+        "skala": "40 server, 20 TB",
+        "persyaratan_khusus": None,
+        "target_go_live": "≤ 6 bulan",
+        "kompetitor": None,
+    }
 
 
 # ============================================================
@@ -47,28 +70,10 @@ DEMO_USERS = [
         "google_id": "demo-google-id-sales",
     },
     {
-        "email": "demo-sales2@portal-sa.local",
-        "name": "Rina Susanti",
-        "role": "Sales",
-        "google_id": "demo-google-id-sales-002",
-    },
-    {
         "email": "demo-sa@portal-sa.local",
         "name": "Demo SA",
         "role": "SA",
         "google_id": "demo-google-id-sa",
-    },
-    {
-        "email": "demo-sa2@portal-sa.local",
-        "name": "Budi Prakoso",
-        "role": "SA",
-        "google_id": "demo-google-id-sa-002",
-    },
-    {
-        "email": "demo-sa3@portal-sa.local",
-        "name": "Ayu Lestari",
-        "role": "SA",
-        "google_id": "demo-google-id-sa-003",
     },
     {
         "email": "demo-lead@portal-sa.local",
@@ -156,7 +161,11 @@ async def get_or_create_project(
         ),
         target_submit=project_data["target_submit"],
         bant_score=project_data.get("bant_score"),
-        bant_detail=project_data.get("bant_detail"),
+        qualification_answers=project_data.get("qualification_answers"),
+        qualification_schema_version=(
+            QUESTIONNAIRE_SCHEMA_VERSION if project_data.get("qualification_answers") is not None else None
+        ),
+        bant_detail=None,
         use_case_tags=project_data.get("use_case_tags"),
         dq_number=project_data.get("dq_number"),
         assigned_at=now if sa_id else None,
@@ -252,10 +261,10 @@ async def seed_all():
                 users[user_data["email"]] = user
 
             sales1 = users["demo-sales@portal-sa.local"]
-            sales2 = users["demo-sales2@portal-sa.local"]
+            sales2 = sales1
             sa1 = users["demo-sa@portal-sa.local"]
-            sa2 = users["demo-sa2@portal-sa.local"]
-            sa3 = users["demo-sa3@portal-sa.local"]
+            sa2 = sa1
+            sa3 = sa1
             lead_sa = users["demo-lead@portal-sa.local"]
 
             # == 2. Buat Projects ==
@@ -372,6 +381,15 @@ async def seed_all():
             for proj_data in projects_data:
                 sa = proj_data.pop("sa")
                 sales = proj_data.pop("sales")
+                detail = proj_data.pop("bant_detail")
+                proj_data["qualification_answers"] = qualification_answers_for_demo(
+                    detail["budget_mrr"],
+                    detail["pic_name"],
+                    detail["pic_position"],
+                    detail["pic_email"],
+                    detail["need_description"],
+                    proj_data["target_submit"],
+                )
                 await get_or_create_project(
                     db,
                     proj_data,

@@ -35,7 +35,7 @@ from app.models.project import Project
 from app.models.subtask import Subtask
 from app.models.user import User
 from app.schemas.response import success_response
-from app.services.status_proyek import majukan_ke_in_progress
+from app.services.status_proyek import majukan_ke_in_progress, pastikan_proyek_bisa_ditulis
 from app.schemas.subtask import (
     SubtaskAssignRequest,
     SubtaskCreateRequest,
@@ -123,7 +123,8 @@ async def create_subtask(
 ):
     """Buat subtask baru untuk proyek tertentu (Lead_SA/Admin)."""
     _require_lead_sa(current_user)
-    await _verify_project_exists(project_id, db)
+    project = await _verify_project_exists(project_id, db)
+    pastikan_proyek_bisa_ditulis(project)
 
     subtask = Subtask(
         id_subtask=_generate_subtask_id(),
@@ -215,6 +216,7 @@ async def update_subtask_status(
     # dilepas dari proyek atau menjadi viewer ditolak). Lead_SA/Admin selalu lolos di sini.
     if not is_privileged:
         await ensure_project_access(db, project, current_user, TingkatAkses.TULIS)
+    pastikan_proyek_bisa_ditulis(project)
 
     if body.status not in VALID_SUBTASK_STATUSES:
         raise HTTPException(
@@ -256,6 +258,7 @@ async def assign_subtask(
     """Assign/reassign subtask ke SA (Lead_SA/Admin)."""
     _require_lead_sa(current_user)
     subtask = await _load_subtask(id_subtask, db)
+    pastikan_proyek_bisa_ditulis(await _verify_project_exists(subtask.id_project, db))
 
     assigned_sa_name = None
     if body.assigned_sa is not None:
@@ -314,6 +317,7 @@ async def delete_subtask(
     """Hapus subtask (Lead_SA/Admin)."""
     _require_lead_sa(current_user)
     subtask = await _load_subtask(id_subtask, db)
+    pastikan_proyek_bisa_ditulis(await _verify_project_exists(subtask.id_project, db))
 
     await db.delete(subtask)
     await db.commit()

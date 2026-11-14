@@ -160,7 +160,7 @@ def test_activity_log_error_tak_terduga_500_tanpa_membocorkan_detail(
     # #92: polish ulang kini memuat log lebih dulu (cek akses TULIS penulis); `sa_id` ada tapi
     # bukan milik pemanggil agar jalur yang diuji tetap galat service (500), bukan cek akses.
     db.execute = AsyncMock(
-        return_value=_hasil(SimpleNamespace(id_project="PRJ-1", sa_id=uuid.uuid4()))
+        return_value=_hasil(SimpleNamespace(id_project="PRJ-1", status="Assigned", sa_id=uuid.uuid4()))
     )
 
     with _klien(_user(), db) as c:

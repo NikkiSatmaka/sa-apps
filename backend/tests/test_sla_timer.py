@@ -186,6 +186,8 @@ class TestCheckSLAStatus:
         sla_record = MagicMock()
         sla_record.project_id = "PRJ-001"
         sla_record.started_at = started
+        sla_record.paused_at = None
+        sla_record.paused_total_seconds = 0
         sla_record.stopped_at = None
         sla_record.is_locked = False
         sla_record.days_elapsed = 4
@@ -214,6 +216,8 @@ class TestCheckSLAStatus:
         sla_record = MagicMock()
         sla_record.project_id = "PRJ-001"
         sla_record.started_at = started
+        sla_record.paused_at = None
+        sla_record.paused_total_seconds = 0
         sla_record.stopped_at = stopped
         sla_record.is_locked = False
         sla_record.days_elapsed = 2
@@ -378,6 +382,8 @@ class TestProcessSLAActions:
         sla_record = MagicMock()
         sla_record.project_id = "PRJ-001"
         sla_record.started_at = started_at
+        sla_record.paused_at = None
+        sla_record.paused_total_seconds = 0
         sla_record.current_status = "green"  # Status lama (belum di-update)
         sla_record.is_locked = False
         sla_record.days_elapsed = 0
@@ -422,6 +428,8 @@ class TestProcessSLAActions:
         sla_record = MagicMock()
         sla_record.project_id = "PRJ-002"
         sla_record.started_at = started_at
+        sla_record.paused_at = None
+        sla_record.paused_total_seconds = 0
         sla_record.current_status = "yellow"
         sla_record.is_locked = False
         sla_record.escalated_at = None  # belum pernah dieskalasi

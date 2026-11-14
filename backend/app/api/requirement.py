@@ -17,6 +17,7 @@ from app.models.document import Document
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.response import success_response
+from app.services.status_proyek import pastikan_proyek_bisa_ditulis
 from app.services.requirement_generator import (
     collect_sources,
     generate_pending_requirement,
@@ -56,6 +57,7 @@ async def regenerate_requirement(
         TingkatAkses.KELOLA_REQUIREMENT,
         pesan="Hanya SA yang ditugaskan, Lead SA, atau Admin yang dapat generate ulang Requirement.",
     )
+    pastikan_proyek_bisa_ditulis(project)  # Closed/Lost read-only (409)
 
     if project.requirement_generation_status is None:
         raise HTTPException(
@@ -124,6 +126,7 @@ async def keep_requirement_version(
             "Requirement."
         ),
     )
+    pastikan_proyek_bisa_ditulis(project)  # Closed/Lost read-only (409)
 
     document = (
         await db.execute(

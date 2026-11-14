@@ -29,6 +29,7 @@ from app.schemas.activity_log import (
     ActivityLogResponse,
     ProjectStoryResponse,
 )
+from app.services.status_proyek import pastikan_proyek_bisa_ditulis
 from app.schemas.response import error_response, success_response
 from app.services.activity_logger import ActivityLogger
 from app.services.llm_provider import llm_factory
@@ -56,6 +57,8 @@ async def _periksa_akses_proyek(
     ).scalar_one_or_none()
     if project is not None:
         await ensure_project_access(db, project, user, tingkat)
+        if tingkat == TingkatAkses.TULIS:
+            pastikan_proyek_bisa_ditulis(project)  # Closed/Lost read-only (409)
 
 
 def _build_log_response(log) -> dict:

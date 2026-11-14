@@ -88,10 +88,11 @@ def _baris(url: str, id_project: str, *kolom: str):
     )[0]
 
 
-def test_revisi_020_adalah_head(database_kosong_url):
-    jalankan_alembic(database_kosong_url, "upgrade", "head")
+def test_revisi_020_dapat_dicapai_dari_database_kosong(database_kosong_url):
+    # Bukan lagi head sejak migration 021 (#122); head dijaga test migration 021 dan test_migration.
+    jalankan_alembic(database_kosong_url, "upgrade", REVISI_BARU)
 
-    assert _versi(database_kosong_url) == _head() == REVISI_BARU
+    assert _versi(database_kosong_url) == REVISI_BARU
 
 
 @pytest.mark.parametrize(("lama", "baru", "state"), PEMETAAN_UPGRADE)

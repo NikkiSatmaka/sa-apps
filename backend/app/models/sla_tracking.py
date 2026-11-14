@@ -75,11 +75,28 @@ class SLATracking(Base):
         comment="Waktu eskalasi H+5 dikirim (sekali per tracker)",
     )
 
+    paused_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Waktu jeda On Hold yang sedang berjalan (NULL = tidak dijeda)",
+    )
+    paused_total_seconds: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+        comment="Akumulasi detik jeda On Hold yang sudah selesai",
+    )
+
     # Constraints
     __table_args__ = (
         CheckConstraint(
             "current_status IN ('green', 'yellow', 'red')",
             name="chk_sla_tracking_current_status",
+        ),
+        CheckConstraint(
+            "paused_total_seconds >= 0",
+            name="chk_sla_tracking_paused_total_seconds",
         ),
         {"comment": "Tabel tracking SLA countdown DQ Number"},
     )

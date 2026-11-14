@@ -85,14 +85,15 @@ def test_status_terminal_tidak_punya_tujuan(terminal):
 def test_tabel_transisi_sesuai_spec_2_0():
     """Tabel tujuan per status lewat PATCH /status (spec §2.0). `Intake` → `Awaiting
     Assignment` (sistem), `Awaiting Assignment` → `Assigned` (penugasan), `Assigned` → `In
-    Progress` (otomatis), `Won` → `Handed Over` (handover) dan jeda/buka kembali (#122) TIDAK
-    ada di sini."""
+    Progress` (otomatis), `Won` → `Handed Over` (handover) dan kembali ke `previous_status`
+    (lanjut dari On Hold, buka kembali Closed/Lost; tujuan dinamis) TIDAK ada di sini.
+    Jeda (`On Hold`) ada sejak #122."""
     assert {s: sorted(workflow.status_berikutnya(s)) for s in SEMUA_STATUS} == {
         "Intake": ["Lost"],
-        "Awaiting Assignment": ["Lost"],
-        "Assigned": ["Lost", "Submitted"],
-        "In Progress": ["Lost", "Submitted"],
-        "Submitted": ["In Progress", "Lost", "Won"],
+        "Awaiting Assignment": ["Lost", "On Hold"],
+        "Assigned": ["Lost", "On Hold", "Submitted"],
+        "In Progress": ["Lost", "On Hold", "Submitted"],
+        "Submitted": ["In Progress", "Lost", "On Hold", "Won"],
         "Won": ["Lost"],
         "Handed Over": ["Closed"],
         "Closed": [],
@@ -111,9 +112,21 @@ def test_transisi_lewat_endpoint_khusus_bukan_transisi_patch(awal, tujuan, endpo
 
 
 @pytest.mark.parametrize("status", SEMUA_STATUS)
-def test_handed_over_dan_on_hold_tidak_pernah_menjadi_tujuan_valid_patch_status(status):
+def test_handed_over_tidak_pernah_menjadi_tujuan_valid_patch_status(status):
     assert "Handed Over" not in workflow.status_berikutnya(status)
-    assert "On Hold" not in workflow.status_berikutnya(status)  # jeda: #122
+
+
+@pytest.mark.parametrize("status", SEMUA_STATUS)
+def test_on_hold_hanya_tujuan_dari_awaiting_assignment_sampai_submitted(status):
+    boleh = status in ("Awaiting Assignment", "Assigned", "In Progress", "Submitted")
+
+    assert ("On Hold" in workflow.status_berikutnya(status)) == boleh
+
+
+@pytest.mark.parametrize("status", ["On Hold", "Closed", "Lost"])
+def test_status_kembali_menambahkan_previous_status_sebagai_tujuan(status):
+    assert workflow.status_berikutnya(status, "Assigned")[0] == "Assigned"
+    assert "Assigned" not in workflow.status_berikutnya(status)
 
 
 def test_hak_per_transisi_mencakup_setiap_tujuan_valid():

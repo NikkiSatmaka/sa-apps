@@ -25,6 +25,7 @@ from app.models.activity_log import ActivityLog
 from app.models.project import Project
 from app.models.subtask import Subtask
 from app.services.llm_provider import LLMResponse, llm_factory
+from app.services.status_proyek import majukan_ke_in_progress
 from app.utils.guardrails import PolishResult, sanitize_text_input, validate_llm_json
 
 logger = logging.getLogger(__name__)
@@ -132,8 +133,9 @@ class ActivityLogger:
                 id_subtask menunjuk subtask dari proyek lain.
         """
         # Validasi project hanya untuk aktivitas Project
+        project: Optional[Project] = None
         if work_type == "Project":
-            await self._validate_project(id_project)
+            project = await self._validate_project(id_project)
         else:
             # Non-Project: pastikan tidak terkait proyek/fase/subtask
             id_project = None
@@ -169,6 +171,9 @@ class ActivityLogger:
         )
 
         self.db.add(activity_log)
+        # Log Project pertama memindahkan `Assigned` → `In Progress` (satu transaksi dengan log).
+        if project is not None:
+            majukan_ke_in_progress(self.db, project, sa_id, "activity_log")
         await self.db.commit()
         await self.db.refresh(activity_log)
 

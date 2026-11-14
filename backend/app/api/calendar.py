@@ -28,6 +28,7 @@ from app.schemas.calendar import (
     CalendarSyncResponse,
 )
 from app.schemas.response import error_response, success_response
+from app.services.status_proyek import majukan_ke_in_progress, pastikan_proyek_bisa_ditulis
 from app.services.calendar_service import (
     CalendarAPIError,
     CalendarTimeoutError,
@@ -201,6 +202,7 @@ async def map_event_to_project(
 
         # Akses TULIS sebelum penulisan activity log apa pun (viewer/Sales/pihak luar ditolak).
         await ensure_project_access(db, project, current_user, TingkatAkses.TULIS)
+        pastikan_proyek_bisa_ditulis(project)  # Closed/Lost read-only (409)
 
     # Hitung durasi
     if request.duration_hours:
@@ -248,6 +250,9 @@ async def map_event_to_project(
     )
 
     db.add(activity_log)
+    # Log Project pertama memindahkan `Assigned` → `In Progress` (satu transaksi dengan log).
+    if project is not None:
+        majukan_ke_in_progress(db, project, current_user.id, "kalender")
 
     try:
         await db.commit()

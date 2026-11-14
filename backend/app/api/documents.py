@@ -45,6 +45,7 @@ from app.services.notification_service import (
     NotificationEventType,
     notification_service,
 )
+from app.services.status_proyek import pastikan_proyek_bisa_ditulis
 from app.services.requirement_generator import (
     can_manage_requirement,
     collect_sources,
@@ -113,6 +114,7 @@ async def _periksa_akses_kelola_dokumen(
     ).scalar_one_or_none()
     if project is not None:
         await ensure_project_access(db, project, user, TingkatAkses.KELOLA)
+        pastikan_proyek_bisa_ditulis(project)  # Closed/Lost read-only (409)
         return
     if not izinkan(HubunganProyek(privileged=adalah_privileged(user)), TingkatAkses.KELOLA):
         raise HTTPException(
@@ -257,6 +259,7 @@ async def create_document(
         )
     # Unggah dokumen = tulis: Lead_SA, Admin, SA ditugaskan, collaborator contributor.
     await ensure_project_access(db, project, current_user, TingkatAkses.TULIS)
+    pastikan_proyek_bisa_ditulis(project)  # Closed/Lost read-only (409)
 
     # Generate ID dokumen dan timestamp
     now = datetime.now(timezone.utc)
@@ -505,6 +508,7 @@ async def _load_requirement_for_edit(
         TingkatAkses.KELOLA_REQUIREMENT,
         pesan="Hanya SA yang ditugaskan, Lead_SA, atau Admin yang dapat mengedit Requirement.",
     )
+    pastikan_proyek_bisa_ditulis(project)  # Closed/Lost read-only (409)
 
     document = (
         await db.execute(

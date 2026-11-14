@@ -94,6 +94,17 @@ class TestAuthConfig:
 
 
 class TestDemoLogin:
+    def test_persona_tambahan_tidak_mengubah_akun_default_role(self, klien, monkeypatch):
+        monkeypatch.setattr(settings, "DEMO_MODE", True)
+        db = SesiPalsu(None)
+
+        resp = klien(db).post(
+            f"{P}/demo-login", json={"role": "Product", "persona": "Product 2"}
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["user"]["email"] == "demo-product@portal-sa.local"
+
     def test_demo_nonaktif_403(self, klien, monkeypatch):
         monkeypatch.setattr(settings, "DEMO_MODE", False)
         resp = klien().post(f"{P}/demo-login", json={"role": "Admin"})

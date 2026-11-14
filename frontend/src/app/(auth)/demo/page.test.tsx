@@ -35,7 +35,7 @@ describe("halaman /demo — guard demo mode", () => {
     expect(screen.getByRole("link", { name: "Login dengan Google Account" })).toHaveAttribute("href", "/login");
     expect(router.replace).not.toHaveBeenCalled();
     for (const label of ["Sales 2 — Demo Sales 2", "Product Manager 2 — Demo Product 2", "SA 2 — Demo SA 2", "Lead SA 2 — Demo Lead SA 2", "Admin 2 — Demo Admin 2"]) {
-      expect(screen.getByRole("button", { name: label })).toBeEnabled();
+      expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument();
     }
   });
 
@@ -91,18 +91,6 @@ describe("halaman /demo — login per peran", () => {
       is_admin: dariBackend.is_admin,
       full_name: dariBackend.name,
     });
-  });
-
-  it("mengirim persona allowlisted untuk login ke akun tambahan", async () => {
-    let body: unknown;
-    server.use(http.post(api("/auth/demo-login"), async ({ request }) => {
-      body = await request.json();
-      return HttpResponse.json(loginResponse("Product"));
-    }));
-    const { user } = await renderReady();
-    await user.click(screen.getByRole("button", { name: "Product Manager 2 — Demo Product 2" }));
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith("/"));
-    expect(body).toEqual({ role: "Product", persona: "Product 2" });
   });
 
   it("keadaan memuat: tombol yang diklik menampilkan 'Memproses...' dan semua tombol dinonaktifkan", async () => {

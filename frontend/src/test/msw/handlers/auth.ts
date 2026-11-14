@@ -13,7 +13,7 @@ export const authHandlers = [
     }
     return HttpResponse.json(loginResponse(role));
   }),
-  http.post(api("/auth/refresh"), () => HttpResponse.json({ message: "Sesi berakhir" }, { status: 401 })),
+  http.post(api("/auth/refresh"), () => HttpResponse.json({ detail: "Refresh cookie tidak ditemukan." }, { status: 401 })),
   http.get(api("/auth/me"), ({ request }) => {
     const token = request.headers.get("Authorization")?.replace("Bearer ", "") ?? "";
     const role = token.startsWith("access-") ? (token.slice(7) as Role) : null;

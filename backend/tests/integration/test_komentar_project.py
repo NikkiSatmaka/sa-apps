@@ -254,7 +254,7 @@ async def test_baca_komentar_urut_kronologis_naik_dengan_nama_dan_peran_penulis(
     assert [(k["body"], k["author_name"], k["author_role"]) for k in data["items"]] == [
         ("Pertama", dunia.sales.name, "Sales"),
         ("Kedua", dunia.sa.name, "SA"),
-        ("Ketiga", dunia.admin.name, "Admin"),
+        ("Ketiga", dunia.admin.name, dunia.admin.role),
     ]
 
 

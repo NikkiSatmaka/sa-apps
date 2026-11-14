@@ -208,9 +208,9 @@ class TestTokenPair:
         assert refresh["sub"] == str(user.id)
         assert refresh["type"] == "refresh"
         assert "role" not in refresh and "email" not in refresh
-        assert akses["exp"] - akses["iat"] == settings.JWT_EXPIRE_HOURS * 3600
+        assert akses["exp"] - akses["iat"] == 15 * 60
         assert refresh["exp"] - refresh["iat"] == settings.JWT_REFRESH_EXPIRE_HOURS * 3600
-        assert pair.expires_in == settings.JWT_EXPIRE_HOURS * 3600
+        assert pair.expires_in == 900
         assert pair.token_type == "bearer"
 
     @given(uid=st.uuids())
@@ -260,16 +260,10 @@ class TestVerifyAccessToken:
 
 
 class TestRefreshToken:
-    async def test_refresh_valid_menghasilkan_pasangan_baru(self, svc):
+    async def test_refresh_jwt_stateless_tanpa_jti_ditolak(self, svc):
         user = user_palsu("Lead_SA", is_admin=True)
-        db = SesiPalsu(user)
-
-        pair = await svc.refresh_token(buat_token(user.id, tipe="refresh"), db)
-
-        akses = svc.verify_access_token(pair.access_token)
-        assert akses["sub"] == str(user.id)
-        assert akses["role"] == "Lead_SA"
-        assert akses["is_admin"] is True
+        with pytest.raises(TokenError, match="informasi user"):
+            await svc.refresh_token(buat_token(user.id, tipe="refresh"), SesiPalsu(user))
 
     @pytest.mark.parametrize(
         "token",
@@ -289,8 +283,11 @@ class TestRefreshToken:
             await svc.refresh_token(token(user.id), SesiPalsu(user))
 
     async def test_user_sudah_tidak_ada_ditolak(self, svc):
-        with pytest.raises(TokenError, match="User tidak ditemukan"):
-            await svc.refresh_token(buat_token(uuid.uuid4(), tipe="refresh"), SesiPalsu(None))
+        token = buat_token(
+            uuid.uuid4(), tipe="refresh", ekstra={"jti": "unknown", "family": str(uuid.uuid4())}
+        )
+        with pytest.raises(TokenError, match="tidak dikenal"):
+            await svc.refresh_token(token, SesiPalsu(None))
 
 
 class TestRevokeDanCurrentUser:
@@ -337,7 +334,8 @@ class TestBoundaryGoogle:
         pasang_google(monkeypatch, token_status=400, token_body="invalid_grant")
         with pytest.raises(OAuthError) as exc:
             await svc._exchange_code("kode-basi")
-        assert "invalid_grant" in exc.value.detail
+        assert "invalid_grant" not in exc.value.detail
+        assert "Gagal mendapatkan token" in exc.value.detail
 
     async def test_profil_dipetakan_dan_memakai_bearer(self, svc, monkeypatch):
         diterima = pasang_google(

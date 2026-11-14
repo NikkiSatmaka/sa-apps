@@ -97,13 +97,16 @@ async def test_callback_user_baru_tersimpan_dengan_peran_dari_mapping(api, db_se
     resp = await api.client.get(f"{AUTH}/callback", params={"code": "kode-ok"})
 
     assert resp.status_code == 200
+    exchange = await api.client.post(
+        f"{AUTH}/callback/exchange", json={"code": resp.json()["handoff_code"]}
+    )
     user = (await db_session.execute(select(User).where(User.google_id == "g-123"))).scalar_one()
     assert (user.email, user.role, user.avatar_url) == (
         "budi@perusahaan.id",
         "Sales",
         "http://a/b.png",
     )
-    me = await api.client.get(f"{AUTH}/me", headers=_bearer(resp.json()["tokens"]["access_token"]))
+    me = await api.client.get(f"{AUTH}/me", headers=_bearer(exchange.json()["access_token"]))
     assert me.json()["role"] == "Sales"
 
 
@@ -173,15 +176,52 @@ async def test_callback_kode_tidak_valid_tidak_menyimpan_user(api, db_session, m
     assert await _jumlah_user(db_session) == 0
 
 
+async def test_callback_handoff_hanya_dapat_ditukar_satu_kali(api, monkeypatch):
+    pasang_google(monkeypatch)
+    callback = await api.client.get(f"{AUTH}/callback", params={"code": "kode-ok"})
+    assert callback.status_code == 200
+    code = callback.json()["handoff_code"]
+    assert "access_token" not in callback.text
+    assert "refresh_token" not in callback.text
+
+    tukar = await api.client.post(f"{AUTH}/callback/exchange", json={"code": code})
+    assert tukar.status_code == 200
+    assert tukar.json()["user"]["email"] == "budi@perusahaan.id"
+    assert tukar.json()["access_token"]
+    assert "refresh_token" not in tukar.json()
+    assert "HttpOnly" in tukar.headers["set-cookie"]
+
+    pakai_ulang = await api.client.post(f"{AUTH}/callback/exchange", json={"code": code})
+    assert pakai_ulang.status_code == 401
+
+
+async def test_calendar_callback_location_hanya_membawa_kode_terbatas(api, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "FRONTEND_URL", "http://localhost:3000")
+    pasang_google(monkeypatch, token_body={"access_token": "GOOGLE-SECRET"})
+    callback = await api.client.get(
+        f"{AUTH}/callback",
+        params={"code": "google-code", "state": "calendar_auth|http://localhost:3000/activity-logs/calendar"},
+        follow_redirects=False,
+    )
+    location = callback.headers["location"]
+    assert "GOOGLE-SECRET" not in location
+    code = location.split("gcal_code=", 1)[1]
+    exchanged = await api.client.post(f"{AUTH}/calendar/exchange", json={"code": code})
+    assert exchanged.json() == {"access_token": "GOOGLE-SECRET"}
+    assert (
+        await api.client.post(f"{AUTH}/calendar/exchange", json={"code": code})
+    ).status_code == 401
+
+
 # ------------------------------------------------------------------------- refresh / logout / sesi
 
 
 async def test_refresh_menghasilkan_access_token_baru_yang_valid(api):
     login = (await api.client.post(f"{AUTH}/demo-login", json={"role": "SA"})).json()
 
-    resp = await api.client.post(
-        f"{AUTH}/refresh", json={"refresh_token": login["tokens"]["refresh_token"]}
-    )
+    resp = await api.client.post(f"{AUTH}/refresh")
 
     assert resp.status_code == 200
     me = await api.client.get(f"{AUTH}/me", headers=_bearer(resp.json()["access_token"]))
@@ -189,10 +229,44 @@ async def test_refresh_menghasilkan_access_token_baru_yang_valid(api):
     assert me.json()["id"] == login["user"]["id"]
 
 
+async def test_refresh_cookie_rotasi_reuse_mencabut_sesi(api):
+    login = await api.client.post(f"{AUTH}/demo-login", json={"role": "SA"})
+    cookie_awal = login.cookies.get("refresh_token")
+    assert cookie_awal
+    assert "refresh_token" not in login.json()["tokens"]
+
+    pertama = await api.client.post(f"{AUTH}/refresh", cookies={"refresh_token": cookie_awal})
+    assert pertama.status_code == 200
+    cookie_baru = pertama.cookies.get("refresh_token")
+    assert cookie_baru and cookie_baru != cookie_awal
+
+    reuse = await api.client.post(f"{AUTH}/refresh", cookies={"refresh_token": cookie_awal})
+    assert reuse.status_code == 401
+    assert 'refresh_token=""' in reuse.headers["set-cookie"]
+
+    setelah_reuse = await api.client.post(f"{AUTH}/refresh", cookies={"refresh_token": cookie_baru})
+    assert setelah_reuse.status_code == 401
+
+
+async def test_refresh_menolak_origin_silang_tanpa_mengonsumsi_cookie(api):
+    login = await api.client.post(f"{AUTH}/demo-login", json={"role": "SA"})
+    cookie = login.cookies.get("refresh_token")
+    assert cookie
+    csrf = await api.client.post(
+        f"{AUTH}/refresh",
+        cookies={"refresh_token": cookie},
+        headers={"Origin": "https://penyerang.example"},
+    )
+    assert csrf.status_code == 403
+    valid = await api.client.post(f"{AUTH}/refresh", cookies={"refresh_token": cookie})
+    assert valid.status_code == 200
+
+
 async def test_refresh_token_tidak_diterima_sebagai_kredensial_api(api):
     """Refresh token ditolak di endpoint terproteksi (dependency get_current_user)."""
-    login = (await api.client.post(f"{AUTH}/demo-login", json={"role": "SA"})).json()
-    refresh = login["tokens"]["refresh_token"]
+    login_response = await api.client.post(f"{AUTH}/demo-login", json={"role": "SA"})
+    refresh = login_response.cookies.get("refresh_token")
+    assert refresh
     resp = await api.client.get("/api/v1/projects", headers=_bearer(refresh))
     assert resp.status_code == 401
 
@@ -200,15 +274,15 @@ async def test_refresh_token_tidak_diterima_sebagai_kredensial_api(api):
 async def test_access_token_tidak_diterima_di_endpoint_refresh(api):
     login = (await api.client.post(f"{AUTH}/demo-login", json={"role": "SA"})).json()
     resp = await api.client.post(
-        f"{AUTH}/refresh", json={"refresh_token": login["tokens"]["access_token"]}
+        f"{AUTH}/refresh", cookies={"refresh_token": login["tokens"]["access_token"]}
     )
     assert resp.status_code == 401
 
 
-async def test_logout_token_valid_ok_dan_tanpa_token_401(api):
+async def test_logout_mencabut_cookie_dan_idempotent_tanpa_cookie(api):
     headers = await api.login_demo("Sales")
     assert (await api.client.post(f"{AUTH}/logout", headers=headers)).status_code == 200
-    assert (await api.client.post(f"{AUTH}/logout")).status_code == 401
+    assert (await api.client.post(f"{AUTH}/logout")).status_code == 200
 
 
 async def test_get_current_user_endpoint_terproteksi(api, db_session):

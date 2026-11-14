@@ -4,6 +4,7 @@ import { useAuthStore } from "@/store/auth";
 import { api, http, HttpResponse, renderWithProviders, router, server, setSearchParams } from "@/test";
 import { authConfig } from "@/test/msw/handlers/auth-pages";
 import { loginResponse, type Role } from "@/test/fixtures/users";
+import { getAccessToken } from "@/lib/fetcher";
 import DemoPage from "./page";
 
 const roles: [Role, string][] = [
@@ -76,8 +77,9 @@ describe("halaman /demo — login per peran", () => {
 
     await waitFor(() => expect(router.push).toHaveBeenCalledWith("/"));
     expect(body).toEqual({ role });
-    expect(localStorage.getItem("access_token")).toBe(`access-${role}`);
-    expect(localStorage.getItem("refresh_token")).toBe(`refresh-${role}`);
+    expect(getAccessToken()).toBe(`access-${role}`);
+    expect(localStorage.getItem("access_token")).toBeNull();
+    expect(localStorage.getItem("refresh_token")).toBeNull();
     const state = useAuthStore.getState();
     expect(state.isAuthenticated).toBe(true);
     const dariBackend = loginResponse(role).user;
@@ -151,7 +153,7 @@ describe("halaman /demo — login per peran", () => {
     const { user } = await renderReady();
     await user.click(screen.getByRole("button", { name: "Login sebagai Lead SA" }));
     await waitFor(() => expect(router.push).toHaveBeenCalledWith("/"));
-    expect(localStorage.getItem("access_token")).toBe("access-Lead_SA");
+    expect(getAccessToken()).toBe("access-Lead_SA");
     expect(useAuthStore.getState().user?.role).toBe("Lead_SA");
 
     localStorage.clear();
@@ -161,7 +163,7 @@ describe("halaman /demo — login per peran", () => {
     );
     await user.click(screen.getByRole("button", { name: "Login sebagai Lead SA" }));
     await waitFor(() => expect(router.push).toHaveBeenCalledWith("/"));
-    expect(localStorage.getItem("access_token")).toBe("flat-token");
+    expect(getAccessToken()).toBe("flat-token");
     expect(localStorage.getItem("refresh_token")).toBeNull(); // tidak ada refresh_token → tidak disimpan
   });
 
@@ -170,7 +172,7 @@ describe("halaman /demo — login per peran", () => {
     const { user } = await renderReady();
     await user.click(screen.getByRole("button", { name: "Login sebagai SA" }));
     await waitFor(() => expect(router.push).toHaveBeenCalledWith("/"));
-    expect(localStorage.getItem("access_token")).toBe("t");
+    expect(getAccessToken()).toBe("t");
     expect(useAuthStore.getState().user).toBeNull();
   });
 });

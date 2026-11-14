@@ -2,7 +2,7 @@
 import { screen } from "@testing-library/react";
 import useSWR from "swr";
 import { describe, expect, it } from "vitest";
-import { fetcher } from "@/lib/fetcher";
+import { fetcher, getAccessToken } from "@/lib/fetcher";
 import { useAuthStore } from "@/store/auth";
 import { useRouter } from "next/navigation";
 import { HttpResponse, http, api, renderWithProviders, router, seedAuth, server, setOnline, setParams, stubLocation } from "@/test";
@@ -22,7 +22,7 @@ describe("utilitas test", () => {
     expect(user?.is_admin).toBe(role === "Admin");
     expect(isAuthenticated).toBe(true);
     expect(isLoading).toBe(false);
-    expect(localStorage.getItem("access_token")).toBe(`access-${role}`);
+    expect(getAccessToken()).toBe(`access-${role}`);
   });
 
   it("renderWithProviders memakai handler MSW default", async () => {

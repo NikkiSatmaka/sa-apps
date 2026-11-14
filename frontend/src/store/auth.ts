@@ -4,7 +4,7 @@ import { create } from "zustand";
  * Zustand store untuk state autentikasi
  *
  * Menyimpan informasi user yang sedang login dan status autentikasi.
- * Token disimpan secara terpisah (httpOnly cookie / localStorage) — store ini
+ * Access token disimpan di memory terpisah; refresh token hanya di HttpOnly cookie. Store ini
  * hanya menyimpan state yang dibutuhkan untuk rendering UI.
  */
 

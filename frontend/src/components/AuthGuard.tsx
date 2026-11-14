@@ -3,13 +3,14 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth";
+import { ApiError, clearAccessToken, fetcher, getAccessToken } from "@/lib/fetcher";
 
 /**
  * AuthGuard Component
  *
  * Membungkus konten yang memerlukan autentikasi.
- * - Pada mount: cek apakah ada token di localStorage
- * - Jika ada token: validasi dengan GET /auth/me
+ * - Pada mount: pulihkan access token memory lewat refresh cookie HttpOnly
+ * - Validasi token yang baru dengan GET /auth/me
  * - Jika valid: render children, update auth store
  * - Jika invalid (401): hapus token, redirect ke /login
  * - Tampilkan loading skeleton selama proses pengecekan
@@ -26,43 +27,22 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const token = localStorage.getItem("access_token");
-
-      // Tidak ada token — langsung redirect ke login
-      if (!token) {
-        clearUser();
-        router.replace("/login");
-        return;
-      }
-
       // Sudah authenticated (store sudah punya user data) — skip fetch
-      if (isAuthenticated) {
+      if (isAuthenticated && getAccessToken()) {
         setLoading(false);
         return;
       }
 
-      // Validasi token dengan backend
+      // fetcher mengelola refresh cookie, dedupe request serentak, dan satu retry 401.
       try {
-        const apiUrl =
-          process.env.NEXT_PUBLIC_API_URL || "/api/v1";
-
-        const response = await fetch(`${apiUrl}/auth/me`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        });
-
-        if (!response.ok) {
-          // Token tidak valid — hapus dan redirect
-          localStorage.removeItem("access_token");
-          localStorage.removeItem("refresh_token");
-          clearUser();
-          router.replace("/login");
-          return;
-        }
-
-        const userData = await response.json();
+        const userData = await fetcher<{
+          id: string;
+          email: string;
+          name: string;
+          role: "SA" | "Lead_SA" | "Sales" | "Product";
+          is_admin?: boolean;
+          avatar_url?: string;
+        }>("/auth/me");
 
         // Update store dengan data user
         setUser({
@@ -73,12 +53,15 @@ export function AuthGuard({ children }: AuthGuardProps) {
           is_admin: userData.is_admin === true,
           avatar_url: userData.avatar_url,
         });
-      } catch {
+      } catch (error) {
         // Network error atau masalah lain — clear dan redirect
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("refresh_token");
+        clearAccessToken();
         clearUser();
-        router.replace("/login");
+        router.replace(
+          error instanceof ApiError && error.status === 401
+            ? "/login?error=session_expired"
+            : "/login",
+        );
       }
     };
 

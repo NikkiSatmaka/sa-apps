@@ -16,7 +16,8 @@ from tests.integration.conftest import jalankan_alembic
 from tests.integration.test_migration import _head, _revisi_lama_ke_baru, _sql, _versi
 from tests.integration.test_migration_020_status import _proyek, _user
 
-REVISI_BARU = "023"
+REVISI_BARU = "024"
+REVISI_KOMENTAR = "023"
 REVISI_LAMA = "022"
 SEKARANG = datetime(2030, 1, 1, tzinfo=timezone.utc)
 
@@ -68,7 +69,7 @@ def test_revisi_023_adalah_head_dan_menyambung_ke_022(database_kosong_url):
 
     urutan = _revisi_lama_ke_baru()
     assert urutan[-1] == REVISI_BARU
-    assert urutan[urutan.index(REVISI_BARU) - 1] == REVISI_LAMA
+    assert urutan[urutan.index(REVISI_KOMENTAR) - 1] == REVISI_LAMA
     assert _versi(database_kosong_url) == _head() == REVISI_BARU
 
 

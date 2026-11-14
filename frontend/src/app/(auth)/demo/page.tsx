@@ -4,6 +4,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuthStore } from "@/store/auth";
+import { setAccessToken } from "@/lib/fetcher";
 
 /**
  * Halaman Demo Login Portal SA
@@ -89,6 +90,7 @@ function DemoContent() {
 
       const response = await fetch(`${apiUrl}/auth/demo-login`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ role }),
       });
@@ -111,14 +113,7 @@ function DemoContent() {
 
       // Simpan token ke localStorage
       const accessToken = tokens.access_token;
-      const refreshToken = tokens.refresh_token;
-
-      if (accessToken) {
-        localStorage.setItem("access_token", accessToken);
-      }
-      if (refreshToken) {
-        localStorage.setItem("refresh_token", refreshToken);
-      }
+      if (accessToken) setAccessToken(accessToken);
 
       // Simpan user info ke Zustand auth store
       if (userData) {

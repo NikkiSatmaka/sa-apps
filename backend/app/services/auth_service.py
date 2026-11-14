@@ -3,19 +3,25 @@ Service untuk autentikasi Google OAuth 2.0.
 Menangani OAuth flow, domain validation, JWT management, dan user provisioning.
 """
 
+import base64
+import hashlib
 import json
 import logging
+import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
+from cryptography.fernet import Fernet
 from jose import JWTError, jwt
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import VALID_ROLES, settings
+from app.models.auth_handoff import AuthHandoff
+from app.models.auth_refresh_token import AuthRefreshToken
 from app.models.user import User
 from app.schemas.auth import GoogleProfile, TokenPair
 
@@ -237,12 +243,14 @@ class AuthService:
 
         return user
 
-    def _create_token_pair(self, user: User) -> TokenPair:
+    def _create_token_pair(
+        self, user: User, db: AsyncSession | None = None, family_id: uuid.UUID | None = None
+    ) -> TokenPair:
         """Generate pasangan access token dan refresh token JWT."""
         now = datetime.now(timezone.utc)
 
         # Access token - TTL 24 jam
-        access_expire = now + timedelta(hours=settings.JWT_EXPIRE_HOURS)
+        access_expire = now + timedelta(minutes=15)
         access_payload = {
             "sub": str(user.id),
             "email": user.email,
@@ -257,10 +265,14 @@ class AuthService:
         )
 
         # Refresh token - TTL 7 hari
-        refresh_expire = now + timedelta(hours=settings.JWT_REFRESH_EXPIRE_HOURS)
+        refresh_expire = now + timedelta(days=7)
+        jti = secrets.token_urlsafe(32)
+        family_id = family_id or uuid.uuid4()
         refresh_payload = {
             "sub": str(user.id),
             "type": "refresh",
+            "jti": jti,
+            "family": str(family_id),
             "iat": now,
             "exp": refresh_expire,
         }
@@ -268,11 +280,61 @@ class AuthService:
             refresh_payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
         )
 
-        return TokenPair(
+        pair = TokenPair(
             access_token=access_token,
             refresh_token=refresh_token,
-            expires_in=settings.JWT_EXPIRE_HOURS * 3600,
+            expires_in=900,
         )
+
+        if db is not None:
+            db.add(
+                AuthRefreshToken(
+                    user_id=user.id,
+                    family_id=family_id,
+                    jti_hash=hashlib.sha256(jti.encode()).hexdigest(),
+                    expires_at=refresh_expire,
+                    status="active",
+                )
+            )
+        return pair
+
+    @staticmethod
+    def _fernet() -> Fernet:
+        key = base64.urlsafe_b64encode(hashlib.sha256(settings.JWT_SECRET_KEY.encode()).digest())
+        return Fernet(key)
+
+    async def create_handoff(
+        self,
+        db: AsyncSession,
+        *,
+        purpose: str,
+        user_id: uuid.UUID | None = None,
+        value: str | None = None,
+    ) -> str:
+        raw_code = secrets.token_urlsafe(32)
+        encrypted = self._fernet().encrypt(value.encode()).decode() if value else None
+        db.add(
+            AuthHandoff(
+                code_hash=hashlib.sha256(raw_code.encode()).hexdigest(),
+                purpose=purpose,
+                user_id=user_id,
+                encrypted_value=encrypted,
+                expires_at=datetime.now(UTC) + timedelta(minutes=3),
+            )
+        )
+        await db.commit()
+        return raw_code
+
+    async def consume_handoff(self, db: AsyncSession, code: str, purpose: str) -> AuthHandoff:
+        digest = hashlib.sha256(code.encode()).hexdigest()
+        row = await db.scalar(
+            select(AuthHandoff).where(AuthHandoff.code_hash == digest).with_for_update()
+        )
+        if not row or row.purpose != purpose or row.expires_at <= datetime.now(UTC):
+            raise TokenError("Kode handoff tidak valid atau sudah kedaluwarsa.")
+        await db.delete(row)
+        await db.flush()
+        return row
 
     async def refresh_token(self, refresh_token_str: str, db: AsyncSession) -> TokenPair:
         """
@@ -294,8 +356,32 @@ class AuthService:
             raise TokenError("Token bukan tipe refresh.")
 
         user_id = payload.get("sub")
-        if not user_id:
+        jti = payload.get("jti")
+        family = payload.get("family")
+        if not user_id or not jti or not family:
             raise TokenError("Token tidak mengandung informasi user.")
+
+        jti_hash = hashlib.sha256(jti.encode()).hexdigest()
+        result = await db.execute(
+            select(AuthRefreshToken)
+            .where(AuthRefreshToken.jti_hash == jti_hash)
+            .with_for_update()
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            raise TokenError("Refresh token tidak dikenal.")
+        if row.status != "active":
+            await db.execute(
+                update(AuthRefreshToken)
+                .where(AuthRefreshToken.family_id == row.family_id)
+                .values(status="revoked")
+            )
+            await db.commit()
+            raise TokenError("Reuse refresh token terdeteksi; sesi dicabut.")
+        if row.expires_at <= datetime.now(UTC):
+            row.status = "revoked"
+            await db.commit()
+            raise TokenError("Refresh token sudah expired.")
 
         # Cari user di database
         stmt = select(User).where(User.id == uuid.UUID(user_id))
@@ -305,8 +391,35 @@ class AuthService:
         if not user:
             raise TokenError("User tidak ditemukan.")
 
-        # Generate token pair baru
-        return self._create_token_pair(user)
+        row.status = "consumed"
+        pair = self._create_token_pair(user, db, row.family_id)
+        await db.commit()
+        return pair
+
+    async def revoke_refresh_token(self, refresh_token_str: str, db: AsyncSession) -> None:
+        try:
+            payload = jwt.decode(
+                refresh_token_str,
+                settings.JWT_SECRET_KEY,
+                algorithms=[settings.JWT_ALGORITHM],
+            )
+        except JWTError:
+            return
+        jti = payload.get("jti")
+        if not jti:
+            return
+        row = await db.scalar(
+            select(AuthRefreshToken)
+            .where(AuthRefreshToken.jti_hash == hashlib.sha256(jti.encode()).hexdigest())
+            .with_for_update()
+        )
+        if row:
+            await db.execute(
+                update(AuthRefreshToken)
+                .where(AuthRefreshToken.family_id == row.family_id)
+                .values(status="revoked")
+            )
+            await db.commit()
 
     def revoke_session(self, token: str) -> bool:
         """
@@ -379,9 +492,7 @@ class AuthService:
             )
 
         if response.status_code != 200:
-            raise OAuthError(
-                f"Gagal mendapatkan token dari Google: {response.text}"
-            )
+            raise OAuthError("Gagal mendapatkan token dari Google.")
 
         return response.json()
 

@@ -218,12 +218,27 @@ describe("CalendarSync — sync Google Calendar", () => {
 });
 
 describe("CalendarSync — callback OAuth lewat URL hash", () => {
-  it("#gcal_token disimpan ke localStorage, hash dibersihkan, toast sukses", async () => {
-    stubLocation("http://localhost/activity-logs/calendar?x=1#gcal_token=ya29.abc%2Fdef");
+  it("menukar gcal_code lewat POST; token Google tidak perlu ada di redirect", async () => {
+    server.use(
+      http.post(api("/auth/calendar/exchange"), () =>
+        HttpResponse.json({ access_token: "ya29.exchange" }),
+      ),
+    );
+    stubLocation("http://localhost/activity-logs/calendar?x=1#gcal_code=once-code");
     const replace = vi.spyOn(window.history, "replaceState");
     setup();
     expect(await toast()).toHaveTextContent("Google Calendar terhubung. Klik Sync Calendar untuk memuat event.");
-    expect(localStorage.getItem("google_calendar_token")).toBe("ya29.abc/def");
+    expect(localStorage.getItem("google_calendar_token")).toBe("ya29.exchange");
+    expect(replace).toHaveBeenCalledWith(null, "", "/activity-logs/calendar?x=1");
+  });
+
+  it("legacy #gcal_token dibersihkan tetapi tidak dipercaya", async () => {
+    localStorage.setItem("google_calendar_token", "lama");
+    stubLocation("http://localhost/activity-logs/calendar?x=1#gcal_token=ya29.abc%2Fdef");
+    const replace = vi.spyOn(window.history, "replaceState");
+    setup();
+    expect(await toast()).toHaveTextContent("Otorisasi Google Calendar perlu diulang.");
+    expect(localStorage.getItem("google_calendar_token")).toBeNull();
     expect(replace).toHaveBeenCalledWith(null, "", "/activity-logs/calendar?x=1");
   });
 

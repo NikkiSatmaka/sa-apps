@@ -469,8 +469,7 @@ class TestSkemaRingan:
         assert user.avatar_url is None
         assert LoginResponse(user=user, tokens=pasangan).tokens.expires_in == 60
         assert GoogleProfile(google_id="g", email="a@x.com", name="A").avatar_url is None
-        with pytest.raises(ValidationError):
-            RefreshRequest()
+        assert RefreshRequest().refresh_token is None  # cookie menjadi satu-satunya credential refresh
 
     def test_standard_response(self):
         assert StandardResponse(status="success", data={"a": 1}, message="ok")

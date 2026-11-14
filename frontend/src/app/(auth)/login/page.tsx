@@ -16,6 +16,7 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Domain email Anda tidak diizinkan untuk mengakses sistem ini.",
   auth_cancelled: "Login dibatalkan.",
   auth_failed: "Login gagal. Silakan coba lagi.",
+  session_expired: "Sesi Anda telah berakhir. Silakan masuk kembali.",
 };
 
 function LoginContent() {

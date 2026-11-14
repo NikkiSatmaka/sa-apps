@@ -55,6 +55,7 @@ describe("halaman /login", () => {
     ["domain_not_allowed", "Domain email Anda tidak diizinkan untuk mengakses sistem ini."],
     ["auth_cancelled", "Login dibatalkan."],
     ["auth_failed", "Login gagal. Silakan coba lagi."],
+    ["session_expired", "Sesi Anda telah berakhir. Silakan masuk kembali."],
     ["sesuatu_lain", "Terjadi kesalahan. Silakan coba lagi."],
   ])("query ?error=%s menampilkan pesan yang sesuai", async (code, pesan) => {
     server.use(authConfig({ oauth_configured: true }));

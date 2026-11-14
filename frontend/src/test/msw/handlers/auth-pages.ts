@@ -3,10 +3,10 @@
  *
  * `/auth/config`, `/auth/demo-login`, `/auth/me` dan `/auth/logout` sudah ada di `auth.ts` (default
  * `demo_mode: true`, `oauth_configured` tidak ada). Handler di berkas ini hanya MENAMBAH:
- * - `/auth/callback?code=...` (jalur fallback OAuth lama yang dipanggil halaman callback);
+ * - `/auth/callback/exchange` (penukaran handoff code sekali pakai);
  * - `authConfig(...)` — fabrik untuk menimpa `/auth/config` per test lewat `server.use(authConfig({...}))`.
  *
- * Kode khusus untuk `/auth/callback`: `forbidden` → 403, `broken` → 500 (body bukan JSON),
+ * Kode khusus untuk exchange: `forbidden` → 403, `broken` → 500 (body bukan JSON),
  * kode lain apa pun → sukses dengan peran SA.
  */
 import { http, HttpResponse } from "msw";
@@ -18,12 +18,13 @@ export function authConfig(config: { oauth_configured?: boolean; demo_mode?: boo
 }
 
 export const authPagesHandlers = [
-  http.get(api("/auth/callback"), ({ request }) => {
-    const code = new URL(request.url).searchParams.get("code");
+  http.post(api("/auth/callback/exchange"), async ({ request }) => {
+    const { code } = (await request.json()) as { code: string };
     if (code === "forbidden") {
       return HttpResponse.json({ status: "error", data: null, message: "Domain tidak diizinkan" }, { status: 403 });
     }
     if (code === "broken") return HttpResponse.text("kacau", { status: 500 });
-    return HttpResponse.json(loginResponse("SA"));
+    const login = loginResponse("SA");
+    return HttpResponse.json({ user: login.user, access_token: login.tokens.access_token, expires_in: 900 });
   }),
 ];

@@ -4,15 +4,16 @@ import { useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthStore } from "@/store/auth";
 import { Suspense } from "react";
+import { setAccessToken } from "@/lib/fetcher";
 
 /**
  * OAuth Callback Handler
  *
  * Halaman ini menerima callback dari backend setelah OAuth flow.
  * Flow:
- * 1. Backend redirect ke halaman ini dengan query params (code)
- * 2. Halaman ini memanggil backend /auth/callback dengan code tersebut
- * 3. Simpan tokens ke localStorage
+ * 1. Backend redirect ke halaman ini dengan handoff code sekali pakai
+ * 2. Halaman ini menukar code lewat POST; refresh token tetap di HttpOnly cookie
+ * 3. Access token disimpan hanya di memory
  * 4. Update auth store dengan data user
  * 5. Redirect ke dashboard (/) jika berhasil, atau /login?error=xxx jika gagal
  */
@@ -31,19 +32,13 @@ function CallbackContent() {
     const processCallback = async () => {
       setLoading(true);
 
-      // Token OAuth datang di URL hash (fragment), bukan query string, agar
-      // tidak bocor ke server/log. Hash hanya tersedia di client.
-      const hashParams =
-        typeof window !== "undefined"
-          ? new URLSearchParams(window.location.hash.slice(1))
-          : new URLSearchParams();
-
-      const accessToken = hashParams.get("access_token");
-      const refreshToken = hashParams.get("refresh_token");
-      const userParam = hashParams.get("user");
-      // code & error tetap dibaca dari query string (jalur fallback OAuth lama).
       const code = searchParams.get("code");
       const error = searchParams.get("error");
+
+      // Hapus fragment auth lama dari address bar; token fragment tidak lagi dipercaya.
+      if (typeof window !== "undefined" && window.location.hash) {
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
 
       // Handle jika Google mengembalikan error (user batal consent)
       if (error) {
@@ -51,46 +46,6 @@ function CallbackContent() {
         return;
       }
 
-      // Handle redirect dari API proxy (tokens sudah ada di URL)
-      if (accessToken && userParam) {
-        try {
-          const userData = JSON.parse(decodeURIComponent(userParam));
-
-          // Simpan tokens ke localStorage
-          localStorage.setItem("access_token", accessToken);
-          if (refreshToken) {
-            localStorage.setItem("refresh_token", refreshToken);
-          }
-
-          // Bersihkan hash agar token tidak tertinggal di URL (pola CalendarSync).
-          if (typeof window !== "undefined") {
-            window.history.replaceState(
-              null,
-              "",
-              window.location.pathname + window.location.search
-            );
-          }
-
-          // Update auth store dengan data user
-          setUser({
-            id: userData.id,
-            email: userData.email,
-            full_name: userData.name || userData.full_name,
-            role: userData.role,
-            is_admin: userData.is_admin === true,
-            avatar_url: userData.avatar_url,
-          });
-
-          // Redirect ke dashboard
-          router.replace("/");
-        } catch (err) {
-          console.error("Error processing token from URL:", err);
-          router.replace("/login?error=auth_failed");
-        }
-        return;
-      }
-
-      // Handle jika tidak ada code maupun token
       if (!code) {
         router.replace("/login?error=auth_failed");
         return;
@@ -101,10 +56,12 @@ function CallbackContent() {
           process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 
         const response = await fetch(
-          `${apiUrl}/auth/callback?code=${encodeURIComponent(code)}`,
+          `${apiUrl}/auth/callback/exchange`,
           {
-            method: "GET",
+            method: "POST",
+            credentials: "include",
             headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code }),
           }
         );
 
@@ -125,9 +82,7 @@ function CallbackContent() {
 
         const data = await response.json();
 
-        // Simpan tokens ke localStorage
-        localStorage.setItem("access_token", data.tokens.access_token);
-        localStorage.setItem("refresh_token", data.tokens.refresh_token);
+        setAccessToken(data.access_token);
 
         // Update auth store dengan data user
         setUser({

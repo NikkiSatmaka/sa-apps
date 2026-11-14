@@ -88,6 +88,9 @@ MATRIKS = {
     TingkatAkses.KELOLA_REQUIREMENT: {"privileged", "sa_ditugaskan"},
     # Jawaban kuesioner: Sales PIC (berperan Sales), Lead_SA, Admin
     TingkatAkses.EDIT_KUESIONER: {"privileged", "sales_pic"},
+    # Komentar project (#125, spec §2.0/§2.5): yang ditugaskan (PIC, SA utama/tambahan,
+    # collaborator contributor), Lead_SA, Admin. Viewer dan pihak luar hanya membaca.
+    TingkatAkses.KOMENTAR: {"privileged", "sales_pic", "sa_ditugaskan", "kolab_contributor"},
     # Atur tim SA (#119): hanya Lead_SA/Admin; SA utama/tambahan tidak
     TingkatAkses.KELOLA_TIM_SA: {"privileged"},
 }

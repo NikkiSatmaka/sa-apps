@@ -9,9 +9,9 @@ import { ProjectCard } from "@/components/ProjectCard";
 import { useAuthStore } from "@/store/auth";
 
 /**
- * Dashboard Sales
+ * Dashboard requester (bersama untuk Sales dan Product; #109, ADR 0014)
  *
- * Menampilkan daftar proyek yang disubmit oleh Sales yang sedang login.
+ * Menampilkan "proyek saya": semua proyek tempat user login terlibat (`involved=me`).
  * Informasi per proyek: nama proyek, nama customer, status, tanggal update terakhir.
  *
  * Fitur:
@@ -45,20 +45,20 @@ export default function SalesDashboard() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
 
-  // Fetch proyek milik Sales saat ini, sorted by updated_at descending
+  // Fetch proyek yang melibatkan user saat ini, sorted by updated_at descending
   const { data: projects, isLoading, error: projectsError, mutate: mutateProjects } = useSWR<SalesProject[]>(
-    user ? "/projects?sales_pic=me&sort=-updated_at" : null,
+    user ? "/projects?involved=me&sort=-updated_at" : null,
     fetcher
   );
 
-  // Fetch ringkasan status proyek milik Sales
+  // Fetch ringkasan status proyek yang melibatkan user
   const {
     data: statusSummary,
     isLoading: isLoadingStatus,
     error: statusError,
     mutate: mutateStatus,
   } = useSWR<StatusCount[]>(
-    user ? "/projects/status-summary?sales_pic=me" : null,
+    user ? "/projects/status-summary?involved=me" : null,
     fetcher
   );
 
@@ -68,10 +68,10 @@ export default function SalesDashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-neutral-900">
-            Dashboard Sales
+            Dashboard Requester
           </h1>
           <p className="mt-1 text-neutral-500">
-            Pantau status proyek yang sudah Anda submit.
+            Pantau status proyek yang melibatkan Anda.
           </p>
         </div>
 
@@ -216,7 +216,7 @@ function EmptyState({ onCreateNew }: { onCreateNew: () => void }) {
         Belum ada proyek
       </h3>
       <p className="text-sm text-neutral-500 mb-6">
-        Anda belum memiliki proyek. Buat request baru untuk memulai.
+        Anda belum terlibat di proyek mana pun. Buat request baru untuk memulai.
       </p>
 
       <button

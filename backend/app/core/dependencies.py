@@ -214,6 +214,7 @@ class TingkatAkses(StrEnum):
     EDIT_KUESIONER = "edit_kuesioner"
     KELOLA_TIM_SA = "kelola_tim_sa"
     KOMENTAR = "komentar"
+    BUAT_SUBTASK = "buat_subtask"
 
     @property
     def butuh_kolaborator(self) -> bool:
@@ -377,6 +378,12 @@ _ATURAN: dict[TingkatAkses, Aturan] = {
         sales_pic=True,
         sa_ditugaskan=True,
         kolaborator=AksesKolaborator.CONTRIBUTOR,
+    ),
+    TingkatAkses.BUAT_SUBTASK: Aturan(
+        "Buat subtask (#147, spec §2.0/§2.5): SA ditugaskan berperan SA (utama atau tambahan), "
+        "Lead_SA, Admin; Sales/Product, collaborator, dan SA yang tidak ditugaskan ditolak",
+        sa_ditugaskan=True,
+        cocokkan_peran=True,
     ),
     TingkatAkses.EDIT_KUESIONER: Aturan(
         "Ubah jawaban Kuesioner kualifikasi: Sales PIC berperan Sales",

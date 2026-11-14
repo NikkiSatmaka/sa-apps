@@ -8,7 +8,7 @@ import { LoadError } from "@/components/LoadError";
 import { useAuthStore } from "@/store/auth";
 import { ProjectCard } from "@/components/ProjectCard";
 import { STATUS_PROYEK } from "@/lib/status";
-import { bisaMembuatProyek, isPrivileged, isRequester } from "@/lib/roles";
+import { bisaMembuatProyek } from "@/lib/roles";
 
 /**
  * Halaman /projects — Daftar proyek dengan search dan filter status
@@ -36,21 +36,15 @@ export default function ProjectsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
-  // Tentukan endpoint berdasarkan role
-  const getEndpoint = () => {
-    if (!user) return null;
-    // Lead_SA/admin melihat semua; requester (Sales/Product) hanya project yang ia PIC-i (backend:
-    // `sales_pic=me` mencocokkan sales_pic atau product_pic, #117); SA hanya yang ditugaskan.
-    // Sementara; #109 mengubah
-    // daftar menjadi semua proyek dengan sakelar `involved=me`.
-    if (isPrivileged(user)) return "/projects?sort=-updated_at";
-    if (isRequester(user)) return "/projects?sales_pic=me&sort=-updated_at";
-    if (user.role === "SA") return "/projects?assigned_to=me&sort=-updated_at";
-    return "/projects?sort=-updated_at";
-  };
+  // Sakelar "Hanya proyek saya": default mati (daftar penuh, ADR 0011); aktif memakai
+  // `involved=me` untuk semua peran (ADR 0014).
+  const [hanyaSaya, setHanyaSaya] = useState(false);
+  const endpoint = user
+    ? `/projects?${hanyaSaya ? "involved=me&" : ""}sort=-updated_at`
+    : null;
 
   const { data: projects, isLoading, error, mutate } = useSWR<ProjectItem[]>(
-    getEndpoint(),
+    endpoint,
     fetcher
   );
 
@@ -85,13 +79,7 @@ export default function ProjectsPage() {
         <div>
           <h1 className="text-2xl font-semibold text-neutral-900">Proyek</h1>
           <p className="mt-1 text-neutral-500 text-sm">
-            {isPrivileged(user)
-              ? "Semua proyek"
-              : isRequester(user)
-                ? "Daftar proyek yang Anda submit"
-                : user?.role === "SA"
-                  ? "Proyek yang ditugaskan kepada Anda"
-                  : "Semua proyek"}
+            Semua proyek
             {/* Catatan: tombol "Request SA" tersedia untuk Sales, Product, Lead SA, dan admin */}
           </p>
         </div>
@@ -105,6 +93,17 @@ export default function ProjectsPage() {
           </button>
         )}
       </div>
+
+      {/* Sakelar proyek saya */}
+      <label className="flex items-center gap-2 text-sm text-neutral-700 min-h-[44px] w-fit">
+        <input
+          type="checkbox"
+          checked={hanyaSaya}
+          onChange={(e) => setHanyaSaya(e.target.checked)}
+          className="h-4 w-4 rounded border-neutral-300"
+        />
+        Hanya proyek saya
+      </label>
 
       {/* Search + Filter bar */}
       <div className="flex flex-wrap gap-3">
@@ -183,12 +182,18 @@ export default function ProjectsPage() {
                 </svg>
               </div>
               <h3 className="text-lg font-semibold text-neutral-900 mb-2">
-                {searchQuery || statusFilter ? "Tidak ada hasil" : "Belum ada proyek"}
+                {searchQuery || statusFilter
+                  ? "Tidak ada hasil"
+                  : hanyaSaya
+                    ? "Tidak ada proyek milik Anda"
+                    : "Belum ada proyek"}
               </h3>
               <p className="text-sm text-neutral-500 mb-4">
                 {searchQuery || statusFilter
                   ? "Coba ubah kata kunci atau filter status."
-                  : bisaMembuatProyek(user)
+                  : hanyaSaya
+                    ? "Matikan sakelar 'Hanya proyek saya' untuk melihat semua proyek."
+                    : bisaMembuatProyek(user)
                     ? "Buat Request SA untuk memulai."
                     : "Belum ada proyek yang tersedia."}
               </p>

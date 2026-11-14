@@ -15,6 +15,8 @@ import { isPrivileged as isPrivilegedUser } from "@/lib/roles";
  *   satu tombol "Tandai selesai" (`→ done`). Tidak ada tombol "Mulai" manual —
  *   transisi ke `in_progress` terjadi otomatis saat mencatat activity log
  *   terhadap subtask (lihat ADR 0008).
+ * - SA yang ditugaskan di project (utama/tambahan, #147): juga boleh menambah subtask; subtask
+ *   baru belum punya assignee, Lead_SA/Admin yang menugaskan.
  * - Lead_SA/admin (`is_admin`): melihat seluruh daftar plus kontrol tambah, hapus, dan
  *   assign/reassign subtask ke SA.
  *
@@ -32,7 +34,7 @@ import { isPrivileged as isPrivilegedUser } from "@/lib/roles";
  * - PATCH  /projects/subtasks/{id} (ubah description, due_date, estimate_hours)
  * - PATCH  /projects/subtasks/{id}/status
  * - PATCH  /projects/subtasks/{id}/assign
- * - GET    /projects/{id}/tim-sa (opsi assignee: SA utama + SA tambahan)
+ * - GET    /projects/{id}/tim-sa (opsi assignee; penentu SA ditugaskan: SA utama + SA tambahan)
  * - DELETE /projects/subtasks/{id}
  */
 
@@ -211,12 +213,19 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
     fetcher
   );
 
-  // Assignee harus anggota tim SA project (ADR 0014): opsi assign datang dari tim SA, hanya
-  // di-fetch untuk role privileged.
+  // Tim SA project (ADR 0014): opsi assign untuk privileged, dan penentu "SA ditugaskan" (hak
+  // tambah subtask, #147) untuk SA. Sales/Product tidak melihat section ini, jadi tidak di-fetch.
   const { data: tim } = useSWR<TimSA>(
-    isPrivileged ? `/projects/${projectId}/tim-sa` : null,
+    isPrivileged || isSA ? `/projects/${projectId}/tim-sa` : null,
     fetcher
   );
+  // Cermin `TingkatAkses.BUAT_SUBTASK`: SA ditugaskan (utama/tambahan; id DAN peran SA), Lead_SA,
+  // Admin. Bukan penentu hak: backend tetap memeriksa.
+  const saDitugaskan =
+    isSA &&
+    !!user?.id &&
+    [tim?.sa_utama?.id, ...(tim?.sa_tambahan ?? []).map((s) => s.id)].includes(user.id);
+  const bisaTambah = isPrivileged || saDitugaskan;
   const opsiAssign = [
     ...(tim?.sa_utama ? [{ id: tim.sa_utama.id, label: `${tim.sa_utama.name} (SA utama)` }] : []),
     ...(tim?.sa_tambahan ?? []).map((s) => ({ id: s.id, label: `${s.name} (SA tambahan)` })),
@@ -369,7 +378,9 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
           <p className="text-xs text-neutral-400 mt-0.5">
             {isPrivileged
               ? "Work item teknis proyek — tambah, tugaskan, atau hapus."
-              : "Work item yang ditugaskan kepada Anda."}
+              : saDitugaskan
+                ? "Tambah work item, atau kerjakan yang ditugaskan kepada Anda."
+                : "Work item yang ditugaskan kepada Anda."}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -378,7 +389,7 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
               {doneCount}/{totalCount} selesai
             </span>
           )}
-          {isPrivileged && (
+          {bisaTambah && (
             <button
               type="button"
               onClick={() => {
@@ -402,8 +413,8 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
         </div>
       )}
 
-      {/* Form tambah subtask (Lead_SA/Admin) */}
-      {isPrivileged && showAddForm && (
+      {/* Form tambah subtask (SA ditugaskan/Lead_SA/Admin); assignee awal kosong */}
+      {bisaTambah && showAddForm && (
         <div className="mb-4 p-3 bg-neutral-50 rounded-lg border border-neutral-200 space-y-3">
           <div>
             <label htmlFor="subtask-title" className="text-xs font-medium text-neutral-600 mb-1 block">

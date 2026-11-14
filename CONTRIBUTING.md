@@ -178,6 +178,23 @@ CI (backend dan frontend) ada di [`.github/workflows/ci.yml`](.github/workflows/
 Sebuah perubahan belum "selesai" hanya karena command berjalan tanpa error. Perubahan selesai ketika terbukti memenuhi tujuannya.
 
 
+### Loop verifikasi bertingkat (hemat waktu dan konteks)
+
+Jalankan tingkat terkecil yang cukup, dan naik hanya saat tingkat di bawahnya hijau:
+
+1. **Merah/hijau**: hanya test yang berubah. `mise run verify-backend tests/test_x.py::test_y` (tambahkan `--integration` untuk test integrasi) atau `mise run verify-frontend src/.../x.test.tsx`.
+2. **Selesai satu bagian**: satu direktori atau berkas test terkait, plus `tsc` untuk frontend.
+3. **Sebelum lapor atau buka PR, sekali saja**: `mise run verify-backend -- --full` (unit + integrasi + gerbang cakupan gabungan yang sama dengan CI) dan `mise run verify-frontend -- --full` (tsc + cakupan + build).
+
+Jangan menjalankan `--cov` atau suite penuh di tiap iterasi; CI menegakkan gerbang cakupan. Task `mise` menulis output penuh ke log dan hanya menampilkan ringkasan atau ekor kegagalan. `new-worktree` menggantikan langkah manual di `docs/agents/worktree-dan-delegasi.md`: `mise run new-worktree <type> <slug>`. Argumen task diteruskan setelah `--`.
+
+### Membaca kode dengan hemat
+
+- Cari dulu (`grep -n`, pencarian simbol), lalu baca rentang baris yang relevan. Jangan mencetak berkas besar utuh (`cat`, `sed -n` tanpa batas): test integrasi, `conftest.py`, dan komponen `tsx` mudah melewati 20 KB.
+- Batasi output perintah (`| head -80`, `-q`, `--tb=short`).
+- Untuk fixture dan helper test backend, mulai dari [`backend/tests/README.md`](backend/tests/README.md).
+- Untuk tiket, ambil secukupnya: `gh issue view N --json title,body`. Jangan menarik ulang tiket induk yang sudah diringkas di brief.
+
 ### CI (backend dan frontend)
 
 Workflow `CI` berjalan pada pull request, push ke branch selain `main`, dan manual (`workflow_dispatch`). Run lama pada branch yang sama dibatalkan otomatis. Tidak ada secret yang dibutuhkan.

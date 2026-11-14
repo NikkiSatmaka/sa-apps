@@ -12,23 +12,28 @@ from scripts.seed_demo_data import DEMO_USERS, get_or_create_project
 
 def test_seed_menyediakan_dua_user_untuk_setiap_persona_fungsional():
     jumlah = {
-        role: sum(
-            user["role"] == role and user.get("is_admin", False) is False
-            for user in DEMO_USERS
-        )
+        role: sum(user["role"] == role for user in DEMO_USERS)
         for role in ("Sales", "Product", "SA", "Lead_SA")
     }
-    jumlah["Admin"] = sum(user.get("is_admin", False) for user in DEMO_USERS)
-    assert jumlah == {"Sales": 2, "Product": 2, "SA": 2, "Lead_SA": 2, "Admin": 2}
-    assert all(user["role"] != "SA" or not user.get("is_admin", False) for user in DEMO_USERS)
-    assert all(user["role"] == "Lead_SA" for user in DEMO_USERS if user.get("is_admin", False))
+    assert jumlah == {"Sales": 2, "Product": 2, "SA": 2, "Lead_SA": 4}
+    assert all(user["role"] in jumlah for user in DEMO_USERS)
+    assert all(
+        user["role"] in {"SA", "Lead_SA"}
+        for user in DEMO_USERS
+        if user.get("is_admin", False)
+    )
+    assert all(
+        user.get("is_admin", False)
+        for user in DEMO_USERS
+        if user["role"] == "SA"
+    )
 
 
-def test_persona_admin_demo_memakai_role_lead_sa():
+def test_demo_login_memberi_flag_admin_pada_role_sa_tanpa_persona_admin():
     from app.api.auth import DEMO_USERS as AUTH_DEMO_USERS
 
-    assert AUTH_DEMO_USERS["Admin"]["role"] == "Lead_SA"
-    assert AUTH_DEMO_USERS["Admin"]["is_admin"] is True
+    assert set(AUTH_DEMO_USERS) == {"Sales", "Product", "SA", "Lead_SA"}
+    assert AUTH_DEMO_USERS["SA"]["is_admin"] is True
 
 
 @pytest.mark.asyncio

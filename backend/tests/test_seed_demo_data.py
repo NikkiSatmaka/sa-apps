@@ -62,13 +62,26 @@ async def test_seed_all_memakai_akun_sales_dan_sa_berbeda_pada_project(monkeypat
     monkeypatch.setattr(seed_demo_data, "get_or_create_document", AsyncMock())
     monkeypatch.setattr(seed_demo_data, "get_or_create_activity_log", AsyncMock())
     await seed_demo_data.seed_all()
+    mapping_first_seed = list(captured)
+    captured.clear()
+    await seed_demo_data.seed_all()
+    mapping_second_seed = list(captured)
 
-    sales_ids = {sales_id for _, sales_id, _, _ in captured}
-    sa_ids = {sa_id for _, _, sa_id, _ in captured if sa_id is not None}
-    assert sales_ids == {
-        ids["demo-sales@portal-sa.local"], ids["demo-sales2@portal-sa.local"]
-    }
-    assert sa_ids == {ids["demo-sa@portal-sa.local"], ids["demo-sa2@portal-sa.local"]}
+    sales1, sales2 = ids["demo-sales@portal-sa.local"], ids["demo-sales2@portal-sa.local"]
+    sa1, sa2 = ids["demo-sa@portal-sa.local"], ids["demo-sa2@portal-sa.local"]
+    product1 = ids["demo-product@portal-sa.local"]
+    product2 = ids["demo-product2@portal-sa.local"]
+    assert mapping_first_seed == [
+        ("PRJ-DEMO-001", sales1, sa2, product2),
+        ("PRJ-DEMO-002", sales2, sa1, product1),
+        ("PRJ-DEMO-003", sales1, None, product2),
+        ("PRJ-DEMO-004", sales2, None, product1),
+        ("PRJ-DEMO-005", sales1, sa2, product2),
+        ("PRJ-DEMO-006", sales2, sa1, product1),
+        ("PRJ-DEMO-007", sales1, sa2, product2),
+        ("PRJ-DEMO-008", sales2, sa1, product1),
+    ]
+    assert mapping_second_seed == mapping_first_seed
 
 
 @pytest.mark.asyncio

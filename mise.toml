@@ -2,7 +2,7 @@
 #
 # Jalankan `mise install` di root repo untuk memasang versi tool yang di-pin di bawah.
 # Versi di-pin agar selaras dengan Dockerfile (build produksi tetap memakai image
-# Docker sebagai sumber kebenaran: python:3.12-slim, node:26-alpine, uv 0.13).
+# Docker sebagai sumber kebenaran: python:3.14-slim, node:26-alpine, uv 0.13).
 #
 # Python sengaja TIDAK di-pin di sini: interpreter dikelola uv, versinya mengikuti
 # backend/.python-version (uv mengunduhnya otomatis saat `uv sync` / `uv run`).

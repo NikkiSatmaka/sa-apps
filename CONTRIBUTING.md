@@ -23,9 +23,9 @@ Tool yang dikelola saat ini:
 | pnpm | 12 |
 | uv | 0.13 |
 
-Versi di-pin ke major agar selaras dengan Dockerfile. **Docker tetap menjadi sumber kebenaran untuk build produksi** (`python:3.12-slim`, `node:26-alpine`); mise menyediakan toolchain lokal yang setara untuk development. Ketika Anda menaikkan versi tool, perbarui `mise.toml` dan Dockerfile terkait bersamaan agar tidak drift.
+Versi di-pin ke major agar selaras dengan Dockerfile. **Docker tetap menjadi sumber kebenaran untuk build produksi** (`python:3.14-slim`, `node:26-alpine`); mise menyediakan toolchain lokal yang setara untuk development. Ketika Anda menaikkan versi tool, perbarui `mise.toml` dan Dockerfile terkait bersamaan agar tidak drift.
 
-Python **tidak** dikelola mise. Interpreter dikelola uv dan versinya mengikuti `backend/.python-version` (3.12); `uv sync` di `backend/` mengunduhnya otomatis. Saat menaikkan versi Python, ubah `backend/.python-version` dan Dockerfile bersamaan.
+Python **tidak** dikelola mise. Interpreter dikelola uv dan versinya mengikuti `backend/.python-version` (3.14); `uv sync` di `backend/` mengunduhnya otomatis. Saat menaikkan versi Python, ubah `backend/.python-version` dan Dockerfile bersamaan.
 
 pnpm adalah package manager untuk `frontend/` (lockfile `pnpm-lock.yaml`). Dikelola via mise untuk development lokal; di Docker dipasang eksplisit via `npm i -g pnpm@12` (tanpa corepack, versi di-pin sama dengan mise).
 

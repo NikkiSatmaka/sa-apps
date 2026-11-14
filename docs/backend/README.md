@@ -13,7 +13,7 @@ Untuk konteks kontribusi, lihat [`CONTRIBUTING.md`](../../CONTRIBUTING.md); untu
 | Komponen | Teknologi | Versi (pinned) |
 |----------|-----------|----------------|
 | Framework API | FastAPI | 0.115.6 |
-| Runtime | Python | 3.12 |
+| Runtime | Python | 3.14 |
 | ASGI server | Uvicorn | 0.34.0 |
 | ORM | SQLAlchemy (async) | 2.0.36 |
 | Driver DB | asyncpg | 0.30.0 |
@@ -43,7 +43,7 @@ backend/
 ├── alembic/versions/      # migration (001 initial, 002 handover cols, 003 activity utilization)
 ├── tests/                 # pytest (condong ke AI/guardrail/provisioning/SLA/scoring)
 ├── pyproject.toml         # sumber kebenaran dependency (uv)
-└── Dockerfile             # multi-stage build (uv, Python 3.12-slim, non-root)
+└── Dockerfile             # multi-stage build (uv, Python 3.14-slim, non-root)
 ```
 
 Layering: `api` (HTTP + auth + validasi akses) → `services` (business logic + integrasi eksternal) → `models` (persistence). `schemas` dipakai lintas layer untuk kontrak data; `core` menyediakan infrastruktur. Beberapa router (`projects.py`, `assignment.py`) cukup besar dan mencampur logic ke dalam handler — kandidat refactor (roadmap).

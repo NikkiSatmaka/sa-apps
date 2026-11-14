@@ -47,7 +47,7 @@ async def _tambahan(dunia, id_project: str, user):
     )
 
 
-BAGIAN = ["beban", "jatuh-tempo", "macet"]
+BAGIAN = ["beban", "jatuh-tempo", "macet", "butuh-aksi"]
 
 
 # --- akses ---
@@ -447,3 +447,95 @@ async def test_macet_diurutkan_terlama_dulu(dunia, api):
     data = _macet(await _get(api, dunia, "macet"))
 
     assert [i["id_project"] for i in data["items"]] == [c.id_project, b.id_project, a.id_project]
+
+
+# --- (4) butuh aksi ---
+
+
+def _aksi(resp) -> list[tuple[str, str]]:
+    assert resp.status_code == 200, resp.text
+    return [(i["jenis"], i["id_project"]) for i in resp.json()["data"]["items"]]
+
+
+async def test_butuh_aksi_awaiting_assignment(dunia, api):
+    p = await dunia.buat_proyek(status="Awaiting Assignment", project_name="Antri")
+
+    resp = await _get(api, dunia, "butuh-aksi")
+
+    assert _aksi(resp) == [("awaiting_assignment", p.id_project)]
+    item = resp.json()["data"]["items"][0]
+    assert item["project_name"] == "Antri"
+    assert item["customer_name"] == p.customer_name
+    assert item["status"] == "Awaiting Assignment"
+
+
+async def test_butuh_aksi_need_clarification_hanya_pada_intake(dunia, api):
+    nc = await dunia.buat_proyek(status="Intake", qualification_state="Need Clarification")
+    await dunia.buat_proyek(status="Intake", qualification_state="Scoring")
+    await dunia.buat_proyek(status="Intake", qualification_state="Manual Review")
+    await dunia.buat_proyek(status="Awaiting Assignment", qualification_state="Qualified")
+    await dunia.buat_proyek(
+        status="On Hold", previous_status="Intake", qualification_state="Need Clarification"
+    )
+
+    aksi = _aksi(await _get(api, dunia, "butuh-aksi"))
+
+    assert ("need_clarification", nc.id_project) in aksi
+    assert [j for j, _ in aksi].count("need_clarification") == 1
+
+
+@pytest.mark.parametrize("status", ["Assigned", "In Progress", "Submitted", "Won", "Handed Over"])
+async def test_butuh_aksi_dq_kosong_setelah_titik_gate(dunia, api, status):
+    kosong = await dunia.buat_proyek(status=status, assigned_sa=dunia.sa.id, dq_number=None)
+    await dunia.buat_proyek(status=status, assigned_sa=dunia.sa.id, dq_number="DQ-12345")
+
+    aksi = _aksi(await _get(api, dunia, "butuh-aksi"))
+
+    assert aksi == [("dq_kosong", kosong.id_project)]
+
+
+async def test_butuh_aksi_dq_kosong_tidak_berlaku_sebelum_assigned_atau_tak_aktif(dunia, api):
+    await dunia.buat_proyek(status="Intake", qualification_state="Qualified", dq_number=None)
+    await dunia.buat_proyek(status="On Hold", previous_status="In Progress", dq_number=None)
+    await dunia.buat_proyek(status="Closed", dq_number=None)
+    await dunia.buat_proyek(status="Lost", dq_number=None)
+
+    aksi = _aksi(await _get(api, dunia, "butuh-aksi"))
+
+    assert aksi == []
+
+
+async def test_butuh_aksi_soft_deleted_dikecualikan(dunia, api):
+    hapus = {"deleted_at": datetime.now(UTC), "deleted_by": dunia.lead.id}
+    await dunia.buat_proyek(status="Awaiting Assignment", **hapus)
+    await dunia.buat_proyek(status="In Progress", dq_number=None, **hapus)
+    await dunia.buat_proyek(status="Intake", qualification_state="Need Clarification", **hapus)
+
+    assert _aksi(await _get(api, dunia, "butuh-aksi")) == []
+
+
+async def test_butuh_aksi_campuran_diurutkan_menurut_jenis_lalu_pembuatan(dunia, api):
+    sekarang = datetime.now(UTC)
+    dq = await dunia.buat_proyek(
+        status="In Progress", dq_number=None, created_at=sekarang - timedelta(days=3)
+    )
+    nc = await dunia.buat_proyek(
+        status="Intake",
+        qualification_state="Need Clarification",
+        created_at=sekarang - timedelta(days=2),
+    )
+    aa_baru = await dunia.buat_proyek(
+        status="Awaiting Assignment", created_at=sekarang - timedelta(days=1)
+    )
+    aa_lama = await dunia.buat_proyek(
+        status="Awaiting Assignment", created_at=sekarang - timedelta(days=5)
+    )
+
+    aksi = _aksi(await _get(api, dunia, "butuh-aksi"))
+
+    assert aksi == [
+        ("awaiting_assignment", aa_lama.id_project),
+        ("awaiting_assignment", aa_baru.id_project),
+        ("dq_kosong", dq.id_project),
+        ("need_clarification", nc.id_project),
+    ]

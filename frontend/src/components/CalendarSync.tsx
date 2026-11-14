@@ -50,7 +50,7 @@ type ProjectPhase = (typeof PROJECT_PHASES)[number];
 
 /** Default fase dari status proyek — selaras backend default_phase_for_status */
 function defaultPhaseForStatus(status?: string): ProjectPhase {
-  return status === "Handover Complete" ? "Implementation" : "Pre-Implementation";
+  return status === "Handed Over" ? "Implementation" : "Pre-Implementation";
 }
 
 const WEEKDAY_LABELS = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];

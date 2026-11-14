@@ -1,5 +1,6 @@
 "use client";
 
+import { statusBadgeClass } from "@/lib/status";
 import { useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -19,7 +20,7 @@ import { isPrivileged } from "@/lib/roles";
  * Dashboard Lead_SA
  *
  * Empat section utama:
- * 1. Antrian Assignment — proyek berstatus "Pending Assignment"
+ * 1. Antrian Assignment — proyek berstatus "Awaiting Assignment"
  * 2. Overview Proyek Aktif — count proyek per status
  * 3. Utilisasi SA — daftar SA dengan jumlah proyek aktif
  * 4. Utilisasi SA per Bulan — jam kerja per SA per bulan (chart tabel)
@@ -50,20 +51,6 @@ interface UtilizationResponse {
     sa_count: number;
   };
 }
-
-/** Warna badge per status proyek */
-const STATUS_BADGE_COLORS: Record<string, string> = {
-  "Pending Assignment": "bg-yellow-100 text-yellow-700",
-  Assigned: "bg-blue-100 text-blue-700",
-  Ready: "bg-green-100 text-green-700",
-  "Closed-Win": "bg-emerald-100 text-emerald-700",
-  "Need Clarification": "bg-orange-100 text-orange-700",
-  New: "bg-neutral-100 text-neutral-700",
-  Lost: "bg-red-100 text-red-700",
-  "Scoring Pending": "bg-purple-100 text-purple-700",
-  "Manual Review Required": "bg-pink-100 text-pink-700",
-  "Handover Complete": "bg-teal-100 text-teal-700",
-};
 
 /** Nama bulan singkat */
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
@@ -274,7 +261,7 @@ export default function LeadSADashboard() {
                       <span
                         className={`
                           px-2.5 py-1 text-xs font-medium rounded-full
-                          ${STATUS_BADGE_COLORS[item.status] || "bg-neutral-100 text-neutral-600"}
+                          ${statusBadgeClass(item.status)}
                         `}
                       >
                         {item.status}
@@ -895,7 +882,7 @@ function ProjectUtilizationSection() {
                 <td className="px-4 py-3 text-neutral-600">{proj.customer_name}</td>
                 <td className="px-4 py-3 text-center">
                   <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
-                    STATUS_BADGE_COLORS[proj.status] || "bg-neutral-100 text-neutral-600"
+                    statusBadgeClass(proj.status)
                   }`}>
                     {proj.status}
                   </span>

@@ -1,5 +1,6 @@
 "use client";
 
+import { statusBadgeClass } from "@/lib/status";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
@@ -37,24 +38,6 @@ interface SAProject {
   sla_is_locked: boolean;
 }
 
-/** Warna badge berdasarkan status proyek */
-function getStatusBadgeStyle(status: string): string {
-  switch (status) {
-    case "Assigned":
-      return "bg-blue-100 text-blue-800";
-    case "Ready":
-      return "bg-green-100 text-green-800";
-    case "Closed-Win":
-      return "bg-emerald-100 text-emerald-800";
-    case "Handover Complete":
-      return "bg-teal-100 text-teal-800";
-    case "Lost":
-      return "bg-red-100 text-red-800";
-    default:
-      return "bg-neutral-100 text-neutral-700";
-  }
-}
-
 /** Format tanggal ke format lokal Indonesia */
 function formatDate(dateStr: string): string {
   try {
@@ -74,20 +57,6 @@ interface StatusCount {
   status: string;
   count: number;
 }
-
-/** Warna badge per status proyek */
-const STATUS_BADGE_COLORS: Record<string, string> = {
-  "Pending Assignment": "bg-yellow-100 text-yellow-700",
-  Assigned: "bg-blue-100 text-blue-700",
-  Ready: "bg-green-100 text-green-700",
-  "Closed-Win": "bg-emerald-100 text-emerald-700",
-  "Need Clarification": "bg-orange-100 text-orange-700",
-  New: "bg-neutral-100 text-neutral-700",
-  Lost: "bg-red-100 text-red-700",
-  "Scoring Pending": "bg-purple-100 text-purple-700",
-  "Manual Review Required": "bg-pink-100 text-pink-700",
-  "Handover Complete": "bg-teal-100 text-teal-700",
-};
 
 export default function SADashboard() {
   const router = useRouter();
@@ -172,7 +141,7 @@ export default function SADashboard() {
                     <span
                       className={`
                         px-2.5 py-1 text-xs font-medium rounded-full
-                        ${STATUS_BADGE_COLORS[item.status] || "bg-neutral-100 text-neutral-600"}
+                        ${statusBadgeClass(item.status)}
                       `}
                     >
                       {item.status}
@@ -293,7 +262,7 @@ function SAProjectCard({
         <div className="flex flex-col items-end gap-1 shrink-0">
           {/* Badge Status */}
           <span
-            className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${getStatusBadgeStyle(project.status)}`}
+            className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${statusBadgeClass(project.status)}`}
           >
             {project.status}
           </span>

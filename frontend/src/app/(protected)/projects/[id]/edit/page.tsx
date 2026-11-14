@@ -27,6 +27,7 @@ interface ProjectDetail {
   project_name: string;
   customer_name: string;
   status: string;
+  qualification_state?: string | null;
   dq_number: string | null;
   target_submit: string | null;
   bant_detail: Record<string, unknown> | null;
@@ -116,7 +117,7 @@ export default function EditProjectPage() {
         type: "success",
         msg: res.rescored === false
           ? "Jawaban dikoreksi (skor tidak dihitung ulang)."
-          : res.status === "Pending Assignment"
+          : res.status === "Awaiting Assignment"
             ? `Skor ${res.total_score} — proyek lolos dan masuk antrian assignment.`
             : `Skor ${res.total_score} — masih perlu klarifikasi tambahan.`,
       });
@@ -154,7 +155,7 @@ export default function EditProjectPage() {
   const isLegacy = project.qualification?.legacy !== false;
   const editMode = isLegacy
     ? "none"
-    : answerEditMode(user, [project.product_pic?.id, project.sales_pic?.id], project.status);
+    : answerEditMode(user, [project.product_pic?.id, project.sales_pic?.id], project.status, project.qualification_state);
   if (!isLegacy && answers === null && project.qualification && schema) {
     setAnswers(answersFromView(schema, project.qualification.answers));
   }
@@ -262,7 +263,7 @@ export default function EditProjectPage() {
           <h2 className="text-base font-semibold text-neutral-800">Kuesioner Kualifikasi</h2>
           {editMode === "none" ? (
             <p className="text-sm text-neutral-600">
-              Jawaban kuesioner hanya dapat diubah saat status Need Clarification
+              Jawaban kuesioner hanya dapat diubah saat qualification_state Need Clarification
               (Sales PIC) atau oleh Lead SA/Admin setelah lolos gate.
             </p>
           ) : (

@@ -36,7 +36,7 @@ export function ReassignModal({
 }: ReassignModalProps) {
   const user = useAuthStore((s) => s.user);
   const [selectedSA, setSelectedSA] = useState<string | null>(null);
-  // Proyek tanpa lead_sa (reassign dari Pending Assignment): default pengassign bila Lead_SA,
+  // Proyek tanpa lead_sa (reassign dari Awaiting Assignment): default pengassign bila Lead_SA,
   // admin non-Lead_SA wajib memilih. Bila lead_sa sudah ada, tidak dikirim dan tidak ditimpa.
   const leadSudahAda = Boolean(currentLeadSa);
   const [selectedLead, setSelectedLead] = useState<string>(

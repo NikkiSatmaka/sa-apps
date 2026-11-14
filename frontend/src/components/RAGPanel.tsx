@@ -8,7 +8,7 @@ import type { Recommendation } from "@/lib/api/handover";
  * Panel "Referensi Serupa" — RAG Recommendation
  *
  * Ditampilkan di sidebar halaman pembuatan dokumen.
- * Menampilkan max 5 rekomendasi dokumen dari proyek Closed-Win
+ * Menampilkan max 5 rekomendasi dokumen dari proyek Won
  * yang memiliki use_case_tags serupa.
  *
  * States:

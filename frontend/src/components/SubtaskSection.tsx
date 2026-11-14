@@ -6,6 +6,7 @@ import { fetcher, apiRequest } from "@/lib/fetcher";
 import { LoadError } from "./LoadError";
 import { useAuthStore } from "@/store/auth";
 import { isPrivileged as isPrivilegedUser } from "@/lib/roles";
+import { izinkan } from "@/lib/akses";
 
 /**
  * Section Subtask — work item yang bisa ditugaskan per proyek.
@@ -221,11 +222,10 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
   );
   // Cermin `TingkatAkses.BUAT_SUBTASK`: SA ditugaskan (utama/tambahan; id DAN peran SA), Lead_SA,
   // Admin. Bukan penentu hak: backend tetap memeriksa.
-  const saDitugaskan =
-    isSA &&
-    !!user?.id &&
-    [tim?.sa_utama?.id, ...(tim?.sa_tambahan ?? []).map((s) => s.id)].includes(user.id);
-  const bisaTambah = isPrivileged || saDitugaskan;
+  const bisaTambah = izinkan("buat_subtask", {
+    actor: user,
+    saIds: [tim?.sa_utama?.id, ...(tim?.sa_tambahan ?? []).map((s) => s.id)],
+  });
   const opsiAssign = [
     ...(tim?.sa_utama ? [{ id: tim.sa_utama.id, label: `${tim.sa_utama.name} (SA utama)` }] : []),
     ...(tim?.sa_tambahan ?? []).map((s) => ({ id: s.id, label: `${s.name} (SA tambahan)` })),
@@ -378,7 +378,7 @@ export function SubtaskSection({ projectId }: SubtaskSectionProps) {
           <p className="text-xs text-neutral-400 mt-0.5">
             {isPrivileged
               ? "Work item teknis proyek — tambah, tugaskan, atau hapus."
-              : saDitugaskan
+              : bisaTambah
                 ? "Tambah work item, atau kerjakan yang ditugaskan kepada Anda."
                 : "Work item yang ditugaskan kepada Anda."}
           </p>

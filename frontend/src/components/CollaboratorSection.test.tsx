@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { HttpResponse, api, errorEnvelope, gagalLaluBerhasil, http, renderWithProviders, server, successEnvelope, type Role } from "@/test";
+import { HttpResponse, api, errorEnvelope, gagalLaluBerhasil, http, pasangHubungan, renderWithProviders, server, successEnvelope, type Hubungan, type Role } from "@/test";
 import { makeCollaborator, makeUserSearchResult } from "@/test/fixtures/operations";
 import { CollaboratorSection } from "./CollaboratorSection";
 
@@ -14,14 +14,28 @@ function useSearchPool() {
   server.use(http.get(api("/projects/users/search"), () => HttpResponse.json(successEnvelope(SEARCH_POOL))));
 }
 
-function setup(role: Role = "SA", props: Partial<React.ComponentProps<typeof CollaboratorSection>> = {}) {
+// Hubungan bawaan: pengguna berhak (SA = SA utama, Sales/Product = PIC); privileged tak terkait.
+const HUBUNGAN_BAWAAN: Record<Role, Hubungan> = {
+  SA: "sa_utama",
+  Sales: "sales_pic",
+  Product: "product_pic",
+  Lead_SA: "tak_terkait",
+  Admin: "tak_terkait",
+};
+
+function setup(
+  role: Role = "SA",
+  props: Partial<React.ComponentProps<typeof CollaboratorSection>> = {},
+  hubungan: Hubungan = HUBUNGAN_BAWAAN[role],
+) {
+  pasangHubungan(role, hubungan);
   const onMutate = vi.fn();
   const utils = renderWithProviders(<CollaboratorSection projectId="p-1" onMutate={onMutate} {...props} />, { role });
   return { onMutate, ...utils };
 }
 
 async function openFormAndSearch(user: ReturnType<typeof setup>["user"], q: string) {
-  await user.click(screen.getByRole("button", { name: "+ Tambah" }));
+  await user.click(await screen.findByRole("button", { name: "+ Tambah" }));
   await user.type(screen.getByPlaceholderText("Ketik minimal 2 karakter..."), q);
 }
 
@@ -98,8 +112,41 @@ describe("CollaboratorSection — hak akses per peran", () => {
   it.each<Role>(["SA", "Sales", "Product", "Lead_SA", "Admin"])("%s melihat tombol tambah dan hapus", async (role) => {
     setup(role);
     await screen.findByText("Citra Dewi");
-    expect(screen.getByRole("button", { name: "+ Tambah" })).toBeInTheDocument();
-    expect(screen.getByTitle("Hapus kolaborator")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "+ Tambah" })).toBeInTheDocument();
+    expect(await screen.findByTitle("Hapus kolaborator")).toBeInTheDocument();
+  });
+
+  // Hak tambah/hapus kolaborator = TingkatAkses.TAMBAH_/HAPUS_KOLABORATOR (#154): SA ditugaskan
+  // (utama/tambahan) dan Sales/Product PIC; contributor, viewer, dan pengguna tak terkait ditolak.
+  const KASUS: { role: Role; hubungan: Hubungan; berhak: boolean }[] = [
+    { role: "SA", hubungan: "sa_utama", berhak: true },
+    { role: "SA", hubungan: "sa_tambahan", berhak: true },
+    { role: "Sales", hubungan: "sales_pic", berhak: true },
+    { role: "Product", hubungan: "product_pic", berhak: true },
+    { role: "Lead_SA", hubungan: "tak_terkait", berhak: true },
+    { role: "Admin", hubungan: "tak_terkait", berhak: true },
+    { role: "SA", hubungan: "contributor", berhak: false },
+    { role: "SA", hubungan: "viewer", berhak: false },
+    { role: "Sales", hubungan: "contributor", berhak: false },
+    { role: "SA", hubungan: "tak_terkait", berhak: false },
+    { role: "Sales", hubungan: "tak_terkait", berhak: false },
+    { role: "Product", hubungan: "tak_terkait", berhak: false },
+    { role: "Sales", hubungan: "viewer", berhak: false },
+  ];
+
+  it.each(KASUS)("$role sebagai $hubungan: kontrol kelola tampil=$berhak, daftar tetap terbaca", async ({ role, hubungan, berhak }) => {
+    setup(role, {}, hubungan);
+    expect(await screen.findByText("Citra Dewi")).toBeInTheDocument();
+    if (berhak) {
+      expect(await screen.findByRole("button", { name: "+ Tambah" })).toBeInTheDocument();
+      expect(screen.getByTitle("Hapus kolaborator")).toBeInTheDocument();
+    } else {
+      // Beri waktu hubungan (detail + tim SA) selesai dimuat sebelum menyimpulkan "tersembunyi".
+      await waitFor(() => expect(screen.getByText("Citra Dewi")).toBeInTheDocument());
+      await new Promise((r) => setTimeout(r, 50));
+      expect(screen.queryByRole("button", { name: "+ Tambah" })).not.toBeInTheDocument();
+      expect(screen.queryByTitle("Hapus kolaborator")).not.toBeInTheDocument();
+    }
   });
 
   it("pengguna tanpa peran (belum login) tidak bisa mengelola", async () => {
@@ -142,7 +189,7 @@ describe("CollaboratorSection — hak akses per peran", () => {
 describe("CollaboratorSection — tambah kolaborator", () => {
   it("tombol toggle berganti Batal / + Tambah dan menutup form", async () => {
     const { user } = setup();
-    await user.click(screen.getByRole("button", { name: "+ Tambah" }));
+    await user.click(await screen.findByRole("button", { name: "+ Tambah" }));
     expect(screen.getByText("Cari user (nama atau email):")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Batal" }));
     expect(screen.queryByText("Cari user (nama atau email):")).not.toBeInTheDocument();
@@ -150,7 +197,7 @@ describe("CollaboratorSection — tambah kolaborator", () => {
 
   it("tombol 'Tambah Kolaborator' nonaktif sebelum ada user terpilih", async () => {
     const { user } = setup();
-    await user.click(screen.getByRole("button", { name: "+ Tambah" }));
+    await user.click(await screen.findByRole("button", { name: "+ Tambah" }));
     expect(screen.getByRole("button", { name: "Tambah Kolaborator" })).toBeDisabled();
   });
 
@@ -320,7 +367,7 @@ describe("CollaboratorSection — hapus kolaborator", () => {
     server.use(http.delete(api("/projects/:id/collaborators/:userId"), ({ request }) => { path = new URL(request.url).pathname; return HttpResponse.json(successEnvelope(null)); }));
     const { user, onMutate } = setup("SA");
     await screen.findByText("Citra Dewi");
-    await user.click(screen.getByTitle("Hapus kolaborator"));
+    await user.click(await screen.findByTitle("Hapus kolaborator"));
     expect(window.confirm).toHaveBeenCalledWith("Hapus Citra Dewi dari kolaborator proyek ini?");
     await waitFor(() => expect(onMutate).toHaveBeenCalledTimes(1));
     expect(path).toBe("/api/v1/projects/p-1/collaborators/u-collab-1");
@@ -332,7 +379,7 @@ describe("CollaboratorSection — hapus kolaborator", () => {
     server.use(http.delete(api("/projects/:id/collaborators/:userId"), () => { del(); return HttpResponse.json(successEnvelope(null)); }));
     const { user, onMutate } = setup("SA");
     await screen.findByText("Citra Dewi");
-    await user.click(screen.getByTitle("Hapus kolaborator"));
+    await user.click(await screen.findByTitle("Hapus kolaborator"));
     expect(del).not.toHaveBeenCalled();
     expect(onMutate).not.toHaveBeenCalled();
   });
@@ -341,7 +388,7 @@ describe("CollaboratorSection — hapus kolaborator", () => {
     server.use(http.delete(api("/projects/:id/collaborators/:userId"), () => HttpResponse.json(errorEnvelope("Tidak berhak menghapus"), { status: 403 })));
     const { user, onMutate } = setup("SA");
     const row = (await screen.findByText("Citra Dewi")).closest("div.flex")!.parentElement as HTMLElement;
-    await user.click(within(row).getByTitle("Hapus kolaborator"));
+    await user.click(await within(row).findByTitle("Hapus kolaborator"));
     expect(await screen.findByText("Tidak berhak menghapus")).toBeInTheDocument();
     expect(onMutate).not.toHaveBeenCalled();
   });

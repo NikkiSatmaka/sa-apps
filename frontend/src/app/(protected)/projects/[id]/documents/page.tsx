@@ -12,6 +12,7 @@ import { RequirementSourceChangedBanner } from "@/components/RequirementSourceCh
 import { RequirementRegenerateSection } from "@/components/RequirementRegenerateSection";
 import { RequirementItemsEditor } from "@/components/RequirementItemsEditor";
 import { isPrivileged } from "@/lib/roles";
+import { useAksesProyek } from "@/lib/useAksesProyek";
 import {
   createDocument,
   getProjectDocuments,
@@ -101,10 +102,12 @@ export default function DocumentsPage() {
     error: projError,
   } = useSWR<ProjectDetail>(`/projects/${projectId}`, fetcher);
 
-  // Edit butir Requirement: Lead_SA, admin, atau SA yang ditugaskan (backend yang menegakkan)
-  const canEditRequirement =
-    isPrivileged(user) ||
-    (user?.role === "SA" && !!user.id && project?.assigned_sa?.id === user.id);
+  // Hak tulis per hubungan (lib/akses): backend tetap penentu. Edit butir Requirement =
+  // KELOLA_REQUIREMENT (SA ditugaskan utama/tambahan, Lead_SA, Admin).
+  const { bisa } = useAksesProyek(projectId);
+  const canEditRequirement = bisa("kelola_requirement");
+  const canAddDocument = bisa("tulis"); // TingkatAkses.TULIS
+  const canManageStatus = bisa("kelola"); // TingkatAkses.KELOLA
 
   // Toast helper
   const showToast = useCallback((type: "success" | "error", message: string) => {
@@ -199,15 +202,17 @@ export default function DocumentsPage() {
           <h2 className="text-base font-semibold text-neutral-800">
             Daftar Dokumen
           </h2>
-          <button
-            onClick={() => setShowForm(true)}
-            className="px-4 py-2 rounded-lg font-medium text-white text-sm
-                       bg-primary-600 hover:bg-primary-700 active:bg-primary-800
-                       transition-colors duration-100 min-h-[44px]"
-            aria-label="Tambah dokumen baru"
-          >
-            + Tambah Dokumen
-          </button>
+          {canAddDocument && (
+            <button
+              onClick={() => setShowForm(true)}
+              className="px-4 py-2 rounded-lg font-medium text-white text-sm
+                         bg-primary-600 hover:bg-primary-700 active:bg-primary-800
+                         transition-colors duration-100 min-h-[44px]"
+              aria-label="Tambah dokumen baru"
+            >
+              + Tambah Dokumen
+            </button>
+          )}
         </div>
 
         {/* Loading skeleton */}
@@ -269,7 +274,7 @@ export default function DocumentsPage() {
                 {documents.map((doc) => {
                   const nextStatus = getNextStatus(doc.status);
                   const canChange =
-                    doc.status === "Final" ? canChangeFinalStatus : true;
+                    doc.status === "Final" ? canChangeFinalStatus : canManageStatus;
 
                   return (
                     <Fragment key={doc.id_doc}>

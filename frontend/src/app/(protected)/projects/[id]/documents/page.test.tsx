@@ -8,11 +8,13 @@ import {
   errorEnvelope,
   http,
   HttpResponse,
+  pasangHubungan,
   renderWithProviders,
   seedAuth,
   server,
   setParams,
   successEnvelope,
+  type Hubungan,
   type Role,
 } from "@/test";
 import { users } from "@/test/fixtures/users";
@@ -270,6 +272,47 @@ describe("DocumentsPage", () => {
       expect(busy).toHaveTextContent("Mengubah...");
       release();
       await waitFor(() => expect(busy).not.toHaveTextContent("Mengubah..."));
+    });
+  });
+
+  // Hak tulis dokumen per hubungan (#154): unggah/tambah = TULIS, majukan status = KELOLA,
+  // edit butir Requirement = KELOLA_REQUIREMENT. Daftar dokumen tetap terbaca semua.
+  describe("hak tulis per hubungan", () => {
+    const KASUS: { role: Role; hubungan: Hubungan; tulis: boolean; kelola: boolean }[] = [
+      { role: "SA", hubungan: "sa_utama", tulis: true, kelola: true },
+      { role: "SA", hubungan: "sa_tambahan", tulis: true, kelola: true },
+      { role: "SA", hubungan: "contributor", tulis: true, kelola: false },
+      { role: "Lead_SA", hubungan: "tak_terkait", tulis: true, kelola: true },
+      { role: "Admin", hubungan: "tak_terkait", tulis: true, kelola: true },
+      { role: "Sales", hubungan: "sales_pic", tulis: false, kelola: false },
+      { role: "Product", hubungan: "product_pic", tulis: false, kelola: false },
+      { role: "SA", hubungan: "viewer", tulis: false, kelola: false },
+      { role: "SA", hubungan: "tak_terkait", tulis: false, kelola: false },
+      { role: "Sales", hubungan: "tak_terkait", tulis: false, kelola: false },
+    ];
+
+    it.each(KASUS)("$role sebagai $hubungan: Tambah Dokumen=$tulis, ubah status dan edit butir=$kelola", async ({ role, hubungan, tulis, kelola }) => {
+      const project = pasangHubungan(role, hubungan, { id_project: PID, project_name: "Proyek Alfa", customer_name: "PT Beta", dq_number: "DQ-1" });
+      mockBackend({ documents: [makeDocument({ status: "Draft" }), makeRequirementDoc()], project });
+      renderPage(role);
+      await loaded();
+      // Konten baca tetap tampil untuk semua.
+      expect(screen.getByText("Deploy di Kubernetes")).toBeInTheDocument();
+
+      const tambah = () => screen.queryByRole("button", { name: "Tambah dokumen baru" });
+      const ubahStatus = () => screen.queryByRole("button", { name: "Ubah status BOQ ke Reviewed" });
+      const editButir = () => screen.queryByRole("button", { name: "+ Tambah butir" });
+      if (tulis) expect(await screen.findByRole("button", { name: "Tambah dokumen baru" })).toBeInTheDocument();
+      if (kelola) {
+        expect(await screen.findByRole("button", { name: "Ubah status BOQ ke Reviewed" })).toBeInTheDocument();
+        expect(await screen.findByRole("button", { name: "+ Tambah butir" })).toBeInTheDocument();
+      }
+      if (!tulis || !kelola) await new Promise((r) => setTimeout(r, 50)); // beri waktu hubungan dimuat
+      if (!tulis) expect(tambah()).not.toBeInTheDocument();
+      if (!kelola) {
+        expect(ubahStatus()).not.toBeInTheDocument();
+        expect(editButir()).not.toBeInTheDocument();
+      }
     });
   });
 

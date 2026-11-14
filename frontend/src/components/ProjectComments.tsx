@@ -4,6 +4,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { fetcher, apiRequest } from "@/lib/fetcher";
 import { LoadError } from "./LoadError";
+import { useAksesProyek } from "@/lib/useAksesProyek";
 
 /**
  * Thread komentar project (#125, spec §2.5 dan A5). Terpisah dari Project Story (log aktivitas SA).
@@ -41,6 +42,9 @@ function formatWaktu(iso: string): string {
 }
 
 export function ProjectComments({ projectId, readOnly = false }: ProjectCommentsProps) {
+  // Menulis komentar = TingkatAkses.KOMENTAR; viewer dan pengguna tak terkait hanya membaca.
+  const { bisa, memuat } = useAksesProyek(projectId);
+  const bisaMenulis = bisa("komentar");
   const [isian, setIsian] = useState("");
   const [mengirim, setMengirim] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -118,6 +122,12 @@ export function ProjectComments({ projectId, readOnly = false }: ProjectComments
         <p className="text-sm text-neutral-500">
           Proyek berstatus Closed atau Lost: komentar baru tidak dapat ditambahkan.
         </p>
+      ) : !bisaMenulis ? (
+        memuat ? null : (
+          <p className="text-sm text-neutral-500">
+            Hanya orang yang ditugaskan di proyek ini yang dapat menulis komentar.
+          </p>
+        )
       ) : (
         <div className="space-y-2">
           <label htmlFor="komentar-baru" className="text-xs font-medium text-neutral-600 block">

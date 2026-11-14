@@ -228,7 +228,7 @@ def test_build_result_konsisten_dengan_gate(rubrik, ai, override):
     hasil = ScoringEngine._build_result(skor, None)
 
     assert hasil.total_score == bant_rubric.total_score(skor)
-    assert hasil.status == bant_rubric.decide_status(hasil.total_score)
+    assert (hasil.status, hasil.qualification_state) == bant_rubric.decide_gate(hasil.total_score)
     assert (hasil.feedback is None) == (hasil.total_score >= 60)
 
 

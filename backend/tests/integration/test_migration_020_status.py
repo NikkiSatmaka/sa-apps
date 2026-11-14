@@ -165,7 +165,11 @@ def test_head_kolom_baru_default_dan_nullable(database_kosong_url):
     ) == ("Intake", "Scoring", None, None)
 
 
-@pytest.mark.parametrize("lama", [p[0] for p in PEMETAAN_UPGRADE])
+# Nama lama yang tidak ikut dipakai enum baru (`Assigned` dan `Lost` tetap valid).
+NAMA_LAMA_SAJA = [lama for lama, _, _ in PEMETAAN_UPGRADE if lama not in ("Assigned", "Lost")]
+
+
+@pytest.mark.parametrize("lama", NAMA_LAMA_SAJA)
 def test_head_menolak_nama_status_lama(database_kosong_url, lama):
     url = database_kosong_url
     jalankan_alembic(url, "upgrade", "head")

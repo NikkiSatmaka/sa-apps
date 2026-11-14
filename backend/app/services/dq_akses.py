@@ -21,6 +21,7 @@ from app.core.dependencies import (
     adalah_requester_terbatas,
     ensure_project_access,
 )
+from app.core import status as status_konst
 from app.models.document import Document
 from app.models.project import Project
 from app.models.user import User
@@ -28,13 +29,8 @@ from app.services.sla_timer import sla_timer
 
 logger = logging.getLogger(__name__)
 
-# Status proyek yang diizinkan untuk input DQ Number ("Assigned" atau lebih tinggi)
-ALLOWED_STATUSES_FOR_DQ = (
-    "Assigned",
-    "Ready",
-    "Closed-Win",
-    "Handover Complete",
-)
+# Status proyek yang diizinkan untuk input DQ Number ("Assigned" atau lebih tinggi yang aktif).
+ALLOWED_STATUSES_FOR_DQ = status_konst.STATUS_BOLEH_DQ
 
 FOLDER_SOLUTIONS = "Solutions"
 # Sales hanya melihat dokumen Solutions yang sudah melewati review.
@@ -59,7 +55,8 @@ async def terapkan_dq(
     2. Status proyek harus salah satu `ALLOWED_STATUSES_FOR_DQ` — 400.
     3. Sales tidak boleh menimpa atau mengosongkan DQ yang sudah ada — 403.
     4. Peran harus Sales/Lead_SA/Admin — 403.
-    Lalu set `dq_number`, `updated_at`, dan status Assigned → Ready saat DQ pertama kali terisi.
+    Lalu set `dq_number` dan `updated_at`. Status TIDAK berubah: `Submitted` hanya lewat
+    PATCH /status dengan syarat dokumen (ADR 0013).
 
     Pemanggil WAJIB commit lalu memanggil `hentikan_timer_bila_pertama` agar timer SLA berhenti
     (+ auto-unlock Drive) hanya untuk perubahan yang benar-benar tersimpan.
@@ -93,9 +90,6 @@ async def terapkan_dq(
     pertama_kali = project.dq_number is None and nilai_baru is not None
     project.dq_number = nilai_baru
     project.updated_at = datetime.now(timezone.utc)
-    # Status ke "Ready" hanya saat DQ pertama kali diinput dan status masih "Assigned".
-    if pertama_kali and project.status == "Assigned":
-        project.status = "Ready"
     return PerubahanDQ(pertama_kali=pertama_kali)
 
 

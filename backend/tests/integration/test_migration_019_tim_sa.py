@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy.exc import DBAPIError
 
 from tests.integration.conftest import jalankan_alembic
-from tests.integration.test_migration import _head, _sql, _versi
+from tests.integration.test_migration import _head, _revisi_lama_ke_baru, _sql, _versi
 
 
 def _user(url: str, role: str, nama: str) -> str:
@@ -59,11 +59,12 @@ def _siapkan(url: str):
     return lead, sa
 
 
-def test_head_adalah_019_dan_tabel_ada(database_kosong_url):
+def test_head_memuat_revisi_019_dan_tabel_ada(database_kosong_url):
     url = database_kosong_url
     jalankan_alembic(url, "upgrade", "head")
 
-    assert _versi(url) == _head() == "019"
+    assert _versi(url) == _head()
+    assert "019" in _revisi_lama_ke_baru()  # tabel dibuat oleh revisi 019
     kolom = {
         r[0]
         for r in _sql(

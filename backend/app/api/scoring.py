@@ -7,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import status as status_konst
 from app.core.database import get_db
 from app.core.dependencies import ensure_project_access, get_current_user, require_privileged
 from app.models.project import Project
@@ -14,7 +15,7 @@ from app.models.user import User
 from app.schemas.response import success_response
 from app.schemas.scoring import BANTOverrideInput
 from app.services.requirement_generator import generate_pending_requirement
-from app.services.scoring_engine import OVERRIDE_ALLOWED_STATUSES, scoring_engine
+from app.services.scoring_engine import OVERRIDE_ALLOWED_STATES, scoring_engine
 
 router = APIRouter(prefix="/projects", tags=["Scoring"])
 
@@ -24,7 +25,7 @@ router = APIRouter(prefix="/projects", tags=["Scoring"])
     summary="Override Skor BANT (Lead_SA/Admin)",
     description=(
         "Override skor BANT oleh Lead_SA/Admin: 4 sub-skor (0-25) + alasan wajib. "
-        "Hanya untuk status Need Clarification / Manual Review Required. "
+        "Hanya untuk proyek Intake dengan qualification_state Need Clarification / Manual Review. "
         "Gate 60 diterapkan dan perubahan dicatat di audit log."
     ),
 )
@@ -39,7 +40,7 @@ async def score_manual(
     Override skor BANT.
 
     Total skor = jumlah 4 sub-skor (0-100) dan menimpa skor final. Threshold:
-    >= 60 → Pending Assignment, < 60 → Need Clarification. Nilai lama/baru,
+    >= 60 → Awaiting Assignment (Qualified), < 60 → Intake + Need Clarification. Nilai lama/baru,
     pelaku, dan alasan ditulis ke audit log dalam transaksi yang sama.
     """
     result = await db.execute(select(Project).where(Project.id_project == project_id))
@@ -51,12 +52,17 @@ async def score_manual(
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
 
-    if project.status not in OVERRIDE_ALLOWED_STATUSES:
+    if (
+        project.status != status_konst.INTAKE
+        or project.qualification_state not in OVERRIDE_ALLOWED_STATES
+    ):
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Override skor hanya untuk status Need Clarification atau "
-                f"Manual Review Required. Status proyek saat ini: '{project.status}'."
+                f"Override skor hanya untuk proyek Intake dengan qualification_state "
+                f"Need Clarification atau Manual Review. Keadaan proyek saat ini: "
+                f"status '{project.status}', qualification_state "
+                f"'{project.qualification_state}'."
             ),
         )
 
@@ -128,6 +134,7 @@ async def get_bant_result(
         "sub_scores": sub_scores,
         "use_case_tags": project.use_case_tags or [],
         "status": project.status,
+        "qualification_state": project.qualification_state,
         "feedback": None,
     }
 
@@ -149,7 +156,7 @@ async def get_bant_result(
 @router.get(
     "/{project_id}/recommendations",
     summary="Get Similar Project Recommendations",
-    description="Mencari proyek Closed-Win yang mirip berdasarkan use_case_tags (RAG).",
+    description="Mencari proyek Won yang mirip berdasarkan use_case_tags (RAG).",
 )
 async def get_recommendations(
     project_id: str,
@@ -158,7 +165,7 @@ async def get_recommendations(
 ):
     """
     Endpoint RAG recommendation.
-    Mencari proyek Closed-Win yang memiliki kecocokan use_case_tags.
+    Mencari proyek Won yang memiliki kecocokan use_case_tags.
     Diurutkan descending berdasarkan jumlah tag cocok, max 5 hasil.
     Menyertakan info dokumen (tipe, link GDrive) dari proyek referensi.
     """
@@ -191,7 +198,7 @@ async def get_recommendations(
         db=db,
     )
 
-    # Req 15.6: Tidak ada proyek Closed-Win dengan tag cocok
+    # Req 15.6: Tidak ada proyek Won dengan tag cocok
     if not recommendations:
         return success_response(
             data=[],

@@ -14,6 +14,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Mapping, Optional
 
+from app.core import status as status_konst
 from app.schemas.qualification_definition import (  # noqa: F401  (re-export)
     BELUM,
     GO_LIVE_3_BULAN,
@@ -115,9 +116,15 @@ def total_score(sub_scores: BANTSubScores) -> int:
     return sum(getattr(sub_scores, k) for k in SUB_SCORE_KEYS)
 
 
-def decide_status(total: int) -> str:
-    """Gate kualifikasi: >= GATE_THRESHOLD → Pending Assignment, selain itu Need Clarification."""
-    return "Pending Assignment" if total >= GATE_THRESHOLD else "Need Clarification"
+def decide_gate(total: int) -> tuple[str, str]:
+    """Gate kualifikasi → (status, qualification_state).
+
+    >= GATE_THRESHOLD → (Awaiting Assignment, Qualified); selain itu tetap di
+    (Intake, Need Clarification).
+    """
+    if total >= GATE_THRESHOLD:
+        return status_konst.AWAITING_ASSIGNMENT, status_konst.QS_QUALIFIED
+    return status_konst.INTAKE, status_konst.QS_NEED_CLARIFICATION
 
 
 def generate_feedback(sub_scores: BANTSubScores) -> str:

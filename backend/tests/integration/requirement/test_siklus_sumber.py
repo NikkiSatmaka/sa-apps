@@ -223,7 +223,7 @@ async def test_requirement_final_tidak_ditimpa_dan_memicu_notifikasi(skenario):
     assert requirement_dari(await daftar_dokumen(s, id_project))["source_changed"] is True
 
 
-@pytest.mark.parametrize("status_terminal", ["Won", "Lost", "Handed Over"])
+@pytest.mark.parametrize("status_terminal", ["Won", "Lost", "Handed Over", "Closed"])
 @pytest.mark.parametrize("dilindungi", [False, True], ids=["biasa", "override"])
 async def test_proyek_terminal_tidak_di_resummarize_dan_tidak_diberi_tahu(
     skenario, status_terminal, dilindungi

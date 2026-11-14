@@ -15,7 +15,7 @@ class StatusUpdateRequest(BaseModel):
     new_status: str = Field(
         ...,
         description="Status baru yang ingin diterapkan ke proyek",
-        examples=["Pending Assignment", "Assigned", "Ready", "Closed-Win", "Handover Complete", "Lost"],
+        examples=["Assigned", "In Progress", "Submitted", "Won", "Closed", "Lost", "On Hold"],
     )
     reason: Optional[str] = Field(
         None,

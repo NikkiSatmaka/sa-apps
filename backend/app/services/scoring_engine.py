@@ -11,7 +11,7 @@ Bertanggung jawab untuk:
 Retry strategy:
 - Timeout 30s per request (dikonfigurasi di LLM provider)
 - Retry 3x dengan interval 10s
-- Semua retry gagal → gate memakai skor rubrik saja; "Manual Review Required"
+- Semua retry gagal → gate memakai skor rubrik saja; qualification_state "Manual Review"
   hanya bila skor rubrik tidak dapat dihitung (proyek tanpa jawaban kuesioner)
 
 Skor akhir per kriteria = max(rubrik, AI, override) (ADR 0010; override Lead SA = batas bawah,
@@ -33,6 +33,7 @@ from typing import Any, Optional
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import status as status_konst
 from app.models.audit_log import AuditLog
 from app.models.document import Document
 from app.models.notification_log import NotificationLog
@@ -79,12 +80,12 @@ Also identify up to 5 use case tags that describe the project's technical needs.
 Return ONLY valid JSON (no markdown, no code fences):
 {"budget": {"score": <0-25>, "evidence": "<brief evidence>"}, "authority": {"score": <0-25>, "evidence": "<brief evidence>"}, "need": {"score": <0-25>, "evidence": "<brief evidence>"}, "timeline": {"score": <0-25>, "evidence": "<brief evidence>"}, "use_case_tags": ["tag1", "tag2"]}"""
 
-# Hasil scoring hanya boleh mengubah status proyek dari status-status ini.
-# Status Assigned dan sesudahnya tidak pernah ditimpa (mis. hasil AI yang selesai terlambat).
-SCORING_MUTABLE_STATUSES = frozenset({"New", "Scoring Pending", "Need Clarification"})
+# Hasil scoring hanya boleh mengubah proyek `Intake` dengan `qualification_state` ini.
+# Awaiting Assignment dan sesudahnya tidak pernah ditimpa (mis. hasil AI yang selesai terlambat).
+SCORING_MUTABLE_STATES = status_konst.QS_SCORING_MUTABLE
 
-# Override Lead_SA/Admin (#30) hanya untuk status yang menunggu keputusan manual.
-OVERRIDE_ALLOWED_STATUSES = frozenset({"Need Clarification", "Manual Review Required"})
+# Override Lead_SA/Admin (#30) hanya untuk proyek `Intake` yang menunggu keputusan manual.
+OVERRIDE_ALLOWED_STATES = status_konst.QS_OVERRIDE_ALLOWED
 
 # Interval retry dalam detik
 RETRY_INTERVAL_SECONDS = 10
@@ -106,8 +107,10 @@ class ScoringEngine:
     re-score dari jawaban kuesioner, dan override Lead_SA/Admin.
 
     Threshold gating:
-    - Score >= 60: Status "Pending Assignment", notifikasi ke Lead_SA
-    - Score < 60: Status "Need Clarification", feedback ke Sales
+    - Score >= 60: status "Awaiting Assignment" + qualification_state "Qualified",
+      notifikasi ke Lead_SA
+    - Score < 60: status tetap "Intake" + qualification_state "Need Clarification",
+      feedback ke Sales
     """
 
     async def score_documents(
@@ -153,7 +156,8 @@ class ScoringEngine:
                 total_score=0,
                 sub_scores=BANTSubScores(budget=0, authority=0, need=0, timeline=0),
                 use_case_tags=[],
-                status="Need Clarification",
+                status=status_konst.INTAKE,
+                qualification_state=status_konst.QS_NEED_CLARIFICATION,
                 feedback="Tidak ada file valid (PDF/DOCX) untuk dianalisis. "
                 "Lengkapi dokumen atau jawaban kuesioner kualifikasi.",
             )
@@ -179,18 +183,19 @@ class ScoringEngine:
             )
             return await self._fallback_to_rubric(db, project_id, project, rubric)
 
-        # AI gagal dan rubrik tidak dapat dihitung → Manual Review Required
+        # AI gagal dan rubrik tidak dapat dihitung → qualification_state Manual Review
         if not all_extractions:
             logger.error(
                 f"Project {project_id}: Semua file gagal diekstrak. "
-                f"Tandai sebagai 'Manual Review Required'."
+                f"Tandai qualification_state 'Manual Review'."
             )
             await self._mark_manual_review_required(db, project_id)
             return BANTResult(
                 total_score=0,
                 sub_scores=BANTSubScores(budget=0, authority=0, need=0, timeline=0),
                 use_case_tags=[],
-                status="Manual Review Required",
+                status=status_konst.INTAKE,
+                qualification_state=status_konst.QS_MANUAL_REVIEW,
                 feedback="Scoring otomatis gagal setelah beberapa percobaan. "
                 "Lead SA akan melakukan scoring manual.",
             )
@@ -214,11 +219,13 @@ class ScoringEngine:
         if total_score < bant_rubric.GATE_THRESHOLD:
             feedback = bant_rubric.generate_feedback(sub_scores)
 
+        gate_status, gate_state = bant_rubric.decide_gate(total_score)
         result = BANTResult(
             total_score=total_score,
             sub_scores=sub_scores,
             use_case_tags=use_case_tags,
-            status=bant_rubric.decide_status(total_score),
+            status=gate_status,
+            qualification_state=gate_state,
             feedback=feedback,
         )
         return await self._apply_scoring_result(db, project_id, result, ai_result=ai_result)
@@ -255,7 +262,7 @@ class ScoringEngine:
             db,
             project_id,
             result,
-            mutable_statuses=OVERRIDE_ALLOWED_STATUSES,
+            mutable_states=OVERRIDE_ALLOWED_STATES,
             audit={"action": "bant_override", "performed_by": performed_by, "reason": reason},
             override_scores=override,
         )
@@ -286,31 +293,34 @@ class ScoringEngine:
         result: BANTResult,
         ai_result: Optional[dict[str, Any]] = None,
         *,
-        mutable_statuses: frozenset[str] = SCORING_MUTABLE_STATUSES,
+        mutable_states: frozenset[str] = SCORING_MUTABLE_STATES,
         audit: Optional[dict[str, Any]] = None,
         override_scores: Optional[BANTSubScores] = None,
     ) -> BANTResult:
         """
         Simpan hasil scoring + terapkan gate 60, dengan guard status.
 
-        Hanya proyek berstatus New / Scoring Pending / Need Clarification yang berubah.
-        Selain itu (mis. Assigned) skor, status, dan notifikasi tidak disentuh, dan
-        `status` pada hasil yang dikembalikan mencerminkan status proyek sebenarnya.
-        Notifikasi Lead_SA dikirim hanya bila proyek benar-benar menjadi Pending Assignment.
+        Hanya proyek `Intake` dengan qualification_state yang diizinkan (`mutable_states`) yang
+        berubah. Selain itu (mis. Assigned) skor, status, dan notifikasi tidak disentuh, dan
+        `status`/`qualification_state` pada hasil yang dikembalikan mencerminkan keadaan proyek
+        sebenarnya. Notifikasi Lead_SA dikirim hanya bila proyek benar-benar menjadi Awaiting
+        Assignment.
         """
-        applied, effective_status = await self._update_project_scoring(
+        applied, efektif = await self._update_project_scoring(
             db,
             project_id,
             result,
             ai_result=ai_result,
-            mutable_statuses=mutable_statuses,
+            mutable_states=mutable_states,
             audit=audit,
             override_scores=override_scores,
         )
-        if applied and result.status == "Pending Assignment":
+        if applied and result.status == status_konst.AWAITING_ASSIGNMENT:
             await self._notify_lead_sa(db, project_id, result.total_score)
-        if effective_status is not None and effective_status != result.status:
-            result = result.model_copy(update={"status": effective_status})
+        if efektif is not None and efektif != (result.status, result.qualification_state):
+            result = result.model_copy(
+                update={"status": efektif[0], "qualification_state": efektif[1]}
+            )
         return result
 
     async def search_similar_projects(
@@ -320,10 +330,10 @@ class ScoringEngine:
         db: AsyncSession,
     ) -> list[SimilarProjectResult]:
         """
-        RAG: Cari proyek Closed-Win yang mirip berdasarkan use_case_tags.
+        RAG: Cari proyek Won yang mirip berdasarkan use_case_tags.
 
         Kriteria:
-        - Proyek berstatus "Closed-Win"
+        - Proyek berstatus "Won"
         - Minimal 1 tag yang sama dengan proyek saat ini
         - Diurutkan descending berdasarkan jumlah tag cocok
         - Maksimal 5 hasil
@@ -340,11 +350,11 @@ class ScoringEngine:
         if not use_case_tags:
             return []
 
-        # Query proyek Closed-Win yang punya use_case_tags
+        # Query proyek Won yang punya use_case_tags
         result = await db.execute(
             select(Project).where(
                 and_(
-                    Project.status == "Closed-Win",
+                    Project.status == status_konst.WON,
                     Project.id_project != exclude_project_id,
                     Project.use_case_tags.isnot(None),
                 )
@@ -554,15 +564,15 @@ class ScoringEngine:
         result: BANTResult,
         ai_result: Optional[dict[str, Any]] = None,
         *,
-        mutable_statuses: frozenset[str] = SCORING_MUTABLE_STATUSES,
+        mutable_states: frozenset[str] = SCORING_MUTABLE_STATES,
         audit: Optional[dict[str, Any]] = None,
         override_scores: Optional[BANTSubScores] = None,
-    ) -> tuple[bool, Optional[str]]:
+    ) -> tuple[bool, Optional[tuple[str, str]]]:
         """
-        Update record proyek dengan hasil scoring BANT (guard status).
+        Update record proyek dengan hasil scoring BANT (guard status + qualification_state).
 
-        Return (diterapkan, status efektif): status baru bila diterapkan, status saat ini
-        bila di-guard, None bila proyek tidak ditemukan.
+        Return (diterapkan, (status, qualification_state) efektif): nilai baru bila diterapkan,
+        nilai saat ini bila di-guard, None bila proyek tidak ditemukan.
         Sub-skor di-merge ke bant_detail agar metadata legacy tidak terhapus.
         """
         stmt = select(Project).where(Project.id_project == project_id)
@@ -573,12 +583,16 @@ class ScoringEngine:
             logger.error(f"Project {project_id} tidak ditemukan di database.")
             return False, None
 
-        if project.status not in mutable_statuses:
+        if (
+            project.status != status_konst.INTAKE
+            or project.qualification_state not in mutable_states
+        ):
             logger.warning(
-                f"Project {project_id}: hasil scoring diabaikan — "
-                f"status '{project.status}' tidak boleh ditimpa."
+                f"Project {project_id}: hasil scoring diabaikan — status "
+                f"'{project.status}' / qualification_state '{project.qualification_state}' "
+                f"tidak boleh ditimpa."
             )
-            return False, project.status
+            return False, (project.status, project.qualification_state)
 
         old_detail = dict(project.bant_detail or {})
         if audit is not None:
@@ -587,12 +601,14 @@ class ScoringEngine:
                 "bant_score": project.bant_score,
                 "sub_scores": {k: old_detail.get(k) for k in result.sub_scores.model_dump()},
                 "status": project.status,
+                "qualification_state": project.qualification_state,
                 "override_sub_scores": self._plain_override(project),
             }
             new_value = {
                 "bant_score": result.total_score,
                 "sub_scores": result.sub_scores.model_dump(),
                 "status": result.status,
+                "qualification_state": result.qualification_state,
                 "override_sub_scores": (
                     override_scores.model_dump() if override_scores is not None else None
                 ),
@@ -620,7 +636,11 @@ class ScoringEngine:
         if override_scores is not None:
             project.override_sub_scores = override_scores.model_dump()
         project.status = result.status
-        if result.status == "Pending Assignment" and project.requirement_generation_status is None:
+        project.qualification_state = result.qualification_state
+        if (
+            result.status == status_konst.AWAITING_ASSIGNMENT
+            and project.requirement_generation_status is None
+        ):
             # Pertama kali lolos gate: tandai agar Requirement di-generate di background (#33).
             # Atomik dengan commit status; pemanggil yang menjalankan generate-nya.
             project.requirement_generation_status = "pending"
@@ -628,9 +648,10 @@ class ScoringEngine:
         await db.commit()
         logger.info(
             f"Project {project_id}: Updated — "
-            f"bant_score={result.total_score}, status={result.status}"
+            f"bant_score={result.total_score}, status={result.status}, "
+            f"qualification_state={result.qualification_state}"
         )
-        return True, result.status
+        return True, (result.status, result.qualification_state)
 
     async def _load_project(self, db: AsyncSession, project_id: str) -> Optional[Project]:
         """Ambil proyek (None bila tidak ditemukan)."""
@@ -694,11 +715,13 @@ class ScoringEngine:
     def _build_result(sub_scores: BANTSubScores, project: Optional[Project]) -> BANTResult:
         """Bangun hasil scoring (total, status gate, feedback) dari sub-skor akhir."""
         total = bant_rubric.total_score(sub_scores)
+        gate_status, gate_state = bant_rubric.decide_gate(total)
         return BANTResult(
             total_score=total,
             sub_scores=sub_scores,
             use_case_tags=list((project.use_case_tags if project else None) or []),
-            status=bant_rubric.decide_status(total),
+            status=gate_status,
+            qualification_state=gate_state,
             feedback=(
                 bant_rubric.generate_feedback(sub_scores)
                 if total < bant_rubric.GATE_THRESHOLD
@@ -724,10 +747,10 @@ class ScoringEngine:
     async def fallback_after_failure(self, db: AsyncSession, project_id: str) -> None:
         """
         Jaring pengaman scoring background: exception di luar retry LLM (mis. error DB atau
-        error tak terduga) tidak boleh membiarkan proyek menggantung di `Scoring Pending`.
+        error tak terduga) tidak boleh membiarkan proyek menggantung di qualification_state `Scoring`.
 
         Gate memakai skor rubrik (guard status sama dengan jalur lain); bila rubrik tidak
-        dapat dihitung → `Manual Review Required`.
+        dapat dihitung → qualification_state `Manual Review`.
         """
         project = await self._load_project(db, project_id)
         rubric = self._rubric_scores(project)
@@ -741,15 +764,19 @@ class ScoringEngine:
         db: AsyncSession,
         project_id: str,
     ) -> None:
-        """Tandai proyek sebagai 'Manual Review Required' dan notifikasi Lead_SA."""
+        """Tandai qualification_state 'Manual Review' dan notifikasi Lead_SA."""
         stmt = select(Project).where(Project.id_project == project_id)
         result = await db.execute(stmt)
         project = result.scalar_one_or_none()
 
-        if not project or project.status not in SCORING_MUTABLE_STATUSES:
+        if (
+            not project
+            or project.status != status_konst.INTAKE
+            or project.qualification_state not in SCORING_MUTABLE_STATES
+        ):
             return
 
-        project.status = "Manual Review Required"
+        project.qualification_state = status_konst.QS_MANUAL_REVIEW
         project.updated_at = datetime.now(timezone.utc)
         await db.commit()
 

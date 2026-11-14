@@ -368,13 +368,13 @@ class TestProject:
         await simpan(db_session, bangun_project(user.id, id_project="PRJ-DUP"))
         await ditolak(db_session, "projects_pkey", bangun_project(user.id, id_project="PRJ-DUP"))
 
-    async def test_default_status_new_dan_timestamp_dan_tag_kosong(self, db_session):
+    async def test_default_status_intake_dan_timestamp_dan_tag_kosong(self, db_session):
         user = bangun_user()
         await simpan(db_session, user)
         p = bangun_project(user.id)
         await simpan(db_session, p)
         await db_session.refresh(p)
-        assert p.status == "New"
+        assert p.status == "Intake"
         assert p.use_case_tags == []
         assert p.created_at.tzinfo is not None
         assert p.deleted_at is None and p.bant_score is None and p.estimasi_nilai is None

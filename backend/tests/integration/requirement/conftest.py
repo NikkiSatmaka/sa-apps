@@ -172,6 +172,8 @@ class Skenario:
     async def tetapkan(self, id_project: str, **kolom: Any) -> None:
         """Ubah kolom proyek langsung di DB (penyiapan keadaan, mis. SA ditugaskan)."""
         proyek = await self.proyek(id_project)
+        if kolom.get("status") == "Lost":
+            kolom.setdefault("lost_reason", "Alasan uji")
         for k, v in kolom.items():
             setattr(proyek, k, v)
         await self.db.flush()

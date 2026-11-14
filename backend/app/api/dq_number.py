@@ -42,7 +42,7 @@ router = APIRouter(tags=["DQ Number"])
     description=(
         "Sales PIC proyek itu, Lead_SA, dan Admin menginput DQ Number untuk proyek yang "
         "berstatus 'Assigned' atau lebih. Setelah DQ tersimpan, Sales tidak bisa mengedit. "
-        "Status proyek berubah menjadi 'Ready' saat DQ pertama kali diinput."
+        "Input DQ tidak mengubah status proyek."
     ),
 )
 async def update_dq_number(
@@ -58,7 +58,7 @@ async def update_dq_number(
     1. Proyek harus ada dan berstatus minimal "Assigned"
     2. Jika DQ sudah ada dan user = Sales → tolak (403)
     3. Jika DQ sudah ada dan user = Lead_SA → izinkan edit
-    4. Saat DQ pertama kali diinput → status berubah ke "Ready"
+    4. Saat DQ pertama kali diinput → timer SLA berhenti; status proyek TIDAK berubah
     """
     # === 1. Validasi proyek ada ===
     result = await db.execute(
@@ -99,8 +99,8 @@ async def update_dq_number(
     return success_response(
         data=response_data.model_dump(mode="json"),
         message=(
-            "DQ Number berhasil disimpan. Status proyek diubah ke 'Ready'."
-            if is_first_dq and project.status == "Ready"
+            "DQ Number berhasil disimpan."
+            if is_first_dq
             else "DQ Number berhasil diperbarui."
         ),
     )

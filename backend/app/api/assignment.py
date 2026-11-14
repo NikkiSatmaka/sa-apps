@@ -15,6 +15,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.orang import tentukan_lead_sa
+from app.core import status as status_konst
 from app.core.database import get_db
 from app.core.dependencies import (
     PERAN_DAPAT_DITUGASKAN,
@@ -42,6 +43,14 @@ from app.services.folder_provisioner import (
 from app.services.sla_timer import sla_timer
 
 logger = logging.getLogger(__name__)
+
+# Status tempat SA utama boleh diganti (ADR 0014): sudah ditugaskan atau menunggu penugasan.
+STATUS_BOLEH_GANTI_SA = (
+    status_konst.AWAITING_ASSIGNMENT,
+    status_konst.ASSIGNED,
+    status_konst.IN_PROGRESS,
+    status_konst.SUBMITTED,
+)
 
 router = APIRouter(tags=["Assignment"])
 
@@ -212,7 +221,7 @@ async def _pindahkan_akses_drive_sa(
     "/projects/pending-assignment",
     summary="Daftar proyek yang menunggu assignment",
     description=(
-        "Menampilkan proyek-proyek berstatus 'Pending Assignment' "
+        "Menampilkan proyek-proyek berstatus 'Awaiting Assignment' "
         "yang siap ditugaskan ke SA. Hanya untuk Lead_SA."
     ),
 )
@@ -221,15 +230,15 @@ async def get_pending_projects(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Ambil daftar proyek yang berstatus 'Pending Assignment'.
+    Ambil daftar proyek yang berstatus 'Awaiting Assignment'.
     Hanya Lead_SA yang bisa mengakses endpoint ini.
     """
     _require_lead_sa(current_user)
 
-    # Query proyek dengan status "Pending Assignment"
+    # Query proyek dengan status "Awaiting Assignment"
     result = await db.execute(
         select(Project)
-        .where(Project.status == "Pending Assignment")
+        .where(Project.status == status_konst.AWAITING_ASSIGNMENT)
         .order_by(Project.created_at.desc())
     )
     projects = result.scalars().all()
@@ -277,7 +286,7 @@ async def get_available_sa(
     _require_lead_sa(current_user)
 
     # Status terminal — proyek yang sudah selesai/tidak aktif
-    terminal_statuses = ("Closed-Win", "Handover Complete", "Lost")
+    terminal_statuses = status_konst.STATUS_AKHIR
 
     # Query semua kandidat SA: user berrole SA atau Lead_SA (ADR 0012)
     sa_result = await db.execute(select(User).where(User.role.in_(PERAN_DAPAT_DITUGASKAN)).order_by(User.name))
@@ -467,7 +476,7 @@ async def get_project_utilization(
         "id_project": "PRJ-001",
         "project_name": "...",
         "customer_name": "...",
-        "status": "Assigned",
+        "status": status_konst.ASSIGNED,
         "total_hours": 16.5,
         "sa_personnel": [{"sa_id": "...", "sa_name": "...", "hours": 10.0}, ...]
       }
@@ -644,7 +653,7 @@ async def get_utilization_summary(
     "/projects/{project_id}/assign",
     summary="Assign SA ke proyek",
     description=(
-        "Menugaskan SA ke proyek yang berstatus 'Pending Assignment'. "
+        "Menugaskan SA ke proyek yang berstatus 'Awaiting Assignment'. "
         "Update status menjadi 'Assigned', kirim notifikasi ke SA, "
         "dan trigger folder provisioning. Hanya untuk Lead_SA."
     ),
@@ -661,7 +670,7 @@ async def assign_sa_to_project(
 
     Flow:
     1. Validasi role Lead_SA
-    2. Validasi proyek ada dan berstatus "Pending Assignment"
+    2. Validasi proyek ada dan berstatus "Awaiting Assignment"
     3. Validasi SA ada dan role-nya "SA"
     4. Update proyek: status="Assigned", assigned_sa, assigned_at
     5. Insert notifikasi ke SA yang ditugaskan
@@ -669,7 +678,7 @@ async def assign_sa_to_project(
     """
     _require_lead_sa(current_user)
 
-    # === 1. Validasi proyek ada dan berstatus "Pending Assignment" ===
+    # === 1. Validasi proyek ada dan berstatus "Awaiting Assignment" ===
     project_result = await db.execute(select(Project).where(Project.id_project == project_id))
     project = project_result.scalar_one_or_none()
 
@@ -679,12 +688,12 @@ async def assign_sa_to_project(
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
 
-    if project.status != "Pending Assignment":
+    if project.status != status_konst.AWAITING_ASSIGNMENT:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 f"Proyek tidak bisa di-assign karena statusnya '{project.status}'. "
-                f"Hanya proyek berstatus 'Pending Assignment' yang bisa di-assign."
+                f"Hanya proyek berstatus 'Awaiting Assignment' yang bisa di-assign."
             ),
         )
 
@@ -718,7 +727,7 @@ async def assign_sa_to_project(
 
     # === 3. Update proyek ===
     now = datetime.now(timezone.utc)
-    project.status = "Assigned"
+    project.status = status_konst.ASSIGNED
     project.assigned_sa = body.sa_id
     project.lead_sa = lead_sa_id
     project.assigned_at = now
@@ -818,7 +827,7 @@ async def assign_sa_to_project(
     "/projects/{project_id}/reassign",
     summary="Reassign SA ke proyek",
     description=(
-        "Mengubah SA yang ditugaskan pada proyek yang sudah berstatus 'Assigned' atau 'Ready'. "
+        "Mengubah SA yang ditugaskan pada proyek yang sudah berstatus 'Assigned', 'In Progress', atau 'Submitted'. "
         "Hanya Lead_SA dan Admin yang dapat melakukan reassignment."
     ),
 )
@@ -834,12 +843,12 @@ async def reassign_sa_to_project(
 
     Flow:
     1. Validasi role Lead_SA atau Admin
-    2. Validasi proyek ada dan berstatus 'Assigned', 'Ready', atau 'Pending Assignment'
+    2. Validasi proyek ada dan berstatus 'Assigned', 'In Progress', 'Submitted', atau 'Awaiting Assignment'
     3. Validasi SA baru ada dan role-nya 'SA'
     4. Update proyek: assigned_sa ke SA baru
     5. Insert notifikasi ke SA baru
     6. Drive: SA baru diberi akses Editor, SA lama dicabut (bila folder sudah ada)
-    7. Dari 'Pending Assignment': mulai timer SLA + provisioning folder (setara assign)
+    7. Dari 'Awaiting Assignment': mulai timer SLA + provisioning folder (setara assign)
 
     Timer SLA yang sudah berjalan TIDAK direset (keputusan 2026-11-10) dan subtask tidak
     dipindahkan dari SA lama.
@@ -856,12 +865,13 @@ async def reassign_sa_to_project(
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
 
-    if project.status not in ("Assigned", "Ready", "Pending Assignment"):
+    if project.status not in STATUS_BOLEH_GANTI_SA:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 f"Proyek tidak bisa di-reassign karena statusnya '{project.status}'. "
-                f"Hanya proyek berstatus 'Assigned', 'Ready', atau 'Pending Assignment' "
+                f"Hanya proyek berstatus 'Assigned', 'In Progress', 'Submitted', "
+                f"atau 'Awaiting Assignment' "
                 f"yang bisa di-reassign."
             ),
         )
@@ -888,11 +898,11 @@ async def reassign_sa_to_project(
 
     # `lead_sa` wajib sejak Assigned (ADR 0014): isi bila kosong; yang sudah ada tidak ditimpa
     # (penggantian lewat PATCH /projects/{id}/people). Admin non-Lead_SA wajib memilih pada alur
-    # assign awal (dari Pending Assignment); pada proyek lama yang sudah Assigned/Ready tanpa
+    # assign awal (dari Awaiting Assignment); pada proyek lama yang sudah Assigned/Submitted tanpa
     # lead_sa, reassign tetap diizinkan dan admin tidak diam-diam menjadi lead_sa.
     if project.lead_sa is None and (
         body.lead_sa_id is not None
-        or project.status == "Pending Assignment"
+        or project.status == status_konst.AWAITING_ASSIGNMENT
         or current_user.role == PeranUser.LEAD_SA
     ):
         project.lead_sa = await tentukan_lead_sa(db, body.lead_sa_id, current_user)
@@ -900,7 +910,7 @@ async def reassign_sa_to_project(
     # === 3. Update proyek ===
     now = datetime.now(timezone.utc)
     old_sa_id = project.assigned_sa
-    dari_pending = project.status == "Pending Assignment"
+    dari_pending = project.status == status_konst.AWAITING_ASSIGNMENT
     project.assigned_sa = body.sa_id
     project.assigned_at = now
     project.updated_at = now
@@ -919,10 +929,10 @@ async def reassign_sa_to_project(
             await db.execute(select(User.email).where(User.id == old_sa_id))
         ).scalar_one()
 
-    # Jika status masih Pending Assignment, ubah ke Assigned (setara assign: tandai provisioning)
+    # Jika status masih Awaiting Assignment, ubah ke Assigned (setara assign: tandai provisioning)
     sales_email: Optional[str] = None
     if dari_pending:
-        project.status = "Assigned"
+        project.status = status_konst.ASSIGNED
         # `sales_pic` opsional (ADR 0014): tanpa Sales, email kosong (sama seperti assign).
         if project.sales_pic is not None:
             sales_email = (
@@ -961,7 +971,7 @@ async def reassign_sa_to_project(
         f"oleh {current_user.email} (sebelumnya: {old_sa_id})"
     )
 
-    # === 5. Dari Pending Assignment: timer SLA + provisioning folder (setara assign) ===
+    # === 5. Dari Awaiting Assignment: timer SLA + provisioning folder (setara assign) ===
     if dari_pending:
         try:
             await sla_timer.start_timer(

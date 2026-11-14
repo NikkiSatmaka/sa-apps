@@ -504,7 +504,7 @@ class FolderProvisioner:
         """
         Buat subfolder Final_Deliverables di Solutions dan set permission PMO/Delivery.
 
-        Dipanggil saat proyek Closed-Win dan HLD berstatus "Final".
+        Dipanggil saat proyek Won dan HLD berstatus "Final".
 
         Args:
             solutions_folder_id: ID folder Solutions di Google Drive

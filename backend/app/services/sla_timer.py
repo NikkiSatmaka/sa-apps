@@ -13,7 +13,7 @@ Requirements: 16.1, 16.2, 16.3, 16.4, 16.5, 16.6, 16.7, 16.8
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Optional
 
@@ -78,6 +78,18 @@ def _calculate_sla_status(days_elapsed: int) -> SLAStatus:
         return SLAStatus.RED
 
 
+def hari_berjalan(sla, sekarang: datetime) -> int:
+    """
+    Hari SLA yang sudah berjalan, tanpa waktu jeda `On Hold` (issue #122).
+
+    Waktu efektif = (jeda berjalan ? `paused_at` : `sekarang`) - `started_at` - akumulasi jeda
+    yang sudah selesai (`paused_total_seconds`). Tidak pernah negatif.
+    """
+    akhir = sla.paused_at if sla.paused_at is not None else sekarang
+    efektif = akhir - sla.started_at - timedelta(seconds=sla.paused_total_seconds)
+    return max(0, efektif.days)
+
+
 class SLATimer:
     """
     Mengelola SLA countdown DQ Number untuk proyek yang di-assign.
@@ -124,6 +136,7 @@ class SLATimer:
             days_elapsed=0,
             current_status=SLAStatus.GREEN.value,
             is_locked=False,
+            paused_total_seconds=0,
         )
 
         db.add(sla_record)
@@ -161,13 +174,14 @@ class SLATimer:
                 "days_elapsed": sla.days_elapsed,
                 "is_locked": sla.is_locked,
                 "is_active": False,
+                "is_paused": False,
                 "started_at": sla.started_at.isoformat(),
                 "stopped_at": sla.stopped_at.isoformat(),
             }
 
         # Hitung hari elapsed dari sekarang
         now = datetime.now(timezone.utc)
-        days_elapsed = (now - sla.started_at).days
+        days_elapsed = hari_berjalan(sla, now)
         current_status = _calculate_sla_status(days_elapsed)
 
         # Update record di database
@@ -181,6 +195,7 @@ class SLATimer:
             "days_elapsed": days_elapsed,
             "is_locked": sla.is_locked,
             "is_active": True,
+            "is_paused": sla.paused_at is not None,
             "started_at": sla.started_at.isoformat(),
             "stopped_at": None,
         }
@@ -201,8 +216,13 @@ class SLATimer:
             unlock yang berhasil dicoba ulang)
         """
         async with AsyncSessionLocal() as db:
-            # Ambil semua SLA tracker yang masih aktif (belum stopped)
-            result = await db.execute(select(SLATracking).where(SLATracking.stopped_at.is_(None)))
+            # Ambil semua SLA tracker yang masih aktif (belum stopped) dan tidak sedang dijeda
+            # (`On Hold`): tracker yang dijeda tidak menembak reminder/eskalasi/lock.
+            result = await db.execute(
+                select(SLATracking).where(
+                    SLATracking.stopped_at.is_(None), SLATracking.paused_at.is_(None)
+                )
+            )
             active_slas = result.scalars().all()
 
             stats = {
@@ -220,7 +240,7 @@ class SLATimer:
                 stats["total_checked"] += 1
 
                 try:
-                    days_elapsed = (now - sla.started_at).days
+                    days_elapsed = hari_berjalan(sla, now)
                     new_status = _calculate_sla_status(days_elapsed)
                     old_status = sla.current_status
 
@@ -327,7 +347,42 @@ class SLATimer:
 
         return sla
 
+    async def jeda_timer(self, project_id: str, db: AsyncSession) -> Optional[SLATracking]:
+        """
+        Jeda timer saat proyek menjadi `On Hold` (issue #122). Idempoten.
+
+        Tidak commit: pemanggil menyimpannya satu transaksi dengan perubahan status proyek.
+        Tanpa tracker (proyek belum di-assign) atau tracker yang sudah berhenti: tidak ada
+        yang dijeda dan return None.
+        """
+        sla = await self._tracker_aktif(project_id, db)
+        if sla is None or sla.paused_at is not None:
+            return sla
+        sla.paused_at = datetime.now(timezone.utc)
+        return sla
+
+    async def lanjutkan_timer(self, project_id: str, db: AsyncSession) -> Optional[SLATracking]:
+        """
+        Lanjutkan timer yang dijeda: durasi jeda ditambahkan ke akumulasi sehingga batas H+3/H+5
+        bergeser sebesar jeda (issue #122). Idempoten; tidak commit (lihat `jeda_timer`).
+        """
+        sla = await self._tracker_aktif(project_id, db)
+        if sla is None or sla.paused_at is None:
+            return sla
+        sekarang = datetime.now(timezone.utc)
+        sla.paused_total_seconds += max(0, int((sekarang - sla.paused_at).total_seconds()))
+        sla.paused_at = None
+        return sla
+
     # === Private helper methods ===
+
+    async def _tracker_aktif(self, project_id: str, db: AsyncSession) -> Optional[SLATracking]:
+        """Tracker proyek yang belum berhenti (DQ belum diinput), atau None."""
+        result = await db.execute(select(SLATracking).where(SLATracking.project_id == project_id))
+        sla = result.scalar_one_or_none()
+        if sla is None or sla.stopped_at is not None:
+            return None
+        return sla
 
     async def _buka_kunci_dan_catat(
         self, project_id: str, sla: SLATracking, now: datetime, db: AsyncSession

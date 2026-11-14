@@ -154,7 +154,8 @@ export type AnswerEditMode = "rescore" | "correct" | "none";
 export function answerEditMode(
   user: (Actor & { id?: string }) | null | undefined,
   picIds: string | null | undefined | ReadonlyArray<string | null | undefined>,
-  status: string
+  status: string,
+  _qualificationState?: string | null
 ): AnswerEditMode {
   const privileged = isPrivileged(user);
   // PIC project: Product PIC (selalu ada) atau Sales PIC (opsional), ADR 0014. Pembuat yang bukan

@@ -17,6 +17,7 @@ import type { Actor } from "@/lib/roles";
 interface BANTOverrideProps {
   projectId: string;
   status: string;
+  qualificationState?: string | null;
   /** Pengguna saat ini (role fungsional + flag admin). */
   actor: Actor | undefined | null;
   /** Boleh memuat field lain (mis. metadata legacy); hanya 4 sub-skor yang dipakai. */

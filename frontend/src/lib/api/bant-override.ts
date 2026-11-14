@@ -15,7 +15,7 @@ export interface BANTOverrideResult {
 }
 
 /** Status proyek yang boleh dioverride (selaras dengan backend). */
-export const OVERRIDE_ALLOWED_STATUSES = [
+export const OVERRIDE_ALLOWED_STATES = [
   "Need Clarification",
   "Manual Review Required",
 ] as const;
@@ -23,11 +23,12 @@ export const OVERRIDE_ALLOWED_STATUSES = [
 /** Tombol override hanya untuk Lead_SA/admin (is_admin) pada status yang relevan. */
 export function canOverrideBANT(
   actor: Actor | undefined | null,
-  status: string
+  status: string,
+  _qualificationState?: string | null
 ): boolean {
   return (
     isPrivileged(actor) &&
-    (OVERRIDE_ALLOWED_STATUSES as readonly string[]).includes(status)
+    (OVERRIDE_ALLOWED_STATES as readonly string[]).includes(status)
   );
 }
 

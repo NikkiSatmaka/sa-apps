@@ -24,6 +24,7 @@ import { HandoverAction } from "@/components/HandoverAction";
 import { StatusActions } from "@/components/StatusActions";
 import { StatusBadge } from "@/components/StatusBadge";
 import { isPrivileged } from "@/lib/roles";
+import { useAksesProyek } from "@/lib/useAksesProyek";
 
 /**
  * Halaman Detail Proyek
@@ -91,6 +92,8 @@ export default function ProjectDetailPage() {
   const projectId = params.id as string;
   const { user } = useAuthStore();
 
+  // Hak tulis per hubungan (spec §2.0, lib/akses); kontrol tulis disembunyikan bila tidak berhak.
+  const { bisa } = useAksesProyek(projectId);
   const [showHandoverModal, setShowHandoverModal] = useState(true);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -109,15 +112,17 @@ export default function ProjectDetailPage() {
     error: handoverError,
     mutate: mutateHandoverStatus,
   } = useSWR<HandoverReadiness>(
-    project?.status === "Won" ? `/projects/${projectId}/handover-status` : null,
+    // handover-status ditolak backend (403) bagi yang bukan SA ditugaskan/Lead_SA/Admin.
+    project?.status === "Won" && bisa("handover") ? `/projects/${projectId}/handover-status` : null,
     fetcher
   );
 
   const shouldShowHandoverModal =
-    project?.status === "Won" && showHandoverModal && user?.role === "SA";
+    project?.status === "Won" && showHandoverModal && user?.role === "SA" && bisa("handover");
 
   const shouldShowConfigForm =
     project?.status === "Won" &&
+    isPrivileged(user) && // konfigurasi email handover: hanya Lead_SA/Admin (backend)
     handoverStatus &&
     (!handoverStatus.pmo_email || !handoverStatus.delivery_email);
 
@@ -202,14 +207,16 @@ export default function ProjectDetailPage() {
                   Reassign SA
                 </button>
               )}
-              {/* Tombol Edit */}
-              <button
-                onClick={() => router.push(`/projects/${projectId}/edit`)}
-                className="px-3 py-1.5 text-sm font-medium text-neutral-700 border border-neutral-300
-                           rounded-lg hover:bg-neutral-50 transition-colors min-h-[36px]"
-              >
-                Edit
-              </button>
+              {/* Tombol Edit — TingkatAkses.UBAH_PROYEK (viewer dan pengguna tak terkait tidak) */}
+              {bisa("ubah_proyek") && (
+                <button
+                  onClick={() => router.push(`/projects/${projectId}/edit`)}
+                  className="px-3 py-1.5 text-sm font-medium text-neutral-700 border border-neutral-300
+                             rounded-lg hover:bg-neutral-50 transition-colors min-h-[36px]"
+                >
+                  Edit
+                </button>
+              )}
               {/* Tombol Hapus — hanya Lead_SA/Admin */}
               {canDelete && (
                 <button

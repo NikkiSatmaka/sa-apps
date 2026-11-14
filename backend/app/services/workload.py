@@ -19,6 +19,7 @@ Definisi (keputusan konservatif, lihat `app.core.status.STATUS_TIDAK_AKTIF`):
 """
 
 from datetime import date, datetime, timedelta
+from uuid import UUID
 
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,6 +82,29 @@ def awal_minggu(sekarang: datetime) -> datetime:
     return hari - timedelta(days=hari.weekday())
 
 
+async def hitung_project_aktif_per_sa(db: AsyncSession) -> dict[UUID, int]:
+    """
+    Jumlah project aktif per user (SA utama + SA tambahan, sekali per project per user).
+
+    Satu sumber kebenaran "project aktif" untuk `/workload/beban` dan `/sa/available`.
+    User tanpa project aktif tidak ada di hasil.
+    """
+    utama = await db.execute(
+        select(Project.assigned_sa, Project.id_project).where(
+            Project.assigned_sa.is_not(None), *_proyek_aktif()
+        )
+    )
+    tambahan = await db.execute(
+        select(ProjectAssignment.user_id, ProjectAssignment.id_project)
+        .join(Project, Project.id_project == ProjectAssignment.id_project)
+        .where(*_proyek_aktif())
+    )
+    proyek_per_user: dict[UUID, set[str]] = {}
+    for user_id, id_project in (*utama.all(), *tambahan.all()):
+        proyek_per_user.setdefault(user_id, set()).add(id_project)
+    return {user_id: len(proyek) for user_id, proyek in proyek_per_user.items()}
+
+
 async def hitung_beban(db: AsyncSession, sekarang: datetime) -> list[BebanSA]:
     """Beban tiap SA dan Lead_SA, diurutkan menurut nama."""
     pengguna = (
@@ -93,19 +117,7 @@ async def hitung_beban(db: AsyncSession, sekarang: datetime) -> list[BebanSA]:
         .all()
     )
 
-    utama = await db.execute(
-        select(Project.assigned_sa, Project.id_project).where(
-            Project.assigned_sa.is_not(None), *_proyek_aktif()
-        )
-    )
-    tambahan = await db.execute(
-        select(ProjectAssignment.user_id, ProjectAssignment.id_project)
-        .join(Project, Project.id_project == ProjectAssignment.id_project)
-        .where(*_proyek_aktif())
-    )
-    proyek_per_user: dict = {}
-    for user_id, id_project in (*utama.all(), *tambahan.all()):
-        proyek_per_user.setdefault(user_id, set()).add(id_project)
+    proyek_per_user = await hitung_project_aktif_per_sa(db)
 
     subtask = await db.execute(
         select(Subtask.assigned_sa, func.count())
@@ -133,7 +145,7 @@ async def hitung_beban(db: AsyncSession, sekarang: datetime) -> list[BebanSA]:
             name=u.name,
             email=u.email,
             role=str(u.role),
-            project_aktif=len(proyek_per_user.get(u.id, ())),
+            project_aktif=proyek_per_user.get(u.id, 0),
             subtask_aktif=subtask_per_user.get(u.id, 0),
             jam_minggu_ini=float(jam_per_user.get(u.id, 0)),
         )

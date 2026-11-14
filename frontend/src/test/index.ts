@@ -8,3 +8,4 @@ export { api } from "./msw/base";
 export { server } from "./msw/server";
 export { gagalLaluBerhasil, selaluGagal } from "./msw/gagal-sekali";
 export { successEnvelope, errorEnvelope } from "./fixtures/envelope";
+export { pasangHubungan, SEMUA_HUBUNGAN, type Hubungan } from "./hubungan";

@@ -51,11 +51,12 @@ describe("Detail proyek — pengguna tak terkait tetap bisa membaca", () => {
     expect(await screen.findByText(/Diskusi arsitektur tim/)).toBeInTheDocument();
   });
 
-  // Tombol "Edit" tetap tampil untuk semua peran (backend yang menegakkan; hak tulis di luar #109).
-  it.each(TAK_TERKAIT)("%s: tanpa kontrol privileged (Hapus, Ganti orang, Assign, Reassign)", async (role) => {
+  // Hak tulis tak terkait (#154): tombol Edit pun tidak tampil.
+  it.each(TAK_TERKAIT)("%s: tanpa kontrol tulis (Edit, Hapus, Ganti orang, Assign, Reassign)", async (role) => {
     renderWithProviders(<ProjectDetailPage />, { role });
     await screen.findByRole("heading", { level: 1, name: "Migrasi Cloud ACME" });
 
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Hapus" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Ganti orang" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Assign SA" })).not.toBeInTheDocument();

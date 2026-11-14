@@ -82,11 +82,14 @@ async def test_pending_assignment_kosong(dunia, api):
     assert resp.json()["data"] == []
 
 
-async def test_sa_tersedia_menghitung_proyek_aktif_tanpa_status_terminal(dunia, api):
+async def test_sa_tersedia_menghitung_proyek_aktif_sesuai_definisi_workload(dunia, api):
+    # Definisi sama dengan `/workload/beban`: Won/Handed Over aktif; Lost/Closed/On Hold tidak.
     await dunia.buat_proyek(status="Assigned", assigned_sa=dunia.sa.id)
     await dunia.buat_proyek(status="Submitted", assigned_sa=dunia.sa.id)
-    for terminal in ("Won", "Handed Over", "Lost"):
-        await dunia.buat_proyek(status=terminal, assigned_sa=dunia.sa.id)
+    for status in ("Won", "Handed Over"):
+        await dunia.buat_proyek(status=status, assigned_sa=dunia.sa.id)
+    for status in ("Lost", "Closed", "On Hold"):
+        await dunia.buat_proyek(status=status, assigned_sa=dunia.sa.id)
     await dunia.buat_proyek(status="Assigned", assigned_sa=dunia.sa2.id)
 
     resp = await api.client.get(TERSEDIA, headers=dunia.h["lead"])
@@ -99,7 +102,7 @@ async def test_sa_tersedia_menghitung_proyek_aktif_tanpa_status_terminal(dunia, 
     assert peran[dunia.lead.email] == "Lead_SA"
     assert peran[dunia.sa.email] == "SA"
     assert beban == {
-        dunia.sa.email: 2,
+        dunia.sa.email: 4,
         dunia.sa2.email: 1,
         dunia.admin.email: 0,
         dunia.lead.email: 0,

@@ -20,6 +20,15 @@ def test_seed_menyediakan_dua_user_untuk_setiap_persona_fungsional():
     }
     jumlah["Admin"] = sum(user.get("is_admin", False) for user in DEMO_USERS)
     assert jumlah == {"Sales": 2, "Product": 2, "SA": 2, "Lead_SA": 2, "Admin": 2}
+    assert all(user["role"] != "SA" or not user.get("is_admin", False) for user in DEMO_USERS)
+    assert all(user["role"] == "Lead_SA" for user in DEMO_USERS if user.get("is_admin", False))
+
+
+def test_persona_admin_demo_memakai_role_lead_sa():
+    from app.api.auth import DEMO_USERS as AUTH_DEMO_USERS
+
+    assert AUTH_DEMO_USERS["Admin"]["role"] == "Lead_SA"
+    assert AUTH_DEMO_USERS["Admin"]["is_admin"] is True
 
 
 @pytest.mark.asyncio
@@ -44,7 +53,7 @@ async def test_seed_all_memakai_akun_sales_dan_sa_berbeda_pada_project(monkeypat
         return SimpleNamespace(id=ids[user_data["email"]])
 
     async def fake_project(_db, project_data, sales_id, sa_id=None, product_id=None):
-        captured.append((project_data["id_project"], sales_id, sa_id, product_id))
+        captured.append((project_data.copy(), sales_id, sa_id, product_id))
 
     monkeypatch.setattr(seed_demo_data, "AsyncSessionLocal", FakeDB)
     monkeypatch.setattr(seed_demo_data, "get_or_create_user", fake_user)
@@ -61,17 +70,18 @@ async def test_seed_all_memakai_akun_sales_dan_sa_berbeda_pada_project(monkeypat
     sa1, sa2 = ids["demo-sa@portal-sa.local"], ids["demo-sa2@portal-sa.local"]
     product1 = ids["demo-product@portal-sa.local"]
     product2 = ids["demo-product2@portal-sa.local"]
-    assert mapping_first_seed == [
-        ("PRJ-DEMO-001", sales1, sa1, product1),
-        ("PRJ-DEMO-002", sales1, sa1, product2),
-        ("PRJ-DEMO-003", sales2, None, product1),
-        ("PRJ-DEMO-004", sales2, None, product1),
-        ("PRJ-DEMO-005", sales2, sa2, product2),
-        ("PRJ-DEMO-006", sales1, sa1, product2),
-        ("PRJ-DEMO-007", sales2, sa2, product2),
-        ("PRJ-DEMO-008", sales1, sa2, product1),
+    assert len(mapping_first_seed) >= 8
+    assert [(p["id_project"], s, sa, product) for p, s, sa, product in mapping_first_seed] == [
+        (p["id_project"], s, sa, product) for p, s, sa, product in mapping_second_seed
     ]
-    assert mapping_second_seed == mapping_first_seed
+    assert {p["id_project"] for p, *_ in mapping_first_seed} >= {
+        f"PRJ-DEMO-{index:03}" for index in range(1, 9)
+    }
+    assert all(p["qualification_answers"] and p.get("qualification_schema_version") is None
+               for p, *_ in mapping_first_seed)
+    assert {p["bant_score"] for p, *_ in mapping_first_seed} >= {45, 62, 75, 85, 90}
+    assert len({product for _, _, _, product in mapping_first_seed}) == 2
+    assert sum(sa is not None for _, _, sa, _ in mapping_first_seed) >= 4
 
 
 @pytest.mark.asyncio

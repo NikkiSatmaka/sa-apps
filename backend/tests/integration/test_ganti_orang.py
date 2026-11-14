@@ -431,3 +431,22 @@ async def test_reassign_admin_tanpa_lead_sa_id_boleh_bila_lead_sa_sudah_ada(
 
     assert resp.status_code == 200, resp.text
     assert (await ambil_proyek(dunia.db, proyek.id_project)).lead_sa == dunia.lead.id
+
+
+async def test_reassign_admin_non_lead_sa_pada_assigned_tanpa_lead_sa_tidak_diam_diam_jadi_lead(
+    dunia, api, monkeypatch
+):
+    # Data lama: Assigned tanpa lead_sa. Reassign oleh admin tetap diizinkan (bukan alur assign
+    # awal), tetapi admin tidak boleh diam-diam menjadi lead_sa.
+    rekam_background(monkeypatch)
+    proyek = await _proyek(dunia, status="Assigned", assigned_sa=dunia.sa.id, assigned_at=None)
+
+    resp = await api.client.post(
+        REASSIGN.format(proyek.id_project),
+        json={"sa_id": str(dunia.sa2.id)},
+        headers=dunia.h["admin"],
+    )
+
+    assert resp.status_code == 200, resp.text
+    p = await ambil_proyek(dunia.db, proyek.id_project)
+    assert (p.assigned_sa, p.lead_sa) == (dunia.sa2.id, None)

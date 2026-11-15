@@ -59,6 +59,15 @@ async def test_demo_login_menyimpan_user_dan_token_bisa_dipakai_di_me(api, db_se
     ).scalar_one()
     assert user.role == "Lead_SA"
     assert str(user.id) == resp.json()["user"]["id"]
+    assert user.is_admin is True
+    user.is_admin = False
+    await db_session.commit()
+
+    resp = await api.client.post(f"{AUTH}/demo-login", json={"role": "Lead_SA"})
+    assert resp.status_code == 200
+    await db_session.refresh(user)
+    assert user.is_admin is True
+    assert resp.json()["user"]["is_admin"] is True
 
     me = await api.client.get(f"{AUTH}/me", headers=_bearer(token))
     assert me.status_code == 200

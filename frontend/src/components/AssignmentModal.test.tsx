@@ -60,6 +60,11 @@ describe("AssignmentModal", () => {
     expect(screen.getByText("Not Passed")).toBeInTheDocument();
     await screen.findByText("Budi Santoso");
   });
+  it("menampilkan BANT belum dinilai saat skor dan tags null", () => {
+    setup(makePendingProject({ bant_score: null, use_case_tags: null }));
+    expect(screen.getByText("Belum dinilai")).toBeInTheDocument();
+    expect(screen.queryByText("Not Passed")).not.toBeInTheDocument();
+  });
 
   it("menandai workload Tinggi (5+) dan memakai avatar bila tersedia", async () => {
     server.use(

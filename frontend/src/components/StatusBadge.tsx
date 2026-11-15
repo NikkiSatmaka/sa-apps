@@ -1,4 +1,8 @@
-import { qualificationBadgeClass, statusBadgeClass } from "@/lib/status";
+import {
+  qualificationBadgeClass,
+  qualificationStateLabel,
+  statusBadgeClass,
+} from "@/lib/status";
 
 /**
  * Badge `status` proyek. Saat `status = Intake`, `qualification_state` ikut tampil sebagai badge
@@ -13,6 +17,7 @@ export interface StatusBadgeProps {
 
 export function StatusBadge({ status, qualificationState, className = "px-2 py-0.5 rounded text-xs" }: StatusBadgeProps) {
   const tampilkanState = status === "Intake" && !!qualificationState;
+  const labelKualifikasi = qualificationState ? qualificationStateLabel(qualificationState) : "";
   return (
     <>
       <span className={`inline-block font-medium whitespace-nowrap ${className} ${statusBadgeClass(status)}`}>
@@ -20,10 +25,10 @@ export function StatusBadge({ status, qualificationState, className = "px-2 py-0
       </span>
       {tampilkanState && (
         <span
-          title={`Kualifikasi: ${qualificationState}`}
+          title={`Kualifikasi: ${labelKualifikasi}`}
           className={`inline-block font-medium whitespace-nowrap ${className} ${qualificationBadgeClass(qualificationState)}`}
         >
-          {qualificationState}
+          {labelKualifikasi}
         </span>
       )}
     </>

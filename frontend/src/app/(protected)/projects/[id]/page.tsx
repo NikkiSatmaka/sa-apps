@@ -61,7 +61,7 @@ interface ProjectDetail {
     [key: string]: unknown;
   } | null;
   qualification?: QualificationView;
-  use_case_tags: string[];
+  use_case_tags: string[] | null;
   target_submit: string | null;
   created_by?: { id: string | null; name: string | null; email: string | null } | null;
   product_pic?: { id: string | null; name: string | null; email: string | null } | null;
@@ -262,11 +262,11 @@ export default function ProjectDetailPage() {
             </div>
 
             {/* Use case tags */}
-            {project.use_case_tags.length > 0 && (
+            {(project.use_case_tags?.length ?? 0) > 0 && (
               <div className="mt-4 pt-4 border-t border-neutral-100">
                 <span className="text-xs text-neutral-500">Use Case Tags:</span>
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
-                  {project.use_case_tags.map((tag) => (
+                  {project.use_case_tags?.map((tag) => (
                     <span key={tag} className="px-2 py-0.5 bg-primary-50 text-primary-600 text-xs rounded-full">
                       {tag}
                     </span>
@@ -397,14 +397,8 @@ export default function ProjectDetailPage() {
             id_project: project.id_project,
             project_name: project.project_name,
             customer_name: project.customer_name,
-            bant_score: project.bant_score || 0,
-            use_case_tags: project.use_case_tags || [],
-            status: project.status,
-            target_submit: project.target_submit || "",
-            gdrive_folder_id: null,
-            folder_provisioning_status: project.folder_provisioning_status ?? null,
-            created_at: project.created_at,
-            sales_pic: { id: project.sales_pic?.id || "", name: project.sales_pic?.name || "", email: project.sales_pic?.email || "" },
+            bant_score: project.bant_score,
+            use_case_tags: project.use_case_tags ?? null,
           }}
           onClose={() => setShowAssignModal(false)}
           onSuccess={() => {

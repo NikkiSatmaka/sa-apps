@@ -12,23 +12,22 @@ import { fetcher, apiRequest } from "../fetcher";
 // === Tipe Data ===
 
 /** Proyek yang menunggu assignment */
-export interface PendingProject {
+export interface ProjectBrief {
   id_project: string;
   project_name: string;
   customer_name: string;
-  bant_score: number;
-  use_case_tags: string[];
   status: string;
+  bant_score: number | null;
+  use_case_tags: string[] | null;
+  assigned_sa: string | null;
+  assigned_at: string | null;
   target_submit: string;
   gdrive_folder_id: string | null;
   folder_provisioning_status: "pending" | "provisioned" | "failed" | null;
-  created_at: string;
-  sales_pic: {
-    id: string;
-    name: string;
-    email: string;
-  };
 }
+
+/** Proyek yang menunggu assignment (`GET /projects/pending-assignment`). */
+export type PendingProject = ProjectBrief;
 
 /** SA yang tersedia untuk assignment */
 export interface AvailableSA {
@@ -41,12 +40,12 @@ export interface AvailableSA {
   role: "SA" | "Lead_SA";
 }
 
-/** Response setelah assignment berhasil */
+/** Response `POST /projects/{id}/assign` dari backend. */
 export interface AssignmentResponse {
-  id_project: string;
-  assigned_sa: string;
-  assigned_at: string;
-  status: string;
+  project: ProjectBrief;
+  assigned_sa_name: string;
+  notification_sent: boolean;
+  folder_provisioning_triggered: boolean;
 }
 
 /** Ringkasan proyek per status (untuk overview) */

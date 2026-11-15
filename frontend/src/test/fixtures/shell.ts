@@ -54,11 +54,11 @@ export function makePendingProject(overrides: Partial<PendingProject> = {}): Pen
     bant_score: 80,
     use_case_tags: ["Cloud", "AI"],
     status: "Awaiting Assignment",
+    assigned_sa: null,
+    assigned_at: null,
     target_submit: "2025-12-31",
     gdrive_folder_id: null,
     folder_provisioning_status: "provisioned",
-    created_at: "2025-01-01T00:00:00Z",
-    sales_pic: { id: "00000000-0000-4000-8000-000000000001", name: "Sales Demo", email: "sales@example.com" },
     ...overrides,
   };
 }

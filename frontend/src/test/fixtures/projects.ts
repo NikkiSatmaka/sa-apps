@@ -39,6 +39,7 @@ export function makeCreateProjectResponse(overrides: Record<string, unknown> = {
     sub_scores: { budget: 18, authority: 18, need: 18, timeline: 18 },
     feedback: null,
     scoring_triggered: true,
+    files: [],
     ...overrides,
   };
 }

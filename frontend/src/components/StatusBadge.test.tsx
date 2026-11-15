@@ -21,16 +21,18 @@ describe("StatusBadge", () => {
   });
 
   it.each([
-    ["Scoring", "bg-purple-100"],
-    ["Need Clarification", "bg-orange-100"],
-    ["Manual Review", "bg-pink-100"],
-    ["Qualified", "bg-green-100"],
-  ])("Intake menampilkan qualification_state %s berwarna %s", (state, kelas) => {
+    ["Scoring", "Sedang Dinilai", "bg-purple-100"],
+    ["Need Clarification", "Perlu Klarifikasi Tambahan", "bg-orange-100"],
+    ["Manual Review", "Perlu Ditinjau Manual", "bg-pink-100"],
+    ["Qualified", "Lolos Kualifikasi", "bg-green-100"],
+  ])("Intake menampilkan label %s sebagai %s dengan warna %s", (state, label, kelas) => {
     render(<StatusBadge status="Intake" qualificationState={state} />);
     expect(screen.getByText("Intake")).toBeInTheDocument();
-    const badge = screen.getByText(state);
+    const badge = screen.getByTitle("Kualifikasi: " + label);
+    expect(badge).toHaveTextContent(label);
     expect(badge.className).toContain(kelas);
-    expect(badge).toHaveAttribute("title", "Kualifikasi: " + state);
+    expect(badge).toHaveAttribute("title", "Kualifikasi: " + label);
+    expect(screen.queryByText(state)).not.toBeInTheDocument();
   });
 
   it("Intake tanpa qualification_state hanya menampilkan status", () => {

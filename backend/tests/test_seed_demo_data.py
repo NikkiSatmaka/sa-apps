@@ -10,20 +10,25 @@ from scripts import seed_demo_data
 from scripts.seed_demo_data import DEMO_USERS, get_or_create_project
 
 
-def test_seed_menyediakan_dua_user_untuk_setiap_persona_fungsional():
+def test_seed_menyediakan_dua_user_per_persona_dan_admin_hanya_pada_lead_sa():
     jumlah = {
         role: sum(user["role"] == role for user in DEMO_USERS)
         for role in ("Sales", "Product", "SA", "Lead_SA")
     }
-    assert jumlah == {"Sales": 2, "Product": 2, "SA": 2, "Lead_SA": 4}
-    akun_lead = [user for user in DEMO_USERS if user["role"] == "Lead_SA"]
-    assert all(user.get("is_admin") is True for user in akun_lead)
+    assert jumlah == {"Sales": 2, "Product": 2, "SA": 2, "Lead_SA": 2}
+    assert len(DEMO_USERS) == 8
+    assert all(
+        user.get("is_admin", False) is (user["role"] == "Lead_SA")
+        for user in DEMO_USERS
+    )
+    assert all("demo-admin" not in user["email"] for user in DEMO_USERS)
 
 
 def test_demo_login_tidak_menampilkan_persona_admin():
     from app.api.auth import DEMO_USERS as AUTH_DEMO_USERS
 
     assert set(AUTH_DEMO_USERS) == {"Sales", "Product", "SA", "Lead_SA"}
+    assert AUTH_DEMO_USERS["Lead_SA"].get("is_admin", False) is True
 
 
 @pytest.mark.asyncio

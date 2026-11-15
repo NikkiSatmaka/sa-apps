@@ -23,9 +23,9 @@ vi.mock("@/components/HandoverConfigForm", () => ({
   ),
 }));
 vi.mock("@/components/AssignmentModal", () => ({
-  AssignmentModal: ({ project, onClose, onSuccess }: { project: { project_name: string; bant_score: number; target_submit: string }; onClose: () => void; onSuccess: () => void }) => (
+  AssignmentModal: ({ project, onClose, onSuccess }: { project: { id_project: string; project_name: string; customer_name: string; bant_score: number | null; use_case_tags: string[] | null }; onClose: () => void; onSuccess: () => void }) => (
     <div role="dialog" aria-label="stub assign">
-      Assign {project.project_name} bant={project.bant_score} target={project.target_submit}
+      Assign {project.project_name} bant={project.bant_score ?? "Belum dinilai"} tags={project.use_case_tags?.join(",") ?? "-"}
       <button onClick={onClose}>Tutup assign</button>
       <button onClick={onSuccess}>Sukses assign</button>
     </div>
@@ -208,7 +208,7 @@ describe("Detail proyek — informasi", () => {
 
   it("Intake menampilkan badge qualification_state di samping status", async () => {
     setup("Sales", { status: "Intake", qualification_state: "Need Clarification" });
-    expect(await screen.findByText("Need Clarification", { selector: "span" })).toHaveAttribute("title", "Kualifikasi: Need Clarification");
+    expect(await screen.findByText("Perlu Klarifikasi Tambahan", { selector: "span" })).toHaveAttribute("title", "Kualifikasi: Perlu Klarifikasi Tambahan");
     expect(screen.getByText("Intake", { selector: "span" })).toBeInTheDocument();
   });
 
@@ -393,7 +393,7 @@ describe("Detail proyek — Assign / Reassign", () => {
     const { user } = setup("Lead_SA", { status: "Awaiting Assignment", assigned_sa: null, bant_score: null, target_submit: null });
     await user.click(await screen.findByRole("button", { name: "Assign SA" }));
     const modal = screen.getByRole("dialog", { name: "stub assign" });
-    expect(modal).toHaveTextContent("Assign Migrasi Cloud ACME bant=0 target=");
+    expect(modal).toHaveTextContent("Assign Migrasi Cloud ACME bant=Belum dinilai tags=Cloud Migration,Security");
     await user.click(within(modal).getByRole("button", { name: "Tutup assign" }));
     expect(screen.queryByRole("dialog", { name: "stub assign" })).not.toBeInTheDocument();
 
@@ -403,10 +403,21 @@ describe("Detail proyek — Assign / Reassign", () => {
     expect(screen.queryByRole("dialog", { name: "stub assign" })).not.toBeInTheDocument();
   });
 
-  it("Assign SA meneruskan skor dan target submit bila ada", async () => {
+  it("Assign SA meneruskan skor dan tags bila ada", async () => {
     const { user } = setup("Admin", { status: "Awaiting Assignment", bant_score: 80 });
     await user.click(await screen.findByRole("button", { name: "Assign SA" }));
-    expect(screen.getByRole("dialog", { name: "stub assign" })).toHaveTextContent("bant=80 target=2025-12-31");
+    expect(screen.getByRole("dialog", { name: "stub assign" })).toHaveTextContent("bant=80 tags=Cloud Migration,Security");
+  });
+
+  it("Assign SA menerima tags null tanpa menampilkan tag", async () => {
+    const { user } = setup("Admin", {
+      status: "Awaiting Assignment",
+      use_case_tags: null,
+    });
+    await user.click(await screen.findByRole("button", { name: "Assign SA" }));
+    expect(screen.getByRole("dialog", { name: "stub assign" })).toHaveTextContent(
+      "tags=-",
+    );
   });
 
   it("Reassign SA membuka modal dengan nama SA saat ini; sukses memuat ulang", async () => {

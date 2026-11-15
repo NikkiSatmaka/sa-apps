@@ -646,6 +646,8 @@ function ProjectCard({
     }
   };
 
+  const useCaseTags = project.use_case_tags ?? [];
+
   return (
     <div className="rounded-lg border border-neutral-200 bg-white p-5 hover:shadow-sm transition-shadow duration-200">
       {/* Header card */}
@@ -660,24 +662,26 @@ function ProjectCard({
         </div>
 
         {/* BANT Status badge */}
-        <span
-          className={`
-            shrink-0 px-2.5 py-1 text-xs font-semibold rounded-full
-            ${
-              project.bant_score >= 60
-                ? "bg-green-100 text-green-700"
-                : "bg-amber-100 text-amber-700"
-            }
-          `}
-        >
-          {project.bant_score >= 60 ? "BANT Passed" : "BANT not passed"}
-        </span>
+        {project.bant_score !== null && (
+          <span
+            className={`
+              shrink-0 px-2.5 py-1 text-xs font-semibold rounded-full
+              ${
+                project.bant_score >= 60
+                  ? "bg-green-100 text-green-700"
+                  : "bg-amber-100 text-amber-700"
+              }
+            `}
+          >
+            {project.bant_score >= 60 ? "BANT Passed" : "BANT not passed"}
+          </span>
+        )}
       </div>
 
       {/* Tags */}
-      {project.use_case_tags.length > 0 && (
+      {useCaseTags.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-3">
-          {project.use_case_tags.slice(0, 3).map((tag) => (
+          {useCaseTags.slice(0, 3).map((tag) => (
             <span
               key={tag}
               className="px-2 py-0.5 bg-neutral-100 text-neutral-600 text-xs rounded"
@@ -685,9 +689,9 @@ function ProjectCard({
               {tag}
             </span>
           ))}
-          {project.use_case_tags.length > 3 && (
+          {useCaseTags.length > 3 && (
             <span className="px-2 py-0.5 text-neutral-400 text-xs">
-              +{project.use_case_tags.length - 3}
+              +{useCaseTags.length - 3}
             </span>
           )}
         </div>

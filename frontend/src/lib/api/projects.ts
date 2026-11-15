@@ -31,6 +31,14 @@ export interface BANTSubScores {
   timeline: number;
 }
 
+/** Per-file processing result returned by POST /projects. */
+export interface ProjectFileResult {
+  filename: string;
+  success: boolean;
+  error?: string | null;
+  size_bytes?: number | null;
+}
+
 /** Tipe response setelah project dibuat (skor dihitung backend dari kuesioner) */
 export interface CreateProjectResponse {
   id_project: string;
@@ -42,6 +50,7 @@ export interface CreateProjectResponse {
   sub_scores: BANTSubScores | null;
   feedback: string | null;
   scoring_triggered: boolean;
+  files: ProjectFileResult[];
 }
 
 /** Error validasi per field dari backend (422) */

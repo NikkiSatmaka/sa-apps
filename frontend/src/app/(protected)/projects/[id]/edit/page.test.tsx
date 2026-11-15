@@ -216,13 +216,13 @@ describe("EditProjectPage — simpan metadata proyek", () => {
 });
 
 describe("EditProjectPage — kunci edit jawaban kuesioner per peran dan status", () => {
-  const KUNCI = /Jawaban kuesioner hanya dapat diubah saat qualification_state Need Clarification/;
+  const KUNCI = /Saat ini jawaban belum dapat diperbarui/;
 
   it("Sales PIC saat Need Clarification: bisa edit dengan hitung ulang skor", async () => {
     arrange(makeProjectDetail({ status: "Intake", qualification_state: "Need Clarification" }));
     render("Sales");
     await tungguHalaman();
-    expect(await screen.findByText(/Menyimpan akan menghitung ulang skor BANT/)).toBeInTheDocument();
+    expect(await screen.findByText(/Simpan jawaban untuk menilai ulang kelayakan proyek/)).toBeInTheDocument();
     expect(screen.getByLabelText(/Anggaran bulanan/)).toBeEnabled();
     expect(screen.getByRole("button", { name: "Simpan Jawaban & Hitung Ulang Skor" })).toBeInTheDocument();
   });
@@ -234,7 +234,7 @@ describe("EditProjectPage — kunci edit jawaban kuesioner per peran dan status"
     seedAuth("Product", { id: users.Sales.id });
     renderWithProviders(<EditProjectPage />);
     await tungguHalaman();
-    expect(await screen.findByText(/Menyimpan akan menghitung ulang skor BANT/)).toBeInTheDocument();
+    expect(await screen.findByText(/Simpan jawaban untuk menilai ulang kelayakan proyek/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Simpan Jawaban & Hitung Ulang Skor" })).toBeInTheDocument();
   });
 
@@ -297,7 +297,7 @@ describe("EditProjectPage — kunci edit jawaban kuesioner per peran dan status"
     arrange(makeProjectDetail({ status }));
     render(role);
     await tungguHalaman();
-    expect(await screen.findByText(/Koreksi jawaban tidak menghitung ulang skor dan tidak mengubah status/)).toBeInTheDocument();
+    expect(await screen.findByText(/Perubahan ini hanya memperbarui jawaban; nilai dan tahapan proyek tidak berubah/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Simpan Koreksi Jawaban" })).toBeInTheDocument();
   });
 
@@ -336,7 +336,7 @@ describe("EditProjectPage — simpan jawaban kuesioner", () => {
     await user.type(mrr, "80");
     const getsSebelum = rec.gets;
     await user.click(screen.getByRole("button", { name: "Simpan Jawaban & Hitung Ulang Skor" }));
-    expect(await screen.findByText("Skor 72 — proyek lolos dan masuk antrian assignment.")).toBeInTheDocument();
+    expect(await screen.findByText("Skor 72 — proyek lolos dan masuk antrean penugasan.")).toBeInTheDocument();
     expect(rec.put).toEqual({
       budget_mrr: 80,
       budget_status: "Sudah disetujui",
@@ -357,7 +357,7 @@ describe("EditProjectPage — simpan jawaban kuesioner", () => {
     await tungguHalaman();
     await screen.findByLabelText(/Anggaran bulanan/);
     await user.click(screen.getByRole("button", { name: "Simpan Jawaban & Hitung Ulang Skor" }));
-    expect(await screen.findByText("Skor 45 — masih perlu klarifikasi tambahan.")).toBeInTheDocument();
+    expect(await screen.findByText("Skor 45 — Perlu Klarifikasi Tambahan.")).toBeInTheDocument();
   });
 
   it("koreksi (rescored=false): pesan skor tidak dihitung ulang", async () => {
@@ -368,7 +368,7 @@ describe("EditProjectPage — simpan jawaban kuesioner", () => {
     await tungguHalaman();
     await screen.findByLabelText(/Anggaran bulanan/);
     await user.click(screen.getByRole("button", { name: "Simpan Koreksi Jawaban" }));
-    expect(await screen.findByText("Jawaban dikoreksi (skor tidak dihitung ulang).")).toBeInTheDocument();
+    expect(await screen.findByText("Koreksi jawaban tersimpan. Skor tidak dihitung ulang.")).toBeInTheDocument();
   });
 
   it("validasi klien: field wajib dikosongkan → error per field, tanpa permintaan PUT", async () => {
@@ -436,7 +436,7 @@ describe("EditProjectPage — simpan jawaban kuesioner", () => {
     expect(tombol.length).toBeGreaterThan(0);
     expect(screen.getByLabelText(/Anggaran bulanan/)).toBeDisabled();
     lepas();
-    await screen.findByText(/lolos dan masuk antrian/);
+    await screen.findByText(/lolos dan masuk antrean/);
   });
 
   it("perubahan jawaban yang belum disimpan tidak hilang saat metadata proyek diubah", async () => {

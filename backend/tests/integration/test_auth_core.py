@@ -71,16 +71,45 @@ async def test_demo_login_berulang_tidak_menggandakan_user(api, db_session):
     assert await _jumlah_user(db_session) == 1
 
 
+async def test_login_demo_admin_membuat_identitas_lead_admin_terpisah(api):
+    from app.services.auth_service import auth_service
+
+    lead = await api.login_demo("Lead_SA")
+    admin = await api.login_demo("Admin")
+    admin_berulang = await api.login_demo("Admin")
+    klaim_lead = auth_service.verify_access_token(lead["Authorization"][7:])
+    klaim_admin = auth_service.verify_access_token(admin["Authorization"][7:])
+    klaim_admin_berulang = auth_service.verify_access_token(
+        admin_berulang["Authorization"][7:]
+    )
+
+    assert klaim_lead["role"] == klaim_admin["role"] == "Lead_SA"
+    assert klaim_lead["is_admin"] is True
+    assert klaim_admin["is_admin"] is True
+    assert klaim_lead["sub"] != klaim_admin["sub"]
+    assert klaim_admin_berulang["sub"] == klaim_admin["sub"]
+    me = await api.client.get(f"{AUTH}/me", headers=admin)
+    assert me.status_code == 200
+    assert me.json()["id"] == klaim_admin["sub"]
+
+
 async def test_demo_login_diblok_di_produksi_dan_tidak_menulis_ke_db(api, db_session, monkeypatch):
     monkeypatch.setattr(settings, "ENVIRONMENT", "production")
     monkeypatch.setattr(settings, "DEMO_MODE", True)
 
-    resp = await api.client.post(f"{AUTH}/demo-login", json={"role": "Admin"})
+    resp = await api.client.post(f"{AUTH}/demo-login", json={"role": "Sales"})
 
     assert resp.status_code == 403
     assert await _jumlah_user(db_session) == 0
     cfg = (await api.client.get(f"{AUTH}/config")).json()
     assert cfg["demo_mode"] is False
+
+
+async def test_demo_login_menolak_role_admin(api, db_session):
+    resp = await api.client.post(f"{AUTH}/demo-login", json={"role": "Admin"})
+
+    assert resp.status_code == 422
+    assert await _jumlah_user(db_session) == 0
 
 
 # --------------------------------------------------------------------------- OAuth Google

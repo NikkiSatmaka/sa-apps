@@ -70,17 +70,14 @@ async def siapkan_dunia(api, db: AsyncSession) -> Dunia:
     """Login demo untuk keempat peran; user tersimpan di Postgres uji."""
     dunia = Dunia()
     for peran in PERAN:
-        dunia.header[peran] = await api.login_demo(peran)
+        headers = await api.login_demo(peran)
+        dunia.header[peran] = headers
+        resp = await api.client.get(f"{API}/auth/me", headers=headers)
+        assert resp.status_code == 200, resp.text
         dunia.user[peran] = (
-            await db.execute(
-                select(User).where(User.email == f"demo-{_slug(peran)}@portal-sa.local")
-            )
+            await db.execute(select(User).where(User.id == resp.json()["id"]))
         ).scalar_one()
     return dunia
-
-
-def _slug(peran: str) -> str:
-    return {"Lead_SA": "lead"}.get(peran, peran.lower())
 
 
 async def user_baru(db: AsyncSession, peran: str) -> tuple[User, dict[str, str]]:

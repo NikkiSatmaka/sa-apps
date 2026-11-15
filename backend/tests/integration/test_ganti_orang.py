@@ -8,6 +8,7 @@ Layanan eksternal (Drive) di-fake/dilewati lewat fixture bersama.
 
 import pytest
 
+from tests._auth_support import buat_token
 from tests.integration.conftest import patch_session_factory
 from tests.integration.model_helpers import bangun_user
 from tests.integration.support_assignment import (
@@ -37,6 +38,13 @@ async def _user(dunia, role, nama):
     dunia.db.add(u)
     await dunia.db.commit()
     return u
+
+
+async def _admin_non_lead_sa(dunia):
+    user = bangun_user(role="SA", is_admin=True)
+    dunia.db.add(user)
+    await dunia.db.commit()
+    return {"Authorization": f"Bearer {buat_token(user.id)}"}
 
 
 async def _proyek(dunia, **o):
@@ -309,11 +317,12 @@ async def test_assign_admin_non_lead_sa_tanpa_lead_sa_id_ditolak_400(dunia, api,
     # Admin = SA dengan flag `is_admin` (ADR 0012): tidak boleh diam-diam menjadi `lead_sa`.
     rekam_background(monkeypatch)
     proyek = await _proyek(dunia)
+    admin = await _admin_non_lead_sa(dunia)
 
     resp = await api.client.post(
         ASSIGN.format(proyek.id_project),
         json={"sa_id": str(dunia.sa.id)},
-        headers=dunia.h["admin"],
+        headers=admin,
     )
 
     assert resp.status_code == 400, resp.text
@@ -324,11 +333,12 @@ async def test_assign_admin_non_lead_sa_tanpa_lead_sa_id_ditolak_400(dunia, api,
 async def test_assign_admin_non_lead_sa_dengan_lead_sa_id_diterima(dunia, api, monkeypatch):
     rekam_background(monkeypatch)
     proyek = await _proyek(dunia)
+    admin = await _admin_non_lead_sa(dunia)
 
     resp = await api.client.post(
         ASSIGN.format(proyek.id_project),
         json={"sa_id": str(dunia.sa.id), "lead_sa_id": str(dunia.lead.id)},
-        headers=dunia.h["admin"],
+        headers=admin,
     )
 
     assert resp.status_code == 200, resp.text
@@ -389,11 +399,12 @@ async def test_reassign_dari_pending_oleh_admin_non_lead_sa_tanpa_lead_sa_id_dit
 ):
     rekam_background(monkeypatch)
     proyek = await _proyek(dunia)
+    admin = await _admin_non_lead_sa(dunia)
 
     resp = await api.client.post(
         REASSIGN.format(proyek.id_project),
         json={"sa_id": str(dunia.sa2.id)},
-        headers=dunia.h["admin"],
+        headers=admin,
     )
 
     assert resp.status_code == 400, resp.text
@@ -440,11 +451,12 @@ async def test_reassign_admin_non_lead_sa_pada_assigned_tanpa_lead_sa_tidak_diam
     # awal), tetapi admin tidak boleh diam-diam menjadi lead_sa.
     rekam_background(monkeypatch)
     proyek = await _proyek(dunia, status="Assigned", assigned_sa=dunia.sa.id, assigned_at=None)
+    admin = await _admin_non_lead_sa(dunia)
 
     resp = await api.client.post(
         REASSIGN.format(proyek.id_project),
         json={"sa_id": str(dunia.sa2.id)},
-        headers=dunia.h["admin"],
+        headers=admin,
     )
 
     assert resp.status_code == 200, resp.text

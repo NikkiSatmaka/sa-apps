@@ -15,7 +15,8 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 
 let accessToken: string | null = null;
-let refreshInFlight: Promise<string | null> | null = null;
+let refreshInFlight: Promise<{ token: string | null; detail?: string }> | null = null;
+const refreshDetailsByResponse = new WeakMap<Response, string>();
 
 export function setAccessToken(token: string | null): void {
   accessToken = token;
@@ -33,19 +34,22 @@ export function getAccessToken(): string | null {
   return accessToken;
 }
 
-async function refreshAccessToken(): Promise<string | null> {
+async function refreshAccessToken(): Promise<{ token: string | null; detail?: string }> {
   if (!refreshInFlight) {
     refreshInFlight = fetch(`${API_BASE_URL}/auth/refresh`, {
       method: "POST",
       credentials: "include",
     })
       .then(async (response) => {
-        if (!response.ok) return null;
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          return { token: null, detail: body?.detail };
+        }
         const result = await response.json();
         accessToken = result.access_token;
-        return accessToken;
+        return { token: accessToken };
       })
-      .catch(() => null)
+      .catch(() => ({ token: null }))
       .finally(() => {
         refreshInFlight = null;
       });
@@ -59,9 +63,12 @@ async function authenticatedFetch(url: string, init: RequestInit): Promise<Respo
   const response = await fetch(url, { ...init, headers, credentials: "include" });
   if (response.status !== 401 || url.endsWith("/auth/refresh")) return response;
 
-  const renewed = await refreshAccessToken();
-  if (!renewed) return response;
-  headers.set("Authorization", `Bearer ${renewed}`);
+  const refresh = await refreshAccessToken();
+  if (!refresh.token) {
+    if (refresh.detail) refreshDetailsByResponse.set(response, refresh.detail);
+    return response;
+  }
+  headers.set("Authorization", `Bearer ${refresh.token}`);
   return fetch(url, { ...init, headers, credentials: "include" });
 }
 
@@ -108,9 +115,12 @@ export async function fetcher<T>(endpoint: string): Promise<T> {
     if (response.status === 401) {
       if (typeof window !== "undefined") {
         clearAccessToken();
-        window.location.href = "/login?error=session_expired";
+        window.location.href =
+          refreshDetailsByResponse.get(response) === "Refresh cookie tidak ditemukan."
+            ? "/login"
+            : "/login?error=session_expired";
       }
-      throw new ApiError("Unauthorized", 401);
+      throw new ApiError("Unauthorized", 401, { refreshDetail: refreshDetailsByResponse.get(response) });
     }
 
     const errorData = await response.json().catch(() => null);

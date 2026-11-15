@@ -5,12 +5,16 @@ Portal internal untuk tim Solution Architect (SA): aplikasi ticketing / project 
 ## Peran
 
 **Sales**:
-Pembuat dan pemantau project; opsional per project. Mengisi kuesioner kualifikasi dan DQ Number, boleh menulis komentar dan menetapkan `Won`. Bukan bagian dari tim SA; dapat melihat semua proyek. Akses Drive: Viewer `Inventory`, dan Viewer `Solutions` setelah DQ terisi.
+Dapat membuat dan memantau project; keterlibatannya opsional per project. Mengisi kuesioner kualifikasi dan DQ Number, boleh menulis komentar dan menetapkan `Won`. Bukan bagian dari tim SA; dapat melihat semua proyek. Akses Drive: Viewer `Inventory`, dan Viewer `Solutions` setelah DQ terisi.
 _Avoid_: Account Executive, AE
 
-**Product Manager** (role `Product`):
-Penghubung tim ke principal (penyedia cloud) sekaligus negosiator harga dengan principal. Bukan pembentuk produk atau solusi. Setara Sales dalam hak di portal (hanya beda tim); selalu ada di setiap project (`product_pic` wajib). Pembuat dan pemantau project, boleh mengisi DQ Number.
-_Avoid_: Product, PM
+**Sales PIC**:
+Kontak dari tim Sales yang bertanggung jawab atas tindak lanjut komersial sebuah Opportunity atau Project. Sales PIC dapat berbeda dari orang yang mencatat project (misalnya Product Manager atau Lead SA yang memasukkannya atas nama Sales); relasi Sales PIC, bukan pembuat record semata, menjadi acuan kepemilikan Sales pada tampilan Portal SA.
+_Avoid_: Menganggap pembuat project selalu Sales PIC
+
+**Product Manager** (role `Product`; short form **PM**):
+Penghubung tim ke principal cloud dan negosiator harga; bukan pembentuk produk atau solusi. Dalam Portal SA, haknya setara Sales meski berasal dari tim berbeda; PM dapat membuat dan memantau project, mengisi DQ Number, dan selalu menjadi kontak Product di setiap project.
+_Avoid_: Product (sebagai sebutan untuk orang)
 
 **SA** (Solution Architect):
 Orang yang ditugaskan mengerjakan sisi teknis sebuah proyek: dokumen, subtask, activity log. Satu project boleh punya satu **SA utama** dan nol atau lebih **SA tambahan**.
@@ -35,11 +39,11 @@ _Avoid_: Pengganti SA, substitute SA
 ## Proyek & status
 
 **Opportunity**:
-Peluang pre-sales yang dibuat Sales, Product Manager, atau Lead SA. Begitu masuk sistem, direpresentasikan sebagai `Project`.
+Peluang pre-sales. Begitu dicatat di Portal SA, peluang tersebut dilacak sebagai `Project` yang sama dari intake melalui kualifikasi dan pekerjaan SA hingga ditutup; tidak ada catatan Lead/Opportunity terpisah sebelum Project.
 _Avoid_: Deal, lead
 
 **Project**:
-Entity inti yang melacak satu opportunity dari intake sampai penutupan. Punya `status`, `qualification_state`, BANT score, orang yang ditugaskan (`created_by`, `product_pic`, `sales_pic`, `lead_sa`, SA utama/tambahan), subtask, dokumen, komentar, dan activity log. Diperlakukan seperti *ticket* di tracker, tetapi nama entity tetap `Project`.
+Entity inti yang melacak satu Opportunity dari intake sampai penutupan. Memuat siklus kerja dan kualifikasi, BANT score, pemilik dan kontak dari Product, Sales, dan SA, subtask, dokumen, komentar, serta activity log. Orang yang mencatat Opportunity dapat berbeda dari Sales PIC. Diperlakukan seperti *ticket* di tracker, tetapi nama entity tetap `Project`.
 _Avoid_: Case
 
 

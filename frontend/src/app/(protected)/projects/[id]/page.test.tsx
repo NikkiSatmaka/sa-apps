@@ -409,6 +409,17 @@ describe("Detail proyek — Assign / Reassign", () => {
     expect(screen.getByRole("dialog", { name: "stub assign" })).toHaveTextContent("bant=80 tags=Cloud Migration,Security");
   });
 
+  it("Assign SA menerima tags null tanpa menampilkan tag", async () => {
+    const { user } = setup("Admin", {
+      status: "Awaiting Assignment",
+      use_case_tags: null,
+    });
+    await user.click(await screen.findByRole("button", { name: "Assign SA" }));
+    expect(screen.getByRole("dialog", { name: "stub assign" })).toHaveTextContent(
+      "tags=-",
+    );
+  });
+
   it("Reassign SA membuka modal dengan nama SA saat ini; sukses memuat ulang", async () => {
     const loc = stubLocation();
     const { user } = setup("Lead_SA", { status: "Assigned" });

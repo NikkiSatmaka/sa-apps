@@ -646,6 +646,8 @@ function ProjectCard({
     }
   };
 
+  const useCaseTags = project.use_case_tags ?? [];
+
   return (
     <div className="rounded-lg border border-neutral-200 bg-white p-5 hover:shadow-sm transition-shadow duration-200">
       {/* Header card */}
@@ -677,9 +679,9 @@ function ProjectCard({
       </div>
 
       {/* Tags */}
-      {(project.use_case_tags?.length ?? 0) > 0 && (
+      {useCaseTags.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mb-3">
-          {project.use_case_tags?.slice(0, 3).map((tag) => (
+          {useCaseTags.slice(0, 3).map((tag) => (
             <span
               key={tag}
               className="px-2 py-0.5 bg-neutral-100 text-neutral-600 text-xs rounded"
@@ -687,9 +689,9 @@ function ProjectCard({
               {tag}
             </span>
           ))}
-          {(project.use_case_tags?.length ?? 0) > 3 && (
+          {useCaseTags.length > 3 && (
             <span className="px-2 py-0.5 text-neutral-400 text-xs">
-              +{(project.use_case_tags?.length ?? 0) - 3}
+              +{useCaseTags.length - 3}
             </span>
           )}
         </div>

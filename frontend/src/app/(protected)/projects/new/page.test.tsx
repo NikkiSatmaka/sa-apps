@@ -494,7 +494,10 @@ describe("NewProjectPage — pengiriman", () => {
       bant_score: null,
       sub_scores: null,
       scoring_triggered: true,
-      files: [{ filename: "mom.pdf", success: false, error: "Gagal membaca file." }],
+      files: [
+        { filename: "mom.pdf", success: false, error: "Gagal membaca file." },
+        { filename: "rfp.pdf", success: false, error: "" },
+      ],
     }));
     const user = setup({ fake: true });
     await isiLangkah1(user);
@@ -504,6 +507,8 @@ describe("NewProjectPage — pengiriman", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("mom.pdf");
     expect(screen.getByRole("alert")).toHaveTextContent("Gagal membaca file.");
+    expect(screen.getByRole("alert")).toHaveTextContent("rfp.pdf");
+    expect(screen.getByRole("alert")).toHaveTextContent("File gagal diproses.");
     await act(() => vi.advanceTimersByTimeAsync(2500));
     expect(router.push).not.toHaveBeenCalled();
   });

@@ -64,6 +64,18 @@ describe("Dashboard Lead SA — antrian assignment", () => {
     expect(screen.getAllByRole("button", { name: "Assign SA" })).toHaveLength(2);
   });
 
+  it("tiga tag ditampilkan tanpa indikator tag tambahan", async () => {
+    ok("/projects/pending-assignment", [
+      makePendingProject({ use_case_tags: ["Cloud", "AI", "Security"] }),
+    ]);
+    renderWithProviders(<LeadSADashboard />, { role: "Lead_SA" });
+
+    expect(await screen.findByText("Cloud")).toBeInTheDocument();
+    expect(screen.getByText("AI")).toBeInTheDocument();
+    expect(screen.getByText("Security")).toBeInTheDocument();
+    expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument();
+  });
+
   it("nullable backend score dan tags tidak merusak kartu antrian", async () => {
     const project = {
       ...makePendingProject(),

@@ -54,10 +54,12 @@ describe("ProjectCard", () => {
     expect(screen.getByText(status).className).toContain(kelas);
   });
 
-  it("Intake menampilkan qualification_state di samping status", () => {
+  it("Intake menampilkan label qualification_state yang ramah pengguna", () => {
     setup({ status: "Intake", qualificationState: "Need Clarification" });
     expect(screen.getByText("Intake")).toBeInTheDocument();
-    expect(screen.getByText("Need Clarification").className).toContain("bg-orange-100");
+    const badge = screen.getByText("Perlu Klarifikasi Tambahan");
+    expect(badge.className).toContain("bg-orange-100");
+    expect(screen.queryByText("Need Clarification")).not.toBeInTheDocument();
   });
 
   it("qualification_state tidak tampil di luar Intake", () => {

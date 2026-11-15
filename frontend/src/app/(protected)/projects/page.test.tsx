@@ -212,16 +212,17 @@ describe("Daftar proyek — filter", () => {
     expect(within(kartuB).getByText("Menunggu DQ")).toBeInTheDocument();
   });
 
-  it("kartu Intake menampilkan qualification_state; di luar Intake tidak", async () => {
+  it("kartu Intake menampilkan label qualification_state yang ramah pengguna; di luar Intake tidak", async () => {
     serve([
       makeProject({ id_project: "i1", project_name: "Intake Satu", status: "Intake", qualification_state: "Need Clarification" }),
       makeProject({ id_project: "i2", project_name: "Sudah Lolos", status: "Awaiting Assignment", qualification_state: "Qualified" }),
     ]);
     setup("Lead_SA");
     const kartu = await screen.findByRole("button", { name: "Proyek Intake Satu - PT Contoh" });
-    expect(within(kartu).getByText("Need Clarification")).toBeInTheDocument();
+    expect(within(kartu).getByText("Perlu Klarifikasi Tambahan")).toBeInTheDocument();
+    expect(within(kartu).queryByText("Need Clarification")).not.toBeInTheDocument();
     const lolos = screen.getByRole("button", { name: "Proyek Sudah Lolos - PT Contoh" });
-    expect(within(lolos).queryByText("Qualified")).not.toBeInTheDocument();
+    expect(within(lolos).queryByText("Lolos Kualifikasi")).not.toBeInTheDocument();
   });
 
   it.each(["In Progress", "Submitted", "Won", "Handed Over", "Closed", "On Hold"])(

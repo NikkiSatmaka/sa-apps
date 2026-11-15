@@ -96,8 +96,8 @@ DEMO_USERS = {
     "Lead_SA": {
         "email": "demo-lead@portal-sa.local",
         "name": "Demo Lead SA",
-        "google_id": "demo-google-id-lead-sa",
         "is_admin": True,
+        "google_id": "demo-google-id-lead-sa",
     },
     "Product": {
         "email": "demo-product@portal-sa.local",
@@ -146,7 +146,7 @@ async def demo_login(
     # Demo login tetap memakai akun default per role; field tambahan diabaikan.
     demo_config = DEMO_USERS[body.role]
 
-    # Cari user di database berdasarkan email (INSERT IF NOT EXISTS)
+    # Cari user demo berdasarkan email.
     stmt = select(User).where(User.email == demo_config["email"])
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
@@ -170,6 +170,9 @@ async def demo_login(
         db.add(user)
         await db.commit()
         await db.refresh(user)
+    else:
+        # Sinkronkan flag admin akun demo dengan konfigurasi role.
+        user.is_admin = demo_config.get("is_admin", False)
 
     # Generate JWT token pair — menggunakan method yang sama dengan OAuth flow
     tokens = auth_service._create_token_pair(user, db)

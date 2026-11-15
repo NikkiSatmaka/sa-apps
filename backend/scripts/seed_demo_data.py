@@ -138,17 +138,6 @@ DEMO_USERS = [
         "email": "demo-lead2@portal-sa.local", "name": "Demo Lead SA 2",
         "role": "Lead_SA", "is_admin": True, "google_id": "demo-google-id-lead-sa-2",
     },
-    {
-        "email": "demo-admin@portal-sa.local",
-        "name": "Demo Admin",
-        "role": "Lead_SA",
-        "is_admin": True,
-        "google_id": "demo-google-id-admin",
-    },
-    {
-        "email": "demo-admin2@portal-sa.local", "name": "Demo Admin 2",
-        "role": "Lead_SA", "is_admin": True, "google_id": "demo-google-id-admin-2",
-    },
 ]
 
 

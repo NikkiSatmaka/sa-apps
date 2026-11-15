@@ -487,6 +487,27 @@ describe("NewProjectPage — pengiriman", () => {
     expect(router.push).toHaveBeenCalledWith("/projects/11111111-1111-4111-8111-111111111111");
   });
 
+  it("shows failed source uploads and keeps the project result visible", async () => {
+    useSchema();
+    capturePost(() => created({
+      status: "Intake",
+      bant_score: null,
+      sub_scores: null,
+      scoring_triggered: true,
+      files: [{ filename: "mom.pdf", success: false, error: "Gagal membaca file." }],
+    }));
+    const user = setup({ fake: true });
+    await isiLangkah1(user);
+    await lanjut(user);
+    await isiKuesioner(user);
+    await user.click(screen.getByRole("button", { name: "Submit Request" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("mom.pdf");
+    expect(screen.getByRole("alert")).toHaveTextContent("Gagal membaca file.");
+    await act(() => vi.advanceTimersByTimeAsync(2500));
+    expect(router.push).not.toHaveBeenCalled();
+  });
+
   it("dengan file (scoring berjalan): selama jeda sebelum redirect, form sudah tidak bisa dikirim ulang (#83)", async () => {
     useSchema();
     capturePost(() => created({ scoring_triggered: true, bant_score: null, sub_scores: null, status: "Intake", qualification_state: "Scoring" }));

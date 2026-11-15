@@ -24,10 +24,14 @@ import {
  * Requirements: 4.1, 4.2
  */
 
+type AssignmentProject = Pick<
+  PendingProject,
+  "id_project" | "project_name" | "customer_name" | "bant_score" | "use_case_tags"
+>;
+
 interface AssignmentModalProps {
   /** Proyek yang akan di-assign */
-  project: PendingProject;
-  /** Callback ketika modal ditutup */
+  project: AssignmentProject;
   onClose: () => void;
   /** Callback setelah assignment berhasil */
   onSuccess: () => void;
@@ -145,14 +149,18 @@ export function AssignmentModal({
           <div className="mb-4 p-3 bg-neutral-50 rounded-lg">
             <div className="flex items-center gap-4 text-sm">
               <span className="text-neutral-500">BANT Status:</span>
-              <span className={`font-semibold ${
-                project.bant_score >= 60 ? "text-green-600" : "text-amber-600"
-              }`}>
-                {project.bant_score >= 60 ? "Passed" : "Not Passed"}
-              </span>
-              {project.use_case_tags.length > 0 && (
+              {project.bant_score === null ? (
+                <span className="font-semibold text-neutral-500">Belum dinilai</span>
+              ) : (
+                <span className={`font-semibold ${
+                  project.bant_score >= 60 ? "text-green-600" : "text-amber-600"
+                }`}>
+                  {project.bant_score >= 60 ? "Passed" : "Not Passed"}
+                </span>
+              )}
+              {(project.use_case_tags?.length ?? 0) > 0 && (
                 <div className="flex gap-1.5 flex-wrap">
-                  {project.use_case_tags.map((tag) => (
+                  {project.use_case_tags?.map((tag) => (
                     <span
                       key={tag}
                       className="px-2 py-0.5 bg-primary-50 text-primary-600 text-xs rounded-full"

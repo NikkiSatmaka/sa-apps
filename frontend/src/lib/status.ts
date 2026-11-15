@@ -137,6 +137,13 @@ const BADGE_QUALIFICATION: Record<string, string> = {
   "Manual Review": "bg-pink-100 text-pink-800",
   Qualified: "bg-green-100 text-green-800",
 };
+const LABEL_QUALIFICATION: Record<(typeof QUALIFICATION_STATE)[number], string> = {
+  Scoring: "Sedang Dinilai",
+  "Need Clarification": "Perlu Klarifikasi Tambahan",
+  "Manual Review": "Perlu Ditinjau Manual",
+  Qualified: "Lolos Kualifikasi",
+};
+
 
 const BADGE_NETRAL = "bg-neutral-100 text-neutral-700";
 
@@ -148,4 +155,10 @@ export function statusBadgeClass(status: string): string {
 /** Kelas warna badge `qualification_state`; nilai tak dikenal jatuh ke netral. */
 export function qualificationBadgeClass(state: string): string {
   return BADGE_QUALIFICATION[state] ?? BADGE_NETRAL;
+}
+/** Label untuk ditampilkan; nilai backend tetap dipakai untuk logika dan request. */
+export function qualificationStateLabel(state: string): string {
+  return QUALIFICATION_STATE.includes(state as (typeof QUALIFICATION_STATE)[number])
+    ? LABEL_QUALIFICATION[state as (typeof QUALIFICATION_STATE)[number]]
+    : "Status kualifikasi lainnya";
 }

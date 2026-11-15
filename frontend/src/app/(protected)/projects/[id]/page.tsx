@@ -397,14 +397,8 @@ export default function ProjectDetailPage() {
             id_project: project.id_project,
             project_name: project.project_name,
             customer_name: project.customer_name,
-            bant_score: project.bant_score || 0,
-            use_case_tags: project.use_case_tags || [],
-            status: project.status,
-            target_submit: project.target_submit || "",
-            gdrive_folder_id: null,
-            folder_provisioning_status: project.folder_provisioning_status ?? null,
-            created_at: project.created_at,
-            sales_pic: { id: project.sales_pic?.id || "", name: project.sales_pic?.name || "", email: project.sales_pic?.email || "" },
+            bant_score: project.bant_score,
+            use_case_tags: project.use_case_tags ?? null,
           }}
           onClose={() => setShowAssignModal(false)}
           onSuccess={() => {

@@ -47,7 +47,7 @@ function LoginContent() {
     error && (ERROR_MESSAGES[error] || "Terjadi kesalahan. Silakan coba lagi.");
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
+    <main className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
       <div className="w-full max-w-sm space-y-6">
         {/* Logo / App Name */}
         <div className="text-center">
@@ -111,7 +111,7 @@ function LoginContent() {
           </button>
 
           {!oauthConfigured && (
-            <p className="text-center text-xs text-neutral-400">
+            <p className="text-center text-xs text-neutral-500">
               Hubungi administrator jika login Google belum tersedia.
             </p>
           )}
@@ -129,7 +129,7 @@ function LoginContent() {
           </p>
         )}
       </div>
-    </div>
+    </main>
   );
 }
 

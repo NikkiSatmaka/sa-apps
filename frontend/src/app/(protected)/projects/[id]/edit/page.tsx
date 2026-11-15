@@ -119,10 +119,10 @@ export default function EditProjectPage() {
       setToast({
         type: "success",
         msg: res.rescored === false
-          ? "Jawaban dikoreksi (skor tidak dihitung ulang)."
+          ? "Koreksi jawaban tersimpan. Skor tidak dihitung ulang."
           : res.status === "Awaiting Assignment"
-            ? `Skor ${res.total_score} — proyek lolos dan masuk antrian assignment.`
-            : `Skor ${res.total_score} — masih perlu klarifikasi tambahan.`,
+            ? `Skor ${res.total_score} — proyek lolos dan masuk antrean penugasan.`
+            : `Skor ${res.total_score} — Perlu Klarifikasi Tambahan.`,
       });
     } catch (err) {
       const errs: QualificationErrors = {};
@@ -279,15 +279,14 @@ export default function EditProjectPage() {
           <h2 className="text-base font-semibold text-neutral-800">Kuesioner Kualifikasi</h2>
           {editMode === "none" ? (
             <p className="text-sm text-neutral-600">
-              Jawaban kuesioner hanya dapat diubah saat qualification_state Need Clarification
-              (Sales PIC) atau oleh Lead SA/Admin setelah lolos gate.
+              Saat ini jawaban belum dapat diperbarui. Sales PIC dapat memperbarui jawaban saat proyek memerlukan klarifikasi tambahan. Setelah proyek lolos kualifikasi, Lead SA dan Admin dapat mengoreksi jawaban.
             </p>
           ) : (
             <>
               <p className="text-sm text-neutral-600">
                 {editMode === "rescore"
-                  ? "Menyimpan akan menghitung ulang skor BANT. Jika skor mencapai 60, proyek masuk antrian assignment."
-                  : "Koreksi jawaban tidak menghitung ulang skor dan tidak mengubah status."}
+                  ? "Simpan jawaban untuk menilai ulang kelayakan proyek. Jika memenuhi kriteria, proyek akan masuk antrean penugasan."
+                  : "Perubahan ini hanya memperbarui jawaban; nilai dan tahapan proyek tidak berubah."}
               </p>
               <QualificationForm
                 schema={schema}

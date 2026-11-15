@@ -3,12 +3,22 @@ import { http, HttpResponse, server, api, successEnvelope, errorEnvelope } from 
 import { assignProject, getAvailableSA, getPendingAssignment, reassignProject, reprovisionFolder } from "./assignment";
 
 describe("assignment API", () => {
-  it("getPendingAssignment mengembalikan daftar (kosong maupun terisi)", async () => {
-    // Default global (grup shell) berisi satu proyek; test ini mulai dari keadaan kosong.
-    server.use(http.get(api("/projects/pending-assignment"), () => HttpResponse.json(successEnvelope([]))));
-    await expect(getPendingAssignment()).resolves.toEqual([]);
-    server.use(http.get(api("/projects/pending-assignment"), () => HttpResponse.json(successEnvelope([{ id_project: "p1" }]))));
-    await expect(getPendingAssignment()).resolves.toEqual([{ id_project: "p1" }]);
+  it("getPendingAssignment menerima bentuk ProjectBrief termasuk field nullable backend", async () => {
+    const project = {
+      id_project: "p1",
+      project_name: "Proyek Satu",
+      customer_name: "PT Contoh",
+      status: "Awaiting Assignment",
+      bant_score: null,
+      use_case_tags: null,
+      assigned_sa: null,
+      assigned_at: null,
+      target_submit: "2025-12-31",
+      gdrive_folder_id: null,
+      folder_provisioning_status: null,
+    };
+    server.use(http.get(api("/projects/pending-assignment"), () => HttpResponse.json(successEnvelope([project]))));
+    await expect(getPendingAssignment()).resolves.toEqual([project]);
   });
 
   it("getPendingAssignment melempar ApiError saat error server", async () => {
@@ -22,20 +32,38 @@ describe("assignment API", () => {
     await expect(getAvailableSA()).resolves.toEqual([sa]);
   });
 
-  it("assignProject mem-POST sa_id ke proyek yang tepat", async () => {
+  it("assignProject mem-POST sa_id dan mengembalikan response backend bersarang", async () => {
     let body: unknown;
     let path = "";
+    const response = {
+      project: {
+        id_project: "p9",
+        project_name: "Proyek Sembilan",
+        customer_name: "PT Contoh",
+        status: "Assigned",
+        bant_score: 72,
+        use_case_tags: ["Cloud"],
+        assigned_sa: "s1",
+        assigned_at: "2025-01-01T00:00:00Z",
+        target_submit: "2025-12-31",
+        gdrive_folder_id: null,
+        folder_provisioning_status: "pending",
+      },
+      assigned_sa_name: "SA Satu",
+      notification_sent: true,
+      folder_provisioning_triggered: true,
+    };
     server.use(
       http.post(api("/projects/:id/assign"), async ({ request }) => {
         body = await request.json();
         path = new URL(request.url).pathname;
-        return HttpResponse.json(successEnvelope({ id_project: "p9", assigned_sa: "s1", assigned_at: "t", status: "Assigned" }));
+        return HttpResponse.json(successEnvelope(response));
       })
     );
     const res = await assignProject("p9", "s1");
     expect(path).toMatch(/\/projects\/p9\/assign$/);
     expect(body).toEqual({ sa_id: "s1" });
-    expect(res.status).toBe("Assigned");
+    expect(res).toEqual(response);
   });
 
   it("assignProject menolak dengan pesan backend (mis. 403 bukan Lead_SA)", async () => {

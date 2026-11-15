@@ -299,7 +299,10 @@ export default function NewProjectPage() {
       const response = await createProject(formData);
       setCreatedProject(response);
 
-      if (response.scoring_triggered) {
+      const failedFiles = response.files.filter((file) => !file.success);
+      if (failedFiles.length > 0) {
+        showToast("error", "Proyek dibuat, tetapi sebagian file gagal diproses. Periksa daftar di bawah.");
+      } else if (response.scoring_triggered) {
         showToast("success", "Proyek berhasil dibuat! File sedang diproses untuk scoring.");
         // Redirect ke detail proyek setelah 2 detik: lihat useEffect di bawah (dibersihkan saat unmount)
       } else if (response.status === "Awaiting Assignment") {
@@ -339,7 +342,9 @@ export default function NewProjectPage() {
   // arahkan ke detail proyek setelah 2 detik. Timer dibersihkan saat unmount agar berpindah halaman
   // lebih dulu tidak memicu navigasi paksa.
   const adaLayarHasilBant = createdProject?.bant_score != null && !!createdProject.sub_scores;
-  const redirectProjectId = createdProject && !adaLayarHasilBant ? createdProject.id_project : null;
+  const adaFileGagal = createdProject?.files.some((file) => !file.success) ?? false;
+  const redirectProjectId =
+    createdProject && !adaLayarHasilBant && !adaFileGagal ? createdProject.id_project : null;
   useEffect(() => {
     if (!redirectProjectId) return;
     const timer = setTimeout(() => router.push(`/projects/${redirectProjectId}`), 2000);
@@ -376,6 +381,7 @@ export default function NewProjectPage() {
           projectName={createdProject.project_name}
           onViewProject={() => router.push(`/projects/${createdProject.id_project}`)}
         />
+        <FileUploadFailures files={createdProject.files} />
         {toast && <Toast type={toast.type} message={toast.message} />}
       </div>
     );
@@ -390,6 +396,7 @@ export default function NewProjectPage() {
           result={createdProject}
           onViewProject={() => router.push(`/projects/${createdProject.id_project}`)}
         />
+        <FileUploadFailures files={createdProject.files} />
         {toast && <Toast type={toast.type} message={toast.message} />}
       </div>
     );
@@ -815,6 +822,32 @@ function ProjectCreatedNotice({
     </div>
   );
 }
+
+function FileUploadFailures({ files }: { files: CreateProjectResponse["files"] }) {
+  const failures = files.filter((file) => !file.success);
+  if (failures.length === 0) return null;
+
+  return (
+    <section
+      className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-left text-sm text-amber-950"
+      role="alert"
+      aria-labelledby="file-upload-failures-title"
+    >
+      <h3 id="file-upload-failures-title" className="font-semibold">
+        Proyek dibuat, tetapi sebagian file tidak dapat diproses
+      </h3>
+      <ul className="mt-2 list-disc space-y-1 pl-5">
+        {failures.map((file, index) => (
+          <li key={`${file.filename}-${index}`}>
+            <span className="font-medium">{file.filename}:</span>{" "}
+            {file.error || "File gagal diproses."}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 
 /**
  * Komponen feedback hasil BANT scoring

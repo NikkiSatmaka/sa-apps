@@ -559,6 +559,8 @@ async def get_project_detail(
         if project.assigned_sa
         else None,
         "collaborators": collab_list,
+        "gdrive_folder_id": project.gdrive_folder_id,
+        "gdrive_solutions_folder_id": project.gdrive_solutions_folder_id,
         "source_documents": source_documents,
         "folder_provisioning_status": project.folder_provisioning_status,
         "folder_provisioning_operation": project.folder_provisioning_operation,

@@ -7,10 +7,10 @@ import hashlib
 import logging
 import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -259,28 +259,48 @@ class TestCallback:
 
 
 class TestCallbackCalendar:
-    def _state(self, url: str) -> str:
-        return f"calendar_auth|{url}"
+    def _state(self, url: str, state_code: str | None = None) -> str:
+        state = f"calendar_auth|{url}"
+        return f"{state}|{state_code}" if state_code else state
 
     def test_sukses_redirect_ke_frontend_dengan_kode_tanpa_token(self, klien, monkeypatch):
         monkeypatch.setattr(settings, "FRONTEND_URL", "http://localhost:3000")
         pasang_google(monkeypatch, token_body={"access_token": "tok-kalender"})
         db = SesiPalsu(None)
+        user_id = uuid.uuid4()
+        created = {}
+
+        async def consume_state(_db, code, purpose):
+            assert (code, purpose) == ("calendar-state", "calendar")
+            return SimpleNamespace(user_id=user_id, encrypted_value=None)
+
+        async def create_handoff(_db, **values):
+            created.update(values)
+            return "opaque-handoff"
+
+        monkeypatch.setattr("app.api.auth.auth_service.consume_handoff", consume_state)
+        monkeypatch.setattr("app.api.auth.auth_service.create_handoff", create_handoff)
 
         resp = klien(db).get(
             f"{P}/callback",
             params={
                 "code": "k",
-                "state": self._state("http://localhost:3000/activity-logs/calendar"),
+                "state": self._state(
+                    "http://localhost:3000/activity-logs/calendar", "calendar-state"
+                ),
             },
         )
 
         assert resp.status_code in (302, 307)
         loc = resp.headers["location"]
-        assert loc.startswith("http://localhost:3000/activity-logs/calendar#gcal_code=")
+        assert loc == "http://localhost:3000/activity-logs/calendar#gcal_code=opaque-handoff"
         assert "tok-kalender" not in loc
         assert urlparse(loc).query == ""
-        assert db.ditambahkan[0].purpose == "calendar"
+        assert created == {
+            "purpose": "calendar",
+            "user_id": user_id,
+            "value": "tok-kalender",
+        }
 
     def test_gagal_tukar_kode_redirect_dengan_penanda_error(self, klien, monkeypatch):
         monkeypatch.setattr(settings, "FRONTEND_URL", "http://localhost:3000")

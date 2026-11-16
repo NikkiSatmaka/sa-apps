@@ -68,9 +68,7 @@ def _get(project, user, *, extra_lookups=0):
     """Urutan execute: project, [lookup user...], daftar collaborators, Source document (BACA terbuka: tanpa cek collaborator)."""
     session = AsyncMock()
     seq = [_res(project)]
-    seq += [_res(None)] * extra_lookups
-    seq += [_res(items=[]), _res(items=[])]
-    session.execute = AsyncMock(side_effect=seq)
+    seq += [_res(items=[]), _res(items=[]), _res(items=[])]
 
     async def _db():
         yield session

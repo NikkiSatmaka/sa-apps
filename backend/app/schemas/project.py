@@ -151,6 +151,8 @@ class ProjectDetailResponse(BaseModel):
     lead_sa: Optional[ProjectListPersonResponse] = None
     assigned_sa: Optional[ProjectListPersonResponse] = None
     collaborators: list[dict[str, Any]] = Field(default_factory=list)
+    gdrive_folder_id: Optional[str] = None
+    gdrive_solutions_folder_id: Optional[str] = None
     source_documents: list[dict[str, Any]] = Field(default_factory=list)
     folder_provisioning_status: Optional[str] = None
     folder_provisioning_operation: Optional[dict[str, Any]] = None

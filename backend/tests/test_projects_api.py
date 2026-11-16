@@ -635,9 +635,8 @@ class TestFolderProvisioningStatusInResponse:
             response = client.get("/api/v1/projects")
             assert response.status_code == status.HTTP_200_OK
             body = response.json()
-            item = body["data"][0]
+            item = body["data"]["items"][0]
             assert item["folder_provisioning_status"] == "provisioned"
-            # Field lama tetap ada dan tidak rusak
             assert item["gdrive_folder_id"] == "gdrive_master_123"
         finally:
             app.dependency_overrides.clear()
@@ -668,14 +667,14 @@ class TestFolderProvisioningStatusInResponse:
             return result
 
         # Urutan execute di get_project_detail:
-        # 1) lookup Project, 2) cek collaborator (None),
-        # 3) lookup Sales PIC (None), 4) lookup SA assigned (skip: assigned_sa None),
-        # 5) daftar collaborators (kosong), 6) daftar Source document (kosong).
+        # 1) lookup Project, user PIC (lewat _muat_user), [SA assigned bila ada],
+        # collaborators, Source document, lalu integration operations.
         mock_session.execute = AsyncMock(
             side_effect=[
                 _make_scalar_result(project),
                 _make_scalar_result(None),
                 _make_scalar_result(None),
+                _make_scalars_result([]),
                 _make_scalars_result([]),
                 _make_scalars_result([]),
             ]

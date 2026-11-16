@@ -20,7 +20,9 @@ from app.core.database import get_db
 from app.core.dependencies import (
     PERAN_DAPAT_DITUGASKAN,
     PeranUser,
+    TingkatAkses,
     adalah_privileged,
+    ensure_project_access,
     get_current_user,
 )
 from app.models.integration_operation import IntegrationOperation
@@ -319,6 +321,12 @@ async def retry_integration_operation(
 ):
     """Retry persisted Drive permission operations with a safe desired state."""
     _require_lead_sa(current_user)
+    project_result = await db.execute(select(Project).where(Project.id_project == project_id))
+    project = project_result.scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    await ensure_project_access(db, project, current_user, TingkatAkses.BACA)
+
     result = await db.execute(
         select(IntegrationOperation).where(
             IntegrationOperation.id == operation_id,
@@ -333,12 +341,6 @@ async def retry_integration_operation(
             status_code=status.HTTP_409_CONFLICT,
             detail="This operation cannot be retried safely.",
         )
-
-    project_result = await db.execute(select(Project).where(Project.id_project == project_id))
-    project = project_result.scalar_one_or_none()
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project not found.")
-
     context = operation.context or {}
     if operation.operation_type == "drive_permission" and operation.action == "reassign_sa_access":
         sa_result = await db.execute(select(User).where(User.id == project.assigned_sa))

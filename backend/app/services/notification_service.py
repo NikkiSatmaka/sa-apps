@@ -3,10 +3,9 @@ Service NotificationService — Modul untuk mengelola notifikasi in-app dan emai
 
 Fitur utama:
 - Kirim notifikasi in-app (selalu aktif)
-- Kirim email via Gmail API (graceful fallback jika tidak dikonfigurasi)
+- Kirim email via Gmail API; hasil selalu dicatat dan kegagalan tetap non-blocking
 - Event types: assignment, status_change, sla_reminder, sla_escalation, handover, doc_ready
-- Logging semua notifikasi ke NotificationLogs
-- Email retry: 3x interval 30s
+- Logging semua notifikasi ke NotificationLogs dan IntegrationOperations
 
 Sesuai requirement 14.1–14.6.
 """
@@ -32,14 +31,13 @@ from sqlalchemy import and_, func, select, update
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.notification_log import NotificationLog
+from app.models.project import Project
 from app.models.user import User
+from app.services.integration_operations import run_side_effect
 
 logger = logging.getLogger(__name__)
 
 
-# Interval retry email dalam detik
-EMAIL_RETRY_INTERVAL = 30
-EMAIL_MAX_RETRIES = 3
 
 # Scope minimal untuk mengirim email via Gmail API.
 GMAIL_SEND_SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
@@ -156,13 +154,10 @@ class NotificationService:
 
     async def send_notification(self, event: NotificationEvent) -> None:
         """
-        Kirim notifikasi in-app + email (jika tersedia).
+        Kirim notifikasi in-app dan jadwalkan email best-effort.
 
-        Flow:
-        1. Selalu buat in-app notification record (status: sent)
-        2. Jika Gmail dikonfigurasi, coba kirim email (async, retry 3x)
-        3. Log semua ke NotificationLogs
-
+        Setiap percobaan email dicatat sebagai operation terpisah; kegagalan Gmail
+        tidak menggagalkan flow utama dan tidak memicu retry otomatis.
         Args:
             event: NotificationEvent berisi detail event yang akan dikirim.
 
@@ -190,12 +185,10 @@ class NotificationService:
                     f"(type={event.event_type.value}, recipient={event.recipient_user_id})"
                 )
 
-                # 2. Kirim email jika Gmail dikonfigurasi (requirement 14.4)
-                if self._is_gmail_configured():
-                    # Email dikirim async — tidak memblokir flow utama
-                    asyncio.create_task(self._send_email_with_retry(event))
-                else:
-                    logger.info("Gmail tidak dikonfigurasi — email dilewati (graceful fallback).")
+                # Email delivery remains best-effort and is recorded independently.
+                task = asyncio.create_task(self._send_email_once(event))
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
 
             except Exception as e:
                 logger.error(f"Gagal mengirim notifikasi: {e}")
@@ -213,21 +206,33 @@ class NotificationService:
         Picu email saja (tanpa in-app) untuk caller yang sudah menulis NotificationLog
         in-app sendiri dalam transaksinya — mis. reminder/eskalasi SLA.
 
-        Graceful: no-op bila Gmail belum dikonfigurasi; tidak pernah raise. Email
-        dikirim di background dengan retry (`_send_email_with_retry`).
+        Email delivery is attempted once in the background and its outcome is persisted.
         """
-        if not self._is_gmail_configured():
-            return
-
         try:
             async with AsyncSessionLocal() as db:
                 result = await db.execute(select(User).where(User.id == recipient_user_id))
                 user = result.scalar_one_or_none()
 
             if user is None or not user.email:
-                logger.warning(
-                    f"Email {event_type.value} dilewati: user {recipient_user_id} "
-                    f"tidak ditemukan / tanpa email."
+                async def recipient_unavailable() -> None:
+                    raise RuntimeError("The email recipient no longer has a portal account or email.")
+
+                project_id = await self._project_id_for_reference(reference_id, metadata)
+                await run_side_effect(
+                    project_id=project_id,
+                    operation_type="email_delivery",
+                    action=f"send_{event_type.value}_email",
+                    context={
+                        "event_type": event_type.value,
+                        "recipient_user_id": str(recipient_user_id),
+                    },
+                    retryable=False,
+                    perform=recipient_unavailable,
+                    outcome="Email delivery could not be attempted.",
+                    actionable_failure=(
+                        "The notification recipient is unavailable. Confirm the project has a valid "
+                        "recipient account and email address."
+                    ),
                 )
                 return
 
@@ -238,7 +243,7 @@ class NotificationService:
                 reference_id=reference_id,
                 metadata=metadata,
             )
-            task = asyncio.create_task(self._send_email_with_retry(event))
+            task = asyncio.create_task(self._send_email_once(event))
             # Simpan referensi agar task tidak di-GC sebelum selesai.
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
@@ -253,27 +258,27 @@ class NotificationService:
         metadata: Optional[dict] = None,
         subject: Optional[str] = None,
     ) -> bool:
-        """
-        Kirim email SAJA ke alamat yang tidak punya akun portal (mis. PMO/Delivery Lead, #76).
-
-        Tidak menulis `NotificationLog` karena kolom penerimanya wajib user portal. Email dikirim
-        di background dengan retry yang sama (`EMAIL_MAX_RETRIES`, jeda `EMAIL_RETRY_INTERVAL`);
-        kegagalan akhir hanya masuk application log. Tidak pernah raise.
-
-        Returns:
-            True bila pengiriman dijadwalkan, False bila Gmail belum dikonfigurasi.
-        """
-        if not self._is_gmail_configured():
-            logger.info(f"Email langsung ke {to} dilewati: Gmail belum dikonfigurasi.")
-            return False
-
+        """Schedule a best-effort external email and persist its delivery outcome."""
+        configured = self._is_gmail_configured()
         task = asyncio.create_task(
             self._kirim_email_langsung(to, event_type, reference_id, metadata, subject)
         )
-        # Simpan referensi agar task tidak di-GC sebelum selesai.
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
-        return True
+        return configured
+
+    async def _project_id_for_reference(
+        self,
+        reference_id: Optional[str],
+        metadata: Optional[dict],
+    ) -> Optional[str]:
+        candidate = (metadata or {}).get("project_id") or reference_id
+        if not candidate:
+            return None
+        async with AsyncSessionLocal() as db:
+            return await db.scalar(
+                select(Project.id_project).where(Project.id_project == str(candidate))
+            )
 
     async def _kirim_email_langsung(
         self,
@@ -283,8 +288,14 @@ class NotificationService:
         metadata: Optional[dict],
         subject: Optional[str],
     ) -> None:
-        for attempt in range(1, EMAIL_MAX_RETRIES + 1):
-            success = await self.send_email(
+        try:
+            project_id = await self._project_id_for_reference(reference_id, metadata)
+        except Exception:
+            logger.exception("Could not resolve project for external email operation.")
+            project_id = None
+
+        async def deliver() -> None:
+            sent = await self.send_email(
                 to=to,
                 subject=subject or self._get_default_subject(event_type),
                 template=event_type.value,
@@ -294,24 +305,26 @@ class NotificationService:
                     "metadata": metadata,
                 },
             )
-            if success:
-                return
-            if attempt < EMAIL_MAX_RETRIES:
-                await asyncio.sleep(EMAIL_RETRY_INTERVAL)
-        logger.error(f"Email langsung gagal setelah {EMAIL_MAX_RETRIES} percobaan ke {to}")
+            if not sent:
+                raise RuntimeError("Gmail did not confirm message delivery.")
 
-    async def _send_email_with_retry(self, event: NotificationEvent) -> None:
-        """
-        Kirim email dengan retry mechanism (requirement 14.5).
+        await run_side_effect(
+            project_id=project_id,
+            operation_type="email_delivery",
+            action=f"send_{event_type.value}_email",
+            context={"event_type": event_type.value, "reference_id": reference_id},
+            retryable=False,
+            perform=deliver,
+            outcome="Gmail confirmed the external notification email.",
+            actionable_failure=(
+                "Gmail did not confirm this email. Check Gmail configuration and permissions, "
+                "then confirm the recipient did not receive it before manually sending."
+            ),
+        )
 
-        Retry: 3 kali dengan interval 30 detik.
-        Jika semua retry gagal, log status 'failed'.
-
-        Args:
-            event: NotificationEvent berisi detail email.
-        """
+    async def _send_email_once(self, event: NotificationEvent) -> None:
+        """Send one best-effort email attempt and persist its outcome."""
         async with AsyncSessionLocal() as db:
-            # Buat record email notification (status: pending)
             email_id = _generate_notification_id()
             email_log = NotificationLog(
                 id=email_id,
@@ -326,9 +339,17 @@ class NotificationService:
             db.add(email_log)
             await db.commit()
 
-            # Coba kirim email dengan retry
-            for attempt in range(1, EMAIL_MAX_RETRIES + 1):
-                success = await self.send_email(
+            project_id = None
+            candidate_project_id = (event.metadata or {}).get("project_id") or event.reference_id
+            if candidate_project_id:
+                project_id = await db.scalar(
+                    select(Project.id_project).where(
+                        Project.id_project == str(candidate_project_id)
+                    )
+                )
+
+            async def deliver() -> None:
+                sent = await self.send_email(
                     to=event.recipient_email,
                     subject=event.subject or self._get_default_subject(event.event_type),
                     template=event.template or event.event_type.value,
@@ -338,39 +359,33 @@ class NotificationService:
                         "metadata": event.metadata,
                     },
                 )
+                if not sent:
+                    raise RuntimeError("Gmail did not confirm message delivery.")
 
-                if success:
-                    # Update status ke 'sent'
-                    await db.execute(
-                        update(NotificationLog)
-                        .where(NotificationLog.id == email_id)
-                        .values(status="sent")
-                    )
-                    await db.commit()
-                    logger.info(
-                        f"Email terkirim: {email_id} ke {event.recipient_email} (attempt {attempt})"
-                    )
-                    return
-
-                # Retry — tunggu 30 detik sebelum coba lagi
-                if attempt < EMAIL_MAX_RETRIES:
-                    logger.warning(
-                        f"Email gagal (attempt {attempt}/{EMAIL_MAX_RETRIES}), "
-                        f"retry dalam {EMAIL_RETRY_INTERVAL}s..."
-                    )
-                    await asyncio.sleep(EMAIL_RETRY_INTERVAL)
-
-            # Semua retry gagal — update status ke 'failed'
+            sent = await run_side_effect(
+                project_id=project_id,
+                operation_type="email_delivery",
+                action=f"send_{event.event_type.value}_email",
+                context={"event_type": event.event_type.value, "reference_id": event.reference_id},
+                retryable=False,
+                perform=deliver,
+                outcome="Gmail confirmed email delivery.",
+                actionable_failure=(
+                    "Gmail did not confirm this email. Check Gmail configuration and permissions, "
+                    "then confirm the recipient did not receive it before manually sending."
+                ),
+            )
             await db.execute(
                 update(NotificationLog)
                 .where(NotificationLog.id == email_id)
-                .values(status="failed")
+                .values(status="sent" if sent else "failed")
             )
             await db.commit()
-            logger.error(
-                f"Email gagal setelah {EMAIL_MAX_RETRIES} percobaan: "
-                f"{email_id} ke {event.recipient_email}"
-            )
+
+            if sent:
+                logger.info(f"Email terkirim: {email_id} ke {event.recipient_email}")
+            else:
+                logger.error(f"Email gagal: {email_id} ke {event.recipient_email}")
 
     async def send_email(
         self,
@@ -412,8 +427,7 @@ class NotificationService:
             return True
 
         except Exception as e:
-            # Graceful fallback: jangan raise. Retry ditangani oleh caller
-            # (_send_email_with_retry) sesuai kontrak 3x interval 30s.
+            # Graceful fallback: caller persists the failed delivery outcome.
             logger.error(f"Gagal mengirim email ke {to}: {e}")
             return False
 

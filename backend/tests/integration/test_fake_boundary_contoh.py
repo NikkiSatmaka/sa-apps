@@ -3,12 +3,14 @@ Contoh pemakaian fake boundary (tiket B3) lewat API nyata + Postgres sementara: 
 sukses dan satu gagal per fake. Test lain dapat menyalin pola ini.
 """
 
+import asyncio
 import json
 from datetime import date, timedelta
 
 from sqlalchemy import select
 
 from app.models import Project, User
+from app.services.notification_service import notification_service
 from tests.integration.fakes.calendar import event_berjadwal
 from tests.integration.kualifikasi_support import id_product_demo
 from tests.test_projects_questionnaire_api import jawaban_kuat
@@ -167,17 +169,29 @@ async def test_gmail_fake_email_hld_terekam(api, db_session, fake_gmail):
     assert surat.context["reference_id"] == id_project
 
 
-async def test_gmail_fake_gagal_dicoba_ulang_sampai_pulih(api, db_session, fake_gmail):
+async def test_gmail_fake_failure_does_not_retry_and_is_visible(api, db_session, fake_gmail):
     fake_gmail.fail_next(times=2)
     lead = await api.login_demo("Lead_SA")
     fake_gmail.tahan_email()
 
-    await _won(api, db_session, lead)
+    id_project, _ = await _won(api, db_session, lead)
     fake_gmail.lepaskan_email()
 
-    await fake_gmail.tunggu_percobaan(3)
-    assert [s.berhasil for s in fake_gmail.percobaan] == [False, False, True]
+    await fake_gmail.tunggu_percobaan(1)
+    await asyncio.gather(*notification_service._background_tasks)
+    assert [attempt.berhasil for attempt in fake_gmail.percobaan] == [False]
 
+    detail = await api.client.get(f"{PROYEK}/{id_project}", headers=lead)
+    assert detail.status_code == 200, detail.text
+    operation = next(
+        item
+        for item in detail.json()["data"]["integration_operations"]
+        if item["operation_type"] == "email_delivery"
+        and item["status"] == "failed"
+    )
+    assert len(operation["attempts"]) == 1
+    assert operation["retryable"] is False
+    assert operation["actionable_error"]
 
 # ----------------------------------------------------------------------------- Calendar
 

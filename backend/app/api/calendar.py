@@ -6,6 +6,7 @@ Sync events dan mapping ke activity log proyek.
 import logging
 import random
 import string
+import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from urllib.parse import urlencode
@@ -21,6 +22,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import TingkatAkses, ensure_project_access, get_current_user
 from app.models.activity_log import ActivityLog
+from app.models.integration_operation import IntegrationOperation
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.calendar import (
@@ -35,6 +37,11 @@ from app.services.calendar_service import (
     CalendarTimeoutError,
     calendar_service,
 )
+from app.services.integration_operations import (
+    begin_operation,
+    finish_operation,
+    serialize_operation,
+)
 from app.services.status_proyek import majukan_ke_in_progress, pastikan_proyek_bisa_ditulis
 
 logger = logging.getLogger(__name__)
@@ -42,6 +49,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/calendar", tags=["Calendar"])
 
 PESAN_EVENT_SUDAH_DIPETAKAN = "Event sudah dipetakan sebelumnya."
+
+async def _operation_details(db: AsyncSession, operation_id: uuid.UUID | None) -> dict | None:
+    if operation_id is None:
+        return None
+    operation = await db.get(IntegrationOperation, operation_id)
+    return serialize_operation(operation) if operation is not None else None
 
 
 @router.get(
@@ -108,6 +121,14 @@ async def sync_calendar(
 
     Timeout 15s → error 504; kegagalan Calendar API → error 502.
     """
+    operation_id = await begin_operation(
+        project_id=None,
+        operation_type="calendar",
+        action="sync_calendar",
+        actor_user_id=current_user.id,
+        context={"action": "sync_calendar"},
+        retryable=False,
+    )
     session_id = request.cookies.get(CALENDAR_SESSION_COOKIE)
     access_token = await auth_service.get_calendar_access_token(
         db,
@@ -116,9 +137,18 @@ async def sync_calendar(
     )
     if not access_token:
         await db.commit()
+        await finish_operation(
+            operation_id,
+            succeeded=False,
+            outcome="Calendar sync could not start because the user session was unavailable.",
+            actionable_error="Reconnect Google Calendar, then run Sync again.",
+        )
         response = JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            content=error_response(message="Calendar session not found."),
+            content=error_response(
+                message="Calendar session not found.",
+                data={"integration_operation": await _operation_details(db, operation_id)},
+            ),
         )
         clear_calendar_session_cookie(response)
         return response
@@ -128,26 +158,49 @@ async def sync_calendar(
 
     try:
         events = await calendar_service.fetch_events(access_token)
-    except CalendarTimeoutError:
+    except CalendarTimeoutError as e:
+        await finish_operation(
+            operation_id,
+            succeeded=False,
+            outcome="Calendar sync timed out before events could be loaded.",
+            actionable_error="Check Google Calendar availability and run Sync again.",
+        )
         return JSONResponse(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            content=error_response(message="Google Calendar API timeout"),
+            content=error_response(
+                message=e.message,
+                data={"integration_operation": await _operation_details(db, operation_id)},
+            ),
         )
     except CalendarAPIError as e:
         if any(f"Google Calendar API error ({code})" in e.message for code in (401, 403)):
             await auth_service.revoke_calendar_session(db, session_id)
             await db.commit()
-            response = JSONResponse(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                content=error_response(message=e.message),
-            )
-            clear_calendar_session_cookie(response)
-            return response
-        return JSONResponse(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            content=error_response(message=e.message),
+            actionable_error = "Reconnect Google Calendar, then run Sync again."
+        else:
+            actionable_error = "Check Google Calendar permissions and connectivity, then run Sync again."
+        await finish_operation(
+            operation_id,
+            succeeded=False,
+            outcome="Calendar sync failed before events could be loaded.",
+            actionable_error=actionable_error,
         )
+        response = JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content=error_response(
+                message=e.message,
+                data={"integration_operation": await _operation_details(db, operation_id)},
+            ),
+        )
+        if actionable_error.startswith("Reconnect"):
+            clear_calendar_session_cookie(response)
+        return response
 
+    await finish_operation(
+        operation_id,
+        succeeded=True,
+        outcome=f"Loaded {len(events)} events from Google Calendar.",
+    )
     sync_response = CalendarSyncResponse(
         events=events,
         total_events=len(events),
@@ -158,7 +211,10 @@ async def sync_calendar(
     )
 
     return success_response(
-        data=sync_response.model_dump(mode="json"),
+        data={
+            **sync_response.model_dump(mode="json"),
+            "integration_operation": await _operation_details(db, operation_id),
+        },
         message=f"Berhasil sync {len(events)} events dari Google Calendar.",
     )
 
@@ -242,6 +298,18 @@ async def map_event_to_project(
     # Mapping sesuai work_type: Project (dengan proyek + fase) atau Non-Project.
     # Konsistensi antar-field sudah divalidasi di CalendarMapRequest.
     is_project = request.work_type == "Project"
+    operation_id = await begin_operation(
+        project_id=request.project_id if is_project else None,
+        operation_type="calendar",
+        action="map_event_to_project",
+        actor_user_id=current_user.id,
+        context={
+            "gcal_event_id": request.gcal_event_id,
+            "work_type": request.work_type,
+            "activity_log_id": log_id,
+        },
+        retryable=False,
+    )
     activity_log = ActivityLog(
         id_log=log_id,
         work_type=request.work_type,
@@ -266,24 +334,49 @@ async def map_event_to_project(
     except IntegrityError as e:
         await db.rollback()
 
-        # Cek apakah karena unique constraint gcal_event_id
         error_str = str(e.orig) if e.orig else str(e)
-        if "idx_unique_gcal_mapping" in error_str or "gcal_event_id" in error_str:
-            # Pesan generik: nama proyek tempat event sudah dipetakan bisa milik proyek yang
-            # tidak boleh diakses pemanggil, jadi tidak boleh bocor lewat 409.
-            return JSONResponse(
-                status_code=status.HTTP_409_CONFLICT,
-                content=error_response(message=PESAN_EVENT_SUDAH_DIPETAKAN),
-            )
-
-        # IntegrityError lain (bukan unique constraint gcal)
-        logger.error(f"IntegrityError saat map event: {e}")
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content=error_response(
-                message="Gagal memetakan event. Periksa data yang dikirim."
+        duplicate = "idx_unique_gcal_mapping" in error_str or "gcal_event_id" in error_str
+        message = (
+            PESAN_EVENT_SUDAH_DIPETAKAN
+            if duplicate
+            else "Gagal memetakan event. Periksa data yang dikirim."
+        )
+        await finish_operation(
+            operation_id,
+            succeeded=False,
+            outcome="The Calendar event was not mapped.",
+            actionable_error=(
+                "This event may already be mapped. Check the project's activity log before choosing another event."
+                if duplicate
+                else "The mapping was not saved. Review the project and event details before trying again."
             ),
         )
+        if not duplicate:
+            logger.error(f"IntegrityError saat map event: {e}")
+        return JSONResponse(
+            status_code=(
+                status.HTTP_409_CONFLICT if duplicate else status.HTTP_400_BAD_REQUEST
+            ),
+            content=error_response(
+                message=message,
+                data={"integration_operation": await _operation_details(db, operation_id)},
+            ),
+        )
+    except Exception:
+        await db.rollback()
+        await finish_operation(
+            operation_id,
+            succeeded=False,
+            outcome="The Calendar event was not mapped.",
+            actionable_error="The mapping was not saved. Review the project and event details before trying again.",
+        )
+        raise
+
+    await finish_operation(
+        operation_id,
+        succeeded=True,
+        outcome=f"Calendar event {request.gcal_event_id} was mapped to the project activity log.",
+    )
 
     logger.info(
         f"User {current_user.email} mapped event {request.gcal_event_id} "
@@ -304,6 +397,9 @@ async def map_event_to_project(
     )
 
     return success_response(
-        data=map_response.model_dump(mode="json"),
+        data={
+            **map_response.model_dump(mode="json"),
+            "integration_operation": await _operation_details(db, operation_id),
+        },
         message="Event berhasil dipetakan ke proyek.",
     )

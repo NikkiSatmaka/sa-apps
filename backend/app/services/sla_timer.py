@@ -26,14 +26,12 @@ from app.models.notification_log import NotificationLog
 from app.models.project import Project
 from app.models.sla_tracking import SLATracking
 from app.models.user import User
-from app.services.folder_provisioner import (
-    FolderProvisioningError,
-    folder_provisioner,
-)
+from app.services.folder_provisioner import folder_provisioner
 from app.services.notification_service import (
     NotificationEventType,
     notification_service,
 )
+from app.services.integration_operations import run_side_effect
 
 logger = logging.getLogger(__name__)
 
@@ -562,17 +560,7 @@ class SLATimer:
     async def _lock_solutions_with_retry(
         self, project: Project, sla: SLATracking, db: AsyncSession
     ) -> bool:
-        """
-        Lock folder Solutions via GDrive dengan retry 3x interval 5s.
-
-        Args:
-            project: Object Project
-            sla: SLATracking record
-            db: Database session
-
-        Returns:
-            bool: True jika berhasil lock, False jika gagal
-        """
+        """Lock the project Solutions folder and persist the best-effort outcome."""
         if not project.gdrive_solutions_folder_id:
             logger.warning(
                 f"Proyek {project.id_project} tidak punya gdrive_solutions_folder_id, "
@@ -580,106 +568,96 @@ class SLATimer:
             )
             return False
 
-        # Ambil email Sales
         sales_result = await db.execute(select(User).where(User.id == project.sales_pic))
         sales_user = sales_result.scalar_one_or_none()
-
         if sales_user is None:
             logger.error(f"User Sales ({project.sales_pic}) tidak ditemukan, skip lock.")
             return False
 
-        try:
-            # folder_provisioner.lock_solutions_folder sudah punya retry internal
-            # Tapi kita tetap panggil sesuai interface yang ada
-            await folder_provisioner.lock_solutions_folder(
+        locked = await run_side_effect(
+            project_id=project.id_project,
+            operation_type="sla",
+            action="solutions_lock",
+            perform=lambda: folder_provisioner.lock_solutions_folder(
                 solutions_folder_id=project.gdrive_solutions_folder_id,
                 sales_email=sales_user.email,
-            )
-
-            # Update SLA record
-            now = datetime.now(timezone.utc)
-            sla.is_locked = True
-            sla.locked_at = now
-
-            # Catat audit log
-            await self._create_audit_log(
-                entity_type="folder",
-                entity_id=project.id_project,
-                action="lock",
-                old_value={"is_locked": False},
-                new_value={
-                    "is_locked": True,
-                    "locked_at": now.isoformat(),
-                    "reason": "SLA DQ Number exceeded 5 days",
-                    "days_elapsed": sla.days_elapsed,
-                },
-                db=db,
-            )
-
-            logger.info(
-                f"Folder Solutions berhasil di-lock untuk proyek "
-                f"{project.id_project} (H+{sla.days_elapsed})"
-            )
-            return True
-
-        except FolderProvisioningError as e:
-            logger.error(
-                f"Gagal lock folder Solutions untuk proyek {project.id_project} setelah retry: {e}"
-            )
+            ),
+            outcome="Sales access to the Solutions folder is locked.",
+            actionable_failure=(
+                "The SLA lock failed; Sales may still have Solutions access. "
+                "Retry this idempotent lock after restoring Drive access."
+            ),
+            context={"solutions_folder_id": project.gdrive_solutions_folder_id},
+            retryable=True,
+        )
+        if not locked:
             return False
+
+        now = datetime.now(timezone.utc)
+        sla.is_locked = True
+        sla.locked_at = now
+        await self._create_audit_log(
+            entity_type="folder",
+            entity_id=project.id_project,
+            action="lock",
+            old_value={"is_locked": False},
+            new_value={
+                "is_locked": True,
+                "locked_at": now.isoformat(),
+                "reason": "SLA DQ Number exceeded 5 days",
+                "days_elapsed": sla.days_elapsed,
+            },
+            db=db,
+        )
+        logger.info(
+            f"Folder Solutions berhasil di-lock untuk proyek "
+            f"{project.id_project} (H+{sla.days_elapsed})"
+        )
+        return True
 
     async def _unlock_solutions_with_retry(
         self, project_id: str, sla: SLATracking, db: AsyncSession
     ) -> bool:
-        """
-        Unlock folder Solutions via GDrive dengan retry 3x interval 5s.
-
-        Dipanggil saat DQ Number diinput setelah folder sudah di-lock.
-
-        Args:
-            project_id: ID proyek
-            sla: SLATracking record
-            db: Database session
-
-        Returns:
-            bool: True jika berhasil unlock, False jika gagal
-        """
-        # Ambil data proyek
+        """Restore Sales viewer access and persist the best-effort outcome."""
         project_result = await db.execute(select(Project).where(Project.id_project == project_id))
         project = project_result.scalar_one_or_none()
-
         if project is None or not project.gdrive_solutions_folder_id:
             logger.warning(
                 f"Proyek {project_id} tidak ada atau belum punya folder Solutions, skip unlock."
             )
             return False
 
-        # Ambil email Sales
         sales_result = await db.execute(select(User).where(User.id == project.sales_pic))
         sales_user = sales_result.scalar_one_or_none()
-
         if sales_user is None:
             logger.error(f"User Sales ({project.sales_pic}) tidak ditemukan, skip unlock.")
             return False
 
-        try:
-            # folder_provisioner.unlock_solutions_folder sudah punya retry internal
-            await folder_provisioner.unlock_solutions_folder(
+        unlocked = await run_side_effect(
+            project_id=project_id,
+            operation_type="sla",
+            action="solutions_unlock",
+            perform=lambda: folder_provisioner.unlock_solutions_folder(
                 solutions_folder_id=project.gdrive_solutions_folder_id,
                 sales_email=sales_user.email,
-            )
-
-            logger.info(
-                f"Folder Solutions berhasil di-unlock untuk proyek "
-                f"{project_id} setelah DQ Number diinput."
-            )
-            return True
-
-        except FolderProvisioningError as e:
-            logger.error(
-                f"Gagal unlock folder Solutions untuk proyek {project_id} setelah retry: {e}"
-            )
+            ),
+            outcome="Sales viewer access to the Solutions folder is restored.",
+            actionable_failure=(
+                "The DQ number is saved, but Sales may still lack Solutions access. "
+                "Retry this idempotent unlock after restoring Drive access."
+            ),
+            context={"solutions_folder_id": project.gdrive_solutions_folder_id},
+            retryable=True,
+        )
+        if not unlocked:
             return False
+
+        logger.info(
+            f"Folder Solutions berhasil di-unlock untuk proyek "
+            f"{project_id} setelah DQ Number diinput."
+        )
+        return True
+
 
     async def _create_audit_log(
         self,

@@ -11,6 +11,7 @@ from app.models.audit_log import AuditLog
 from app.models.document import Document
 from app.models.notification_log import NotificationLog
 from app.models.project import Project
+from app.models.integration_operation import IntegrationOperation
 from app.models.project_assignment import ProjectAssignment
 from app.models.project_collaborator import ProjectCollaborator
 from app.models.project_comment import ProjectComment
@@ -30,6 +31,7 @@ __all__ = [
     "ProjectComment",
     "Subtask",
     "Document",
+    "IntegrationOperation",
     "ActivityLog",
     "NotificationLog",
     "AuditLog",

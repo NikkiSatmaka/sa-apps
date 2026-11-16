@@ -14,7 +14,7 @@ import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import NotificationLog
+from app.models import IntegrationOperation, NotificationLog
 from app.services.notification_service import (
     NotificationEvent,
     NotificationEventType,
@@ -239,31 +239,44 @@ def _event(user, **o) -> NotificationEvent:
     return NotificationEvent(**dasar)
 
 
-async def test_send_notification_tanpa_gmail_hanya_inapp_tersimpan(api, db_session, fake_gmail):
+async def test_send_notification_tanpa_gmail_mencatat_email_failed_tanpa_mengganggu_inapp(
+    api, db_session, fake_gmail
+):
     fake_gmail.terkonfigurasi = False
     user = await buat_user(db_session, "SA")
 
     await notification_service.send_notification(_event(user))
     await _tunggu_task_latar()
 
-    baris = (
-        (
-            await db_session.execute(
-                select(NotificationLog).where(NotificationLog.recipient_user_id == user.id)
+    logs = (
+        await db_session.execute(
+            select(NotificationLog).where(NotificationLog.recipient_user_id == user.id)
+        )
+    ).scalars().all()
+    assert {(log.channel, log.status, log.reference_id) for log in logs} == {
+        ("in-app", "sent", "PRJ-T60"),
+        ("email", "failed", "PRJ-T60"),
+    }
+    in_app = next(log for log in logs if log.channel == "in-app")
+    assert in_app.notification_metadata == {"k": "v"}
+    assert in_app.id.startswith("NOTIF-")
+    operation = (
+        await db_session.execute(
+            select(IntegrationOperation).where(
+                IntegrationOperation.operation_type == "email_delivery",
+                IntegrationOperation.action == "send_assignment_email",
             )
         )
-        .scalars()
-        .all()
-    )
-    assert [(b.channel, b.status, b.reference_id) for b in baris] == [("in-app", "sent", "PRJ-T60")]
-    assert baris[0].notification_metadata == {"k": "v"}
-    assert baris[0].id.startswith("NOTIF-")
+    ).scalar_one()
+    assert operation.status == "failed"
+    assert len(operation.attempts) == 1
+    assert operation.retryable is False
+    assert operation.actionable_error
     assert fake_gmail.percobaan == []
 
 
-async def test_email_langsung_dikirim_tanpa_baris_notifikasi_dan_dengan_retry(fake_gmail):
-    """#76: email ke alamat tanpa akun portal. Retry 3x seperti email biasa, tanpa NotificationLog."""
-    fake_gmail.fail_next(2)
+async def test_email_langsung_gagal_satu_kali_dan_menyimpan_operation(fake_gmail, db_session):
+    fake_gmail.fail_next(times=2)
 
     dijadwalkan = await notification_service.send_email_langsung(
         to="luar@contoh.test",
@@ -274,28 +287,23 @@ async def test_email_langsung_dikirim_tanpa_baris_notifikasi_dan_dengan_retry(fa
     )
 
     assert dijadwalkan is True
-    await fake_gmail.tunggu_percobaan(3)
-    assert [s.berhasil for s in fake_gmail.percobaan] == [False, False, True]
-    assert {s.to for s in fake_gmail.percobaan} == {"luar@contoh.test"}
-    assert fake_gmail.percobaan[-1].subject == "[Portal SA] Handover"
-    assert fake_gmail.percobaan[-1].context["metadata"] == {"project_id": "PRJ-1"}
+    await fake_gmail.tunggu_percobaan(1)
+    assert [attempt.berhasil for attempt in fake_gmail.percobaan] == [False]
+    operation = (
+        await db_session.execute(
+            select(IntegrationOperation).where(
+                IntegrationOperation.operation_type == "email_delivery",
+                IntegrationOperation.action == "send_handover_email",
+            )
+        )
+    ).scalar_one()
+    assert operation.status == "failed"
+    assert len(operation.attempts) == 1
+    assert operation.retryable is False
+    assert operation.actionable_error
 
 
-async def test_email_langsung_gagal_terus_berhenti_setelah_tiga_percobaan_tanpa_raise(fake_gmail):
-    fake_gmail.fail_always()
-
-    await notification_service.send_email_langsung(
-        to="luar@contoh.test",
-        event_type=NotificationEventType.HANDOVER,
-        reference_id="PRJ-1",
-    )
-
-    await fake_gmail.tunggu_percobaan(3)
-    await asyncio.sleep(0.05)  # beri kesempatan percobaan ke-4 muncul bila batas retry bocor
-    assert len(fake_gmail.percobaan) == 3
-
-
-async def test_email_langsung_tanpa_gmail_tidak_dijadwalkan(fake_gmail):
+async def test_email_langsung_tanpa_gmail_mencatat_kegagalan(fake_gmail, db_session):
     fake_gmail.terkonfigurasi = False
 
     dijadwalkan = await notification_service.send_email_langsung(
@@ -305,7 +313,19 @@ async def test_email_langsung_tanpa_gmail_tidak_dijadwalkan(fake_gmail):
     )
 
     assert dijadwalkan is False
+    await asyncio.gather(*notification_service._background_tasks)
     assert fake_gmail.percobaan == []
+    operation = (
+        await db_session.execute(
+            select(IntegrationOperation).where(
+                IntegrationOperation.operation_type == "email_delivery",
+                IntegrationOperation.action == "send_handover_email",
+            )
+        )
+    ).scalar_one()
+    assert operation.status == "failed"
+    assert operation.retryable is False
+    assert operation.actionable_error
 
 
 async def test_send_notification_dengan_gmail_inapp_dan_email_terkirim(api, db_session, fake_gmail):
@@ -330,34 +350,30 @@ async def test_send_notification_dengan_gmail_inapp_dan_email_terkirim(api, db_s
     assert daftar["total"] == 1
 
 
-async def test_email_gagal_dua_kali_lalu_berhasil_status_sent_tiga_percobaan(
+async def test_email_gagal_satu_kali_status_failed_dan_inapp_tetap_tersimpan(
     api, db_session, fake_gmail
 ):
-    fake_gmail.fail_next(2)
+    fake_gmail.fail_next(times=2)
     user = await buat_user(db_session, "SA")
 
     await notification_service.send_notification(_event(user))
-    await fake_gmail.tunggu_percobaan(3)
+    await fake_gmail.tunggu_percobaan(1)
     await _tunggu_task_latar()
 
-    assert [s.berhasil for s in fake_gmail.percobaan] == [False, False, True]
-    assert [e.status for e in await _log_email(db_session, user)] == ["sent"]
-    assert fake_gmail.percobaan[0].subject == "[Portal SA] Anda ditugaskan ke proyek baru"
-
-
-async def test_email_gagal_terus_berhenti_di_tiga_percobaan_status_failed(
-    api, db_session, fake_gmail
-):
-    fake_gmail.fail_always()
-    user = await buat_user(db_session, "SA")
-
-    await notification_service.send_notification(_event(user))
-    await fake_gmail.tunggu_percobaan(3)
-    await _tunggu_task_latar()
-
-    assert len(fake_gmail.percobaan) == 3
-    assert [e.status for e in await _log_email(db_session, user)] == ["failed"]
-    # Kegagalan email tidak mengganggu notifikasi in-app.
+    assert [attempt.berhasil for attempt in fake_gmail.percobaan] == [False]
+    assert [log.status for log in await _log_email(db_session, user)] == ["failed"]
+    operation = (
+        await db_session.execute(
+            select(IntegrationOperation).where(
+                IntegrationOperation.operation_type == "email_delivery",
+                IntegrationOperation.action == "send_assignment_email",
+            )
+        )
+    ).scalar_one()
+    assert operation.status == "failed"
+    assert len(operation.attempts) == 1
+    assert operation.retryable is False
+    assert operation.actionable_error
     daftar = (await api.client.get(NOTIF, headers=bearer(user))).json()["data"]
     assert daftar["total"] == 1
 
@@ -385,28 +401,54 @@ async def test_dispatch_email_for_user_mengirim_email_tanpa_inapp(api, db_sessio
     assert channels == ["email"]
 
 
-async def test_dispatch_email_for_user_tanpa_gmail_tidak_melakukan_apa_apa(
+async def test_dispatch_email_for_user_tanpa_gmail_mencatat_kegagalan(
     api, db_session, fake_gmail
 ):
     fake_gmail.terkonfigurasi = False
     user = await buat_user(db_session, "SA")
 
     await notification_service.dispatch_email_for_user(
-        NotificationEventType.SLA_ESCALATION, user.id
+        NotificationEventType.SLA_ESCALATION,
+        user.id,
+        reference_id="PRJ-SLA",
+        metadata={"project_id": "PRJ-SLA"},
+    )
+    await asyncio.gather(*notification_service._background_tasks)
+
+    assert fake_gmail.percobaan == []
+    assert [log.status for log in await _log_email(db_session, user)] == ["failed"]
+    operation = (
+        await db_session.execute(
+            select(IntegrationOperation).where(
+                IntegrationOperation.operation_type == "email_delivery",
+                IntegrationOperation.action == "send_sla_escalation_email",
+            )
+        )
+    ).scalar_one()
+    assert operation.status == "failed"
+    assert operation.retryable is False
+    assert operation.actionable_error
+
+
+async def test_dispatch_email_for_user_tidak_ada_tetap_mencatat_kegagalan(
+    api, db_session, fake_gmail
+):
+    await notification_service.dispatch_email_for_user(
+        NotificationEventType.HANDOVER, uuid.uuid4()
     )
 
     assert not notification_service._background_tasks
     assert fake_gmail.percobaan == []
-    assert await _log_email(db_session, user) == []
-
-
-async def test_dispatch_email_for_user_tidak_ada_tidak_raise_dan_tidak_kirim(
-    api, db_session, fake_gmail
-):
-    await notification_service.dispatch_email_for_user(NotificationEventType.HANDOVER, uuid.uuid4())
-
-    assert not notification_service._background_tasks
-    assert fake_gmail.percobaan == []
+    operation = (
+        await db_session.execute(
+            select(IntegrationOperation).where(
+                IntegrationOperation.operation_type == "email_delivery",
+                IntegrationOperation.action == "send_handover_email",
+            )
+        )
+    ).scalar_one()
+    assert operation.status == "failed"
+    assert operation.actionable_error
 
 
 async def test_service_membatasi_per_page_maksimal_20_walau_dipanggil_langsung(api, db_session):

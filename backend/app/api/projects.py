@@ -52,6 +52,7 @@ from app.schemas.response import error_response, success_response
 from app.services import bant_rubric
 from app.services.scoring_engine import scoring_engine
 from app.services.qualification_view import build_qualification_view
+from app.services.integration_operations import list_project_operations
 from app.services.requirement_generator import (
     generate_pending_requirement,
     resummarize_if_source_changed,
@@ -541,6 +542,7 @@ async def get_project_detail(
         project.status == status_konst.INTAKE
         and project.qualification_state == status_konst.QS_SCORING
     )
+    integration_operations = await list_project_operations(db, project_id)
     data = {
         "id_project": project.id_project,
         "project_name": project.project_name,
@@ -582,6 +584,7 @@ async def get_project_detail(
         "source_documents": source_documents,
         "folder_provisioning_status": project.folder_provisioning_status,
         "folder_provisioning_operation": project.folder_provisioning_operation,
+        "integration_operations": integration_operations,
         "created_at": project.created_at.isoformat() if project.created_at else None,
         "updated_at": project.updated_at.isoformat() if project.updated_at else None,
     }

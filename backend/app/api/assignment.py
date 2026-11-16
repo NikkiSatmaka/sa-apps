@@ -23,12 +23,15 @@ from app.core.dependencies import (
     adalah_privileged,
     get_current_user,
 )
+from app.models.integration_operation import IntegrationOperation
+from app.models.document import Document
 from app.models.activity_log import ActivityLog
 from app.models.notification_log import NotificationLog
 from app.models.project import Project
 from app.models.project_assignment import ProjectAssignment
 from app.models.subtask import Subtask
 from app.models.user import User
+from app.models.sla_tracking import SLATracking
 from app.schemas.assignment import (
     AssignmentResponse,
     AssignRequest,
@@ -39,6 +42,12 @@ from app.schemas.response import success_response
 from app.services.folder_provisioner import (
     FolderProvisioningError,
     folder_provisioner,
+)
+from app.services.integration_operations import (
+    begin_retry,
+    retry_side_effect,
+    run_side_effect,
+    serialize_operation,
 )
 from app.services.sla_timer import sla_timer
 from app.services.workload import hitung_project_aktif_per_sa
@@ -260,24 +269,253 @@ async def _trigger_folder_provisioner(
 
 
 async def _pindahkan_akses_drive_sa(
-    master_folder_id: str, sa_lama_email: Optional[str], sa_baru_email: str
+    project_id: str,
+    master_folder_id: str,
+    sa_lama_email: Optional[str],
+    sa_baru_email: str,
+    actor_user_id: Optional[uuid.UUID] = None,
 ) -> None:
-    """
-    Background task: pindahkan akses Editor folder master dari SA lama ke SA baru (reassign, #77).
-
-    Tidak memakai database, sehingga tidak butuh sesi sendiri. Graceful: kegagalan Drive (setelah
-    retry internal) hanya dicatat; reassign di portal sudah tersimpan dan akses dapat dirapikan
-    manual atau lewat provisioning ulang.
-    """
-    try:
-        await folder_provisioner.reassign_sa_access(
+    """Persist and perform the safe, idempotent Drive SA permission reassign."""
+    await run_side_effect(
+        project_id=project_id,
+        operation_type="drive_permission",
+        action="reassign_sa_access",
+        perform=lambda: folder_provisioner.reassign_sa_access(
             master_folder_id, sa_lama_email, sa_baru_email
+        ),
+        outcome="Drive editor access matches the assigned SA.",
+        actionable_failure=(
+            "The SA reassignment is saved, but Drive permissions may be stale. "
+            "Retry this idempotent permission update after restoring Drive access."
+        ),
+        actor_user_id=actor_user_id,
+        context={
+            "master_folder_id": master_folder_id,
+            "old_sa_email": sa_lama_email,
+            "new_sa_email": sa_baru_email,
+        },
+        retryable=True,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/integration-operations/{operation_id}/retry",
+    summary="Retry an idempotent integration operation",
+)
+async def retry_integration_operation(
+    project_id: str,
+    operation_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retry persisted Drive permission operations with a safe desired state."""
+    _require_lead_sa(current_user)
+    result = await db.execute(
+        select(IntegrationOperation).where(
+            IntegrationOperation.id == operation_id,
+            IntegrationOperation.project_id == project_id,
         )
-    except Exception as e:  # noqa: BLE001 - background task tidak boleh meledak keluar
-        logger.error(
-            f"[FolderProvisioner] Gagal memindahkan akses SA pada folder {master_folder_id} "
-            f"({sa_lama_email or '-'} -> {sa_baru_email}): {e}"
+    )
+    operation = result.scalar_one_or_none()
+    if operation is None:
+        raise HTTPException(status_code=404, detail="Integration operation not found.")
+    if operation.status != "failed" or not operation.retryable:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This operation cannot be retried safely.",
         )
+
+    project_result = await db.execute(select(Project).where(Project.id_project == project_id))
+    project = project_result.scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+    context = operation.context or {}
+    if operation.operation_type == "drive_permission" and operation.action == "reassign_sa_access":
+        sa_result = await db.execute(select(User).where(User.id == project.assigned_sa))
+        assigned_sa = sa_result.scalar_one_or_none()
+        if (
+            project.gdrive_folder_id != context.get("master_folder_id")
+            or assigned_sa is None
+            or assigned_sa.email.lower() != str(context.get("new_sa_email", "")).lower()
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The project assignment changed; reconcile permissions from the current assignment.",
+            )
+
+        async def perform() -> None:
+            await folder_provisioner.reassign_sa_access(
+                project.gdrive_folder_id,
+                context.get("old_sa_email"),
+                assigned_sa.email,
+            )
+
+        outcome = "Drive editor access matches the assigned SA."
+        actionable_failure = (
+            "The SA reassignment is saved, but Drive permissions may be stale. "
+            "Restore Drive access and retry this idempotent permission update."
+        )
+    elif (
+        operation.operation_type == "drive_permission"
+        and operation.action == "document_review_unlock"
+    ):
+        document_result = await db.execute(
+            select(Document).where(
+                Document.id_doc == context.get("document_id"),
+                Document.id_project == project_id,
+            )
+        )
+        document = document_result.scalar_one_or_none()
+        sales_result = await db.execute(select(User).where(User.id == project.sales_pic))
+        sales_user = sales_result.scalar_one_or_none()
+        if (
+            document is None
+            or document.status != "Reviewed"
+            or project.dq_number is None
+            or project.gdrive_solutions_folder_id != context.get("folder_id")
+            or sales_user is None
+            or sales_user.email.lower() != str(context.get("sales_email", "")).lower()
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The project or reviewed document state changed; this Drive action is no longer current.",
+            )
+
+        async def perform() -> None:
+            await folder_provisioner.unlock_solutions_folder(
+                project.gdrive_solutions_folder_id,
+                sales_user.email,
+            )
+
+        outcome = "Sales viewer access to the Solutions folder is restored."
+        actionable_failure = (
+            "The document review is saved, but Sales access may remain locked. "
+            "Restore Drive access and retry this idempotent unlock."
+        )
+    elif operation.operation_type == "sla" and operation.action in {
+        "solutions_lock",
+        "solutions_unlock",
+    }:
+        desired_locked = operation.action == "solutions_lock"
+        sla_result = await db.execute(
+            select(SLATracking).where(SLATracking.project_id == project_id)
+        )
+        sla_tracking = sla_result.scalar_one_or_none()
+        if sla_tracking is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The project's SLA tracker is no longer available.",
+            )
+        if (project.dq_number is None) != desired_locked:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The DQ state changed; the recorded SLA permission action is no longer current.",
+            )
+        if not project.gdrive_solutions_folder_id or not project.sales_pic:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The project no longer has the required Solutions folder and Sales PIC.",
+            )
+        sales_result = await db.execute(select(User).where(User.id == project.sales_pic))
+        sales_user = sales_result.scalar_one_or_none()
+        if sales_user is None:
+            raise HTTPException(status_code=409, detail="The project's Sales PIC is unavailable.")
+        if desired_locked:
+            perform = lambda: folder_provisioner.lock_solutions_folder(
+                project.gdrive_solutions_folder_id, sales_user.email
+            )
+            outcome = "Sales access to the Solutions folder is locked."
+            actionable_failure = (
+                "The SLA lock is still unresolved. Restore Drive access and retry this idempotent lock."
+            )
+        else:
+            perform = lambda: folder_provisioner.unlock_solutions_folder(
+                project.gdrive_solutions_folder_id, sales_user.email
+            )
+            outcome = "Sales viewer access to the Solutions folder is restored."
+            actionable_failure = (
+                "The DQ number is saved but Solutions access may remain locked. "
+                "Restore Drive access and retry this idempotent unlock."
+            )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This operation has no safe manual retry path.",
+        )
+
+    await begin_retry(db, operation)
+    await retry_side_effect(
+        operation.id,
+        perform=perform,
+        outcome=outcome,
+        actionable_failure=actionable_failure,
+    )
+    await db.refresh(operation)
+    if operation.status == "succeeded" and operation.operation_type == "sla":
+        now = datetime.now(timezone.utc)
+        was_locked = sla_tracking.is_locked
+        old_locked_at = sla_tracking.locked_at
+        if desired_locked:
+            sla_tracking.is_locked = True
+            sla_tracking.locked_at = now
+            action = "lock"
+            new_value = {
+                "is_locked": True,
+                "locked_at": now.isoformat(),
+                "reason": "SLA Drive permission retry",
+            }
+        else:
+            sla_tracking.is_locked = False
+            sla_tracking.unlocked_at = now
+            action = "unlock"
+            new_value = {
+                "is_locked": False,
+                "unlocked_at": now.isoformat(),
+                "delay_days": sla_tracking.days_elapsed,
+            }
+        await sla_timer._create_audit_log(
+            entity_type="folder",
+            entity_id=project_id,
+            action=action,
+            old_value={
+                "is_locked": was_locked,
+                "locked_at": old_locked_at.isoformat() if old_locked_at else None,
+            },
+            new_value=new_value,
+            db=db,
+        )
+        await db.commit()
+    elif operation.status == "succeeded" and operation.action == "document_review_unlock":
+        sla_result = await db.execute(
+            select(SLATracking).where(SLATracking.project_id == project_id)
+        )
+        sla_tracking = sla_result.scalar_one_or_none()
+        if sla_tracking is not None and sla_tracking.is_locked:
+            now = datetime.now(timezone.utc)
+            old_locked_at = sla_tracking.locked_at
+            sla_tracking.is_locked = False
+            sla_tracking.unlocked_at = now
+            await sla_timer._create_audit_log(
+                entity_type="folder",
+                entity_id=project_id,
+                action="unlock",
+                old_value={
+                    "is_locked": True,
+                    "locked_at": old_locked_at.isoformat() if old_locked_at else None,
+                },
+                new_value={
+                    "is_locked": False,
+                    "unlocked_at": now.isoformat(),
+                    "delay_days": sla_tracking.days_elapsed,
+                },
+                db=db,
+            )
+            await db.commit()
+    return success_response(
+        data=serialize_operation(operation),
+        message="Integration operation retry recorded.",
+    )
 
 
 @router.get(
@@ -1045,7 +1283,12 @@ async def reassign_sa_to_project(
     elif project.gdrive_folder_id:
         # Folder sudah ada: pindahkan akses Editor dari SA lama ke SA baru.
         background_tasks.add_task(
-            _pindahkan_akses_drive_sa, project.gdrive_folder_id, sa_lama_email, sa_user.email
+            _pindahkan_akses_drive_sa,
+            project_id,
+            project.gdrive_folder_id,
+            sa_lama_email,
+            sa_user.email,
+            current_user.id,
         )
 
     # === 6. Build response ===

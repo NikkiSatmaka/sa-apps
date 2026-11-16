@@ -26,7 +26,7 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
-from sqlalchemy import asc, desc, func, or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import status as status_konst
@@ -64,6 +64,7 @@ from app.services.requirement_generator import (
 )
 from app.services.source_document_extractor import extract_source_documents
 from app.services.dq_akses import hentikan_timer_bila_pertama, terapkan_dq
+from app.services.project_listing import build_project_list_page
 
 logger = logging.getLogger(__name__)
 
@@ -382,80 +383,10 @@ async def list_projects(
             )
         )
 
-    total_result = await db.execute(
-        select(func.count()).select_from(Project).where(*filters)
-    )
-    total = total_result.scalar_one()
-
-    if sort:
-        if sort.startswith("-"):
-            field_name = sort[1:]
-            sort_column = (
-                getattr(Project, field_name)
-                if hasattr(Project, field_name)
-                else Project.updated_at
-            )
-            order = desc(sort_column)
-        else:
-            sort_column = (
-                getattr(Project, sort) if hasattr(Project, sort) else Project.updated_at
-            )
-            order = (
-                asc(sort_column)
-                if hasattr(Project, sort)
-                else desc(Project.updated_at)
-            )
-    else:
-        order = desc(Project.updated_at)
-
-    query = (
-        select(Project)
-        .where(*filters)
-        .order_by(order, asc(Project.id_project))
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    )
-    result = await db.execute(query)
-    projects = result.scalars().all()
-
-    # Format response
-    orang = await _muat_user(
-        db, {i for p in projects for i in (p.created_by, p.product_pic, p.sales_pic)}
-    )
-    projects_data = []
-    for p in projects:
-        projects_data.append(
-            {
-                "id_project": p.id_project,
-                "project_name": p.project_name,
-                "customer_name": p.customer_name,
-                "status": p.status,
-                "qualification_state": p.qualification_state,
-                "dq_number": p.dq_number,
-                "bant_score": p.bant_score,
-                "use_case_tags": p.use_case_tags or [],
-                "estimasi_nilai": str(p.estimasi_nilai) if p.estimasi_nilai is not None else None,
-                "target_submit": p.target_submit.isoformat() if p.target_submit else None,
-                "assigned_sa": str(p.assigned_sa) if p.assigned_sa else None,
-                "created_by": _ringkas_orang(orang.get(p.created_by), p.created_by),
-                "product_pic": _ringkas_orang(orang.get(p.product_pic), p.product_pic),
-                "sales_pic": _ringkas_orang(orang.get(p.sales_pic), p.sales_pic),
-                "gdrive_folder_id": p.gdrive_folder_id,
-                "folder_provisioning_status": p.folder_provisioning_status,
-                "created_at": p.created_at.isoformat() if p.created_at else None,
-                "updated_at": p.updated_at.isoformat() if p.updated_at else None,
-            }
-        )
-
+    data = await build_project_list_page(db, filters, sort, page, page_size)
     return success_response(
-        data={
-            "items": projects_data,
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-            "total_pages": (total + page_size - 1) // page_size,
-        },
-        message=f"Ditemukan {total} proyek.",
+        data=data,
+        message=f"Ditemukan {data['total']} proyek.",
     )
 
 

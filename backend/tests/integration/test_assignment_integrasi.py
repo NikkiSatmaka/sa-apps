@@ -148,6 +148,47 @@ async def test_retry_sla_lock_rejects_missing_solutions_folder(dunia, api):
     assert (persisted_operation.status, persisted_operation.attempts) == ("failed", [])
 
 
+async def test_retry_document_review_unlock_rejects_missing_document(dunia, api):
+    project = await dunia.buat_proyek(
+        status="Assigned",
+        dq_number="DQ-TEST",
+        sales_pic=dunia.sales.id,
+        gdrive_solutions_folder_id="solutions-folder",
+    )
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type="drive_permission",
+        action="document_review_unlock",
+        status="failed",
+        retryable=True,
+        context={
+            "document_id": "DOC-MISSING",
+            "folder_id": "solutions-folder",
+            "sales_email": dunia.sales.email,
+        },
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        RETRY_OPERATION.format(project.id_project, operation.id),
+        headers=dunia.h["lead"],
+    )
+
+    persisted_operation = (
+        await dunia.db.execute(
+            select(IntegrationOperation)
+            .where(IntegrationOperation.id == operation.id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    assert response.status_code == 409
+    assert response.json()["message"] == (
+        "The project or reviewed document state changed; this Drive action is no longer current."
+    )
+    assert (persisted_operation.status, persisted_operation.attempts) == ("failed", [])
+
+
 async def test_retry_integration_operation_requires_existing_project(dunia, api):
     response = await api.client.post(
         RETRY_OPERATION.format("PRJ-MISSING", uuid.uuid4()),

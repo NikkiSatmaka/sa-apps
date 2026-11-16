@@ -7,6 +7,7 @@ tersimpan di Postgres), refresh/logout/me, dependency `get_current_user`, matrik
 Pasangan unit-nya: `tests/test_auth_*.py`, `tests/test_core_*.py`, `tests/test_rate_limiter.py`.
 """
 
+import hashlib
 import uuid
 from datetime import date, timedelta
 
@@ -231,6 +232,62 @@ async def test_callback_handoff_hanya_dapat_ditukar_satu_kali(api, monkeypatch):
 
     pakai_ulang = await api.client.post(f"{AUTH}/callback/exchange", json={"code": code})
     assert pakai_ulang.status_code == 401
+
+
+
+async def test_calendar_access_token_rejects_wrong_owner_and_removes_session(
+    api, db_session
+):
+    from app.models.calendar_oauth_session import CalendarOAuthSession
+    from app.services.auth_service import auth_service
+
+    owner_headers = await api.login_demo("SA")
+    other_headers = await api.login_demo("Sales")
+    owner_id = uuid.UUID(
+        auth_service.verify_access_token(owner_headers["Authorization"][7:])["sub"]
+    )
+    other_id = uuid.UUID(
+        auth_service.verify_access_token(other_headers["Authorization"][7:])["sub"]
+    )
+    session_id = await auth_service.create_calendar_session(
+        db_session, user_id=owner_id, access_token="CALENDAR-SECRET"
+    )
+    await db_session.flush()
+
+    token = await auth_service.get_calendar_access_token(
+        db_session, session_id=session_id, user_id=other_id
+    )
+
+    session_hash = hashlib.sha256(session_id.encode()).hexdigest()
+    assert token is None
+    assert await db_session.get(CalendarOAuthSession, session_hash) is None
+
+
+async def test_calendar_access_token_rejects_invalid_encrypted_token_and_removes_session(
+    api, db_session
+):
+    from app.models.calendar_oauth_session import CalendarOAuthSession
+    from app.services.auth_service import auth_service
+
+    user_headers = await api.login_demo("SA")
+    user_id = uuid.UUID(
+        auth_service.verify_access_token(user_headers["Authorization"][7:])["sub"]
+    )
+    session_id = await auth_service.create_calendar_session(
+        db_session, user_id=user_id, access_token="CALENDAR-SECRET"
+    )
+    await db_session.flush()
+    session_hash = hashlib.sha256(session_id.encode()).hexdigest()
+    session = await db_session.get(CalendarOAuthSession, session_hash)
+    session.encrypted_access_token = "not-a-valid-fernet-token"
+    await db_session.flush()
+
+    token = await auth_service.get_calendar_access_token(
+        db_session, session_id=session_id, user_id=user_id
+    )
+
+    assert token is None
+    assert await db_session.get(CalendarOAuthSession, session_hash) is None
 
 
 async def test_calendar_callback_uses_encrypted_user_session_and_logout_revokes_it(

@@ -234,9 +234,10 @@ async def test_callback_handoff_hanya_dapat_ditukar_satu_kali(api, monkeypatch):
 
 
 async def test_calendar_callback_uses_encrypted_user_session_and_logout_revokes_it(
-    api, monkeypatch
+    api, db_session, monkeypatch
 ):
-    from urllib.parse import parse_qs, urlencode, urlparse
+    from datetime import datetime
+    from urllib.parse import parse_qs, urlparse
 
     from app.services.calendar_service import calendar_service
 
@@ -295,14 +296,52 @@ async def test_calendar_callback_uses_encrypted_user_session_and_logout_revokes_
     assert synced.status_code == 200
     assert synced.json()["data"]["total_events"] == 0
     assert tokens_used == ["GOOGLE-SECRET"]
+    # A reconnect replaces the browser's prior session rather than leaving it live.
+    next_auth_url = (
+        await api.client.get("/api/v1/calendar/auth-url", headers=user_headers)
+    ).json()["data"]["auth_url"]
+    next_state = parse_qs(urlparse(next_auth_url).query)["state"][0]
+    pasang_google(monkeypatch, token_body={"access_token": "NEW-GOOGLE-SECRET"})
+    next_callback = await api.client.get(
+        f"{AUTH}/callback",
+        params={"code": "next-google-code", "state": next_state},
+        follow_redirects=False,
+    )
+    next_code = next_callback.headers["location"].split("gcal_code=", 1)[1]
+    next_exchange = await api.client.post(
+        f"{AUTH}/calendar/exchange",
+        json={"code": next_code},
+        headers=user_headers,
+    )
+    assert next_exchange.status_code == 200
+    from app.models.calendar_oauth_session import CalendarOAuthSession
+
+    sessions = (
+        await db_session.execute(select(CalendarOAuthSession))
+    ).scalars().all()
+    assert len(sessions) == 1
+    from app.services.auth_service import auth_service
+
+    claims = auth_service.verify_access_token(
+        user_headers["Authorization"].removeprefix("Bearer ")
+    )
+    assert str(sessions[0].user_id) == claims["sub"]
+    assert sessions[0].expires_at > datetime.now(sessions[0].expires_at.tzinfo)
+    assert sessions[0].encrypted_access_token != "NEW-GOOGLE-SECRET"
+
 
     logged_out = await api.client.post(f"{AUTH}/logout", headers=user_headers)
     assert logged_out.status_code == 200
     assert (
+        await db_session.execute(select(CalendarOAuthSession))
+    ).scalars().all() == []
+    assert (
         await api.client.post("/api/v1/calendar/sync", headers=user_headers, json={})
     ).status_code == 401
     assert (
-        await api.client.post(f"{AUTH}/calendar/exchange", json={"code": code}, headers=user_headers)
+        await api.client.post(
+            f"{AUTH}/calendar/exchange", json={"code": code}, headers=user_headers
+        )
     ).status_code == 401
 # ------------------------------------------------------------------------- refresh / logout / sesi
 

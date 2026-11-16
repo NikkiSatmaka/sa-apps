@@ -9,6 +9,7 @@ provisioning ditangkap lalu `_trigger_folder_provisioner` ASLI dijalankan setela
 """
 
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import func, select
@@ -45,6 +46,106 @@ async def dunia(db_session):
 
 
 RETRY_OPERATION = "/api/v1/projects/{}/integration-operations/{}/retry"
+
+
+async def test_retry_sla_operation_rejects_missing_tracker(dunia, api):
+    project = await dunia.buat_proyek(
+        status="Assigned",
+        gdrive_solutions_folder_id="solutions-folder",
+    )
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type="sla",
+        action="solutions_lock",
+        status="failed",
+        retryable=True,
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        RETRY_OPERATION.format(project.id_project, operation.id),
+        headers=dunia.h["lead"],
+    )
+
+    persisted_operation = (
+        await dunia.db.execute(
+            select(IntegrationOperation)
+            .where(IntegrationOperation.id == operation.id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    assert response.status_code == 409
+    assert response.json()["message"] == "The project's SLA tracker is no longer available."
+    assert (persisted_operation.status, persisted_operation.attempts) == ("failed", [])
+
+
+async def test_retry_sla_lock_rejects_stale_dq_state(dunia, api):
+    project = await dunia.buat_proyek(
+        status="Assigned",
+        dq_number="DQ-TEST",
+        gdrive_solutions_folder_id="solutions-folder",
+    )
+    await sla_timer.start_timer(project.id_project, datetime.now(timezone.utc), dunia.db)
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type="sla",
+        action="solutions_lock",
+        status="failed",
+        retryable=True,
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        RETRY_OPERATION.format(project.id_project, operation.id),
+        headers=dunia.h["lead"],
+    )
+
+    persisted_operation = (
+        await dunia.db.execute(
+            select(IntegrationOperation)
+            .where(IntegrationOperation.id == operation.id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    assert response.status_code == 409
+    assert response.json()["message"] == (
+        "The DQ state changed; the recorded SLA permission action is no longer current."
+    )
+    assert (persisted_operation.status, persisted_operation.attempts) == ("failed", [])
+
+
+async def test_retry_sla_lock_rejects_missing_solutions_folder(dunia, api):
+    project = await dunia.buat_proyek(status="Assigned")
+    await sla_timer.start_timer(project.id_project, datetime.now(timezone.utc), dunia.db)
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type="sla",
+        action="solutions_lock",
+        status="failed",
+        retryable=True,
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        RETRY_OPERATION.format(project.id_project, operation.id),
+        headers=dunia.h["lead"],
+    )
+
+    persisted_operation = (
+        await dunia.db.execute(
+            select(IntegrationOperation)
+            .where(IntegrationOperation.id == operation.id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    assert response.status_code == 409
+    assert response.json()["message"] == (
+        "The project no longer has the required Solutions folder and Sales PIC."
+    )
+    assert (persisted_operation.status, persisted_operation.attempts) == ("failed", [])
 
 
 async def test_retry_integration_operation_requires_existing_project(dunia, api):

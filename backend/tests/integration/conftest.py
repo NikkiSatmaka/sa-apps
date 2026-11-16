@@ -389,6 +389,8 @@ async def api(
     - Demo mode dinyalakan (`DEMO_MODE`) untuk login tanpa OAuth.
     """
     from app.core.config import settings
+    monkeypatch.setattr(settings, "DEMO_MODE", True)
+    monkeypatch.setattr(settings, "ENVIRONMENT", "development")
     from app.core.database import get_db
     from app.main import app
     from app.services.notification_service import notification_service

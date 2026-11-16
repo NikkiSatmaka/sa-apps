@@ -17,7 +17,7 @@ concurrency:
 jobs:
   browser-e2e:
     name: Browser — critical workflows and accessibility
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
       run:

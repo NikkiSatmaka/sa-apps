@@ -1,7 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HttpResponse, api, errorEnvelope, http, renderWithProviders, server, stubLocation, successEnvelope } from "@/test";
-import { GCAL_EVENTS_URL } from "@/test/msw/handlers/operations";
 import { CalendarSync } from "./CalendarSync";
 
 const projects = [
@@ -29,21 +28,36 @@ const gcalEvent = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-function useGoogleEvents(items: unknown) {
-  const captured: { url?: URL; auth?: string | null } = {};
+function useCalendarSync(items: unknown) {
+  const captured: { body?: unknown; auth?: string | null } = {};
+  const events = Array.isArray(items)
+    ? items.flatMap((item: Record<string, unknown>) => {
+        if (typeof item.id !== "string") return [];
+        const start = (item.start || {}) as { date?: string; dateTime?: string };
+        const end = (item.end || {}) as { date?: string; dateTime?: string };
+        const isAllDay = !!start.date && !start.dateTime;
+        return [{
+          gcal_event_id: item.id,
+          title: typeof item.summary === "string" ? item.summary : "(No Title)",
+          description: typeof item.description === "string" ? item.description : undefined,
+          start: isAllDay ? start.date : start.dateTime || "",
+          end: isAllDay ? end.date || "" : end.dateTime || "",
+          is_all_day: isAllDay,
+        }];
+      })
+    : [];
   server.use(
-    http.get(GCAL_EVENTS_URL, ({ request }) => {
-      captured.url = new URL(request.url);
+    http.post(api("/calendar/sync"), async ({ request }) => {
+      captured.body = await request.json();
       captured.auth = request.headers.get("Authorization");
-      return HttpResponse.json(items === undefined ? {} : { items });
+      return HttpResponse.json(successEnvelope({ events, total_events: events.length }));
     })
   );
   return captured;
 }
 
-async function syncWithToken(user: ReturnType<typeof setup>["user"], items: unknown) {
-  localStorage.setItem("google_calendar_token", "gtoken");
-  const captured = useGoogleEvents(items);
+async function syncWithSession(user: ReturnType<typeof setup>["user"], items: unknown) {
+  const captured = useCalendarSync(items);
   await user.click(screen.getByRole("button", { name: "Sync Calendar" }));
   return captured;
 }
@@ -87,7 +101,12 @@ describe("CalendarSync — tampilan awal & navigasi bulan", () => {
 });
 
 describe("CalendarSync — sync Google Calendar", () => {
-  it("tanpa token: mengambil auth-url lalu mengarahkan browser ke Google", async () => {
+  it("tanpa sesi: meminta otorisasi Google", async () => {
+    server.use(
+      http.post(api("/calendar/sync"), () =>
+        HttpResponse.json(errorEnvelope("Calendar session not found"), { status: 401 }),
+      ),
+    );
     const loc = stubLocation("http://localhost/activity-logs/calendar");
     const { user } = setup();
     await user.click(screen.getByRole("button", { name: "Sync Calendar" }));
@@ -95,35 +114,35 @@ describe("CalendarSync — sync Google Calendar", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Mengarahkan ke Google untuk otorisasi Calendar...");
   });
 
-  it("tanpa token dan auth-url gagal: toast error", async () => {
-    server.use(http.get(api("/calendar/auth-url"), () => HttpResponse.json(errorEnvelope("x"), { status: 500 })));
+  it("tanpa sesi dan auth-url gagal: toast error", async () => {
+    server.use(
+      http.post(api("/calendar/sync"), () =>
+        HttpResponse.json(errorEnvelope("Calendar session not found"), { status: 401 }),
+      ),
+      http.get(api("/calendar/auth-url"), () => HttpResponse.json(errorEnvelope("x"), { status: 500 })),
+    );
     const { user } = setup();
     await user.click(screen.getByRole("button", { name: "Sync Calendar" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Gagal memulai otorisasi Google Calendar"));
   });
 
-  it("dengan token: memanggil Google dengan bearer + rentang ±7 hari dan menampilkan event pada hari terpilih", async () => {
+  it("mengambil event lewat backend tanpa mengirim token Google dan menampilkan event", async () => {
     const { user } = setup();
-    const captured = await syncWithToken(user, [gcalEvent()]);
+    const captured = await syncWithSession(user, [gcalEvent()]);
 
     expect(await toast()).toHaveTextContent("Calendar tersinkronisasi — 1 event ditemukan");
-    expect(captured.auth).toBe("Bearer gtoken");
-    const q = captured.url!.searchParams;
-    expect(q.get("timeMin")).toBe(new Date(NOW.getTime() - 7 * 86400000).toISOString());
-    expect(q.get("timeMax")).toBe(new Date(NOW.getTime() + 7 * 86400000).toISOString());
-    expect(q.get("maxResults")).toBe("200");
-    expect(q.get("singleEvents")).toBe("true");
-    expect(q.get("orderBy")).toBe("startTime");
-
+    expect(captured.body).toEqual({});
+    expect(captured.body).not.toHaveProperty("access_token");
+    expect(captured.auth).toBe("Bearer access-SA");
     expect(screen.getByRole("heading", { name: "Rapat Kickoff", level: 5 })).toBeInTheDocument();
     expect(screen.getByText(/09[.:]00 – 10[.:]30/)).toBeInTheDocument();
     expect(screen.getByText("Bahas ruang lingkup")).toBeInTheDocument();
     expect(screen.queryByText(/Klik "Sync Calendar" untuk memuat event/)).not.toBeInTheDocument();
   });
 
-  it("menandai tanggal yang punya event dengan titik (maks 3) dan menampilkan event saat tanggal dipilih", async () => {
+  it("menandai tanggal yang punya event dengan titik dan menampilkan event saat dipilih", async () => {
     const { user } = setup();
-    await syncWithToken(user, [
+    await syncWithSession(user, [
       gcalEvent({ id: "a", summary: "A", start: { dateTime: "2025-03-18T08:00:00" }, end: { dateTime: "2025-03-18T09:00:00" } }),
       gcalEvent({ id: "b", summary: "B", start: { dateTime: "2025-03-18T10:00:00" }, end: { dateTime: "2025-03-18T11:00:00" } }),
       gcalEvent({ id: "c", summary: "C", start: { dateTime: "2025-03-18T12:00:00" }, end: { dateTime: "2025-03-18T13:00:00" } }),
@@ -133,14 +152,13 @@ describe("CalendarSync — sync Google Calendar", () => {
     const day18 = screen.getByRole("button", { name: "18" });
     expect(day18.querySelectorAll("span > span")).toHaveLength(3);
     expect(screen.getByText("Tidak ada event pada tanggal ini")).toBeInTheDocument();
-
     await user.click(day18);
     expect(screen.getAllByRole("heading", { level: 5 }).map((h) => h.textContent)).toEqual(["A", "B", "C", "D"]);
   });
 
-  it("event seharian: lencana All Day dan label 'Seharian'; event tanpa judul memakai '(No Title)'", async () => {
+  it("event seharian dan event tanpa judul tetap ditampilkan", async () => {
     const { user } = setup();
-    await syncWithToken(user, [
+    await syncWithSession(user, [
       { id: "ad", summary: "Libur", start: { date: "2025-03-15" }, end: { date: "2025-03-16" } },
       { id: "nt", start: { dateTime: "2025-03-15T13:00:00" }, end: { dateTime: "2025-03-15T14:00:00" } },
     ]);
@@ -150,64 +168,73 @@ describe("CalendarSync — sync Google Calendar", () => {
     expect(screen.getByText("(No Title)")).toBeInTheDocument();
   });
 
-  it("event tanpa id atau tanpa tanggal valid dilewati", async () => {
+  it("melewati event tanpa id atau tanggal valid", async () => {
     const { user } = setup();
-    await syncWithToken(user, [
+    await syncWithSession(user, [
       { summary: "Tanpa ID", start: { dateTime: "2025-03-15T09:00:00" }, end: { dateTime: "2025-03-15T10:00:00" } },
       { id: "x", summary: "Tanggal rusak", start: {}, end: {} },
       gcalEvent({ id: "ok", summary: "Valid" }),
     ]);
-    expect(await toast()).toHaveTextContent("2 event ditemukan"); // "Tanggal rusak" terhitung event tapi tidak ditampilkan
+    expect(await toast()).toHaveTextContent("2 event ditemukan");
     expect(screen.getByText("Valid")).toBeInTheDocument();
     expect(screen.queryByText("Tanpa ID")).not.toBeInTheDocument();
     expect(screen.queryByText("Tanggal rusak")).not.toBeInTheDocument();
   });
 
-  it("tidak ada event: pesan khusus dan keadaan kosong 'Tidak ada event pada tanggal ini'", async () => {
+  it("tidak ada event: pesan khusus dan keadaan kosong", async () => {
     const { user } = setup();
-    await syncWithToken(user, []);
+    await syncWithSession(user, []);
     expect(await toast()).toHaveTextContent("Calendar tersinkronisasi, tidak ada event pada rentang 7 hari ini");
     expect(screen.getByText("Tidak ada event pada tanggal ini")).toBeInTheDocument();
   });
 
-  it("respons tanpa array items diperlakukan sebagai kosong", async () => {
+  it("respons tanpa event diperlakukan sebagai kosong", async () => {
     const { user } = setup();
-    await syncWithToken(user, undefined);
+    await syncWithSession(user, undefined);
     expect(await toast()).toHaveTextContent("tidak ada event");
   });
 
-  it.each([401, 403])("Google %i: token dihapus dan pengguna diminta sync ulang", async (status) => {
-    localStorage.setItem("google_calendar_token", "kedaluwarsa");
-    server.use(http.get(GCAL_EVENTS_URL, () => new HttpResponse(null, { status })));
+  it.each([401, 403])("Google %i: pengguna diminta mengotorisasi ulang tanpa token browser", async (status) => {
+    server.use(
+      http.post(api("/calendar/sync"), () =>
+        HttpResponse.json(errorEnvelope("Token Google Calendar kedaluwarsa. Silakan sync ulang untuk otorisasi."), { status }),
+      ),
+    );
     const { user } = setup();
     await user.click(screen.getByRole("button", { name: "Sync Calendar" }));
     expect(await toast()).toHaveTextContent("Token Google Calendar kedaluwarsa. Silakan sync ulang untuk otorisasi.");
     expect(localStorage.getItem("google_calendar_token")).toBeNull();
   });
 
-  it("Google 500: toast berisi status, token dipertahankan", async () => {
-    localStorage.setItem("google_calendar_token", "gtoken");
-    server.use(http.get(GCAL_EVENTS_URL, () => new HttpResponse(null, { status: 500 })));
+  it("Google 500: toast berisi status, tanpa menyimpan token", async () => {
+    server.use(
+      http.post(api("/calendar/sync"), () =>
+        HttpResponse.json(errorEnvelope("Google Calendar API error (500): backend error"), { status: 502 }),
+      ),
+    );
     const { user } = setup();
     await user.click(screen.getByRole("button", { name: "Sync Calendar" }));
     expect(await toast()).toHaveTextContent("Gagal sync calendar (Google 500).");
-    expect(localStorage.getItem("google_calendar_token")).toBe("gtoken");
+    expect(localStorage.getItem("google_calendar_token")).toBeNull();
     expect(screen.getByRole("button", { name: "Sync Calendar" })).toBeEnabled();
   });
 
   it("kegagalan jaringan menampilkan pesan error", async () => {
-    localStorage.setItem("google_calendar_token", "gtoken");
-    server.use(http.get(GCAL_EVENTS_URL, () => HttpResponse.error()));
+    server.use(http.post(api("/calendar/sync"), () => HttpResponse.error()));
     const { user } = setup();
     await user.click(screen.getByRole("button", { name: "Sync Calendar" }));
     expect(await toast()).toHaveTextContent(/Failed to fetch|fetch failed|Network/i);
   });
 
   it("menampilkan 'Syncing...' dan menonaktifkan tombol selama request", async () => {
-    localStorage.setItem("google_calendar_token", "gtoken");
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
-    server.use(http.get(GCAL_EVENTS_URL, async () => { await gate; return HttpResponse.json({ items: [] }); }));
+    server.use(
+      http.post(api("/calendar/sync"), async () => {
+        await gate;
+        return HttpResponse.json(successEnvelope({ events: [], total_events: 0 }));
+      }),
+    );
     const { user } = setup();
     await user.click(screen.getByRole("button", { name: "Sync Calendar" }));
     expect(await screen.findByRole("button", { name: /Syncing/ })).toBeDisabled();
@@ -218,20 +245,22 @@ describe("CalendarSync — sync Google Calendar", () => {
 });
 
 describe("CalendarSync — callback OAuth lewat URL hash", () => {
-  it("menukar gcal_code lewat POST; token Google tidak perlu ada di redirect", async () => {
+  it("menukar gcal_code lewat POST; hanya sesi server yang dibuat, token Google tidak dikembalikan", async () => {
+    const captured: { auth?: string | null } = {};
     server.use(
-      http.post(api("/auth/calendar/exchange"), () =>
-        HttpResponse.json({ access_token: "ya29.exchange" }),
-      ),
+      http.post(api("/auth/calendar/exchange"), ({ request }) => {
+        captured.auth = request.headers.get("Authorization");
+        return HttpResponse.json({ connected: true });
+      }),
     );
     stubLocation("http://localhost/activity-logs/calendar?x=1#gcal_code=once-code");
     const replace = vi.spyOn(window.history, "replaceState");
     setup();
     expect(await toast()).toHaveTextContent("Google Calendar terhubung. Klik Sync Calendar untuk memuat event.");
-    expect(localStorage.getItem("google_calendar_token")).toBe("ya29.exchange");
+    expect(localStorage.getItem("google_calendar_token")).toBeNull();
+    expect(captured.auth).toBe("Bearer access-SA");
     expect(replace).toHaveBeenCalledWith(null, "", "/activity-logs/calendar?x=1");
   });
-
   it("legacy #gcal_token dibersihkan tetapi tidak dipercaya", async () => {
     localStorage.setItem("google_calendar_token", "lama");
     stubLocation("http://localhost/activity-logs/calendar?x=1#gcal_token=ya29.abc%2Fdef");
@@ -258,12 +287,18 @@ describe("CalendarSync — callback OAuth lewat URL hash", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(localStorage.getItem("google_calendar_token")).toBeNull();
   });
+  it("membersihkan access token lama dari localStorage", () => {
+    localStorage.setItem("google_calendar_token", "token-lama");
+    stubLocation("http://localhost/activity-logs/calendar");
+    setup();
+    expect(localStorage.getItem("google_calendar_token")).toBeNull();
+  });
 });
 
 describe("CalendarSync — mapping event ke subtask", () => {
   async function openMapping(items: unknown[] = [gcalEvent()], projectList = projects) {
     const utils = setup({ projects: projectList });
-    await syncWithToken(utils.user, items);
+    await syncWithSession(utils.user, items);
     await toast();
     await utils.user.click(screen.getByRole("button", { name: "Map ke Subtask" }));
     return { ...utils, modal: screen.getByRole("heading", { name: "Map Event ke Subtask" }).parentElement as HTMLElement };

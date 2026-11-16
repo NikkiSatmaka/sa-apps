@@ -16,6 +16,7 @@ from app.core.database import Base
 
 # Import semua model agar terdaftar di metadata Base
 from app.models import (  # noqa: F401
+    CalendarOAuthSession,
     ActivityLog,
     AuditLog,
     Document,

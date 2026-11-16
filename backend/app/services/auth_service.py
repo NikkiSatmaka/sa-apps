@@ -14,16 +14,19 @@ from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from jose import JWTError, jwt
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import VALID_ROLES, settings
 from app.models.auth_handoff import AuthHandoff
+from app.models.calendar_oauth_session import CalendarOAuthSession
 from app.models.auth_refresh_token import AuthRefreshToken
 from app.models.user import User
 from app.schemas.auth import GoogleProfile, TokenPair
+
+CALENDAR_SESSION_TTL_SECONDS = 60 * 60
 
 # Endpoint Google OAuth
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -302,6 +305,78 @@ class AuthService:
     def _fernet() -> Fernet:
         key = base64.urlsafe_b64encode(hashlib.sha256(settings.JWT_SECRET_KEY.encode()).digest())
         return Fernet(key)
+
+    async def create_calendar_session(
+        self,
+        db: AsyncSession,
+        *,
+        user_id: uuid.UUID,
+        access_token: str,
+        previous_session: str | None = None,
+    ) -> str:
+        """Store an encrypted Calendar token and return an opaque cookie value."""
+        now = datetime.now(UTC)
+        if previous_session:
+            await self.revoke_calendar_session(db, previous_session)
+        await db.execute(
+            delete(CalendarOAuthSession).where(CalendarOAuthSession.expires_at <= now)
+        )
+
+        session_id = secrets.token_urlsafe(32)
+        db.add(
+            CalendarOAuthSession(
+                session_hash=hashlib.sha256(session_id.encode()).hexdigest(),
+                user_id=user_id,
+                encrypted_access_token=self._fernet().encrypt(access_token.encode()).decode(),
+                expires_at=now + timedelta(seconds=CALENDAR_SESSION_TTL_SECONDS),
+            )
+        )
+        return session_id
+
+    async def get_calendar_access_token(
+        self,
+        db: AsyncSession,
+        *,
+        session_id: str | None,
+        user_id: uuid.UUID,
+    ) -> str | None:
+        """Return a live session token only for its owning authenticated user."""
+        if not session_id:
+            return None
+        session_hash = hashlib.sha256(session_id.encode()).hexdigest()
+        session = await db.scalar(
+            select(CalendarOAuthSession)
+            .where(CalendarOAuthSession.session_hash == session_hash)
+            .with_for_update()
+        )
+        if session is None:
+            return None
+        if session.user_id != user_id or session.expires_at <= datetime.now(UTC):
+            await db.delete(session)
+            await db.flush()
+            return None
+        try:
+            return self._fernet().decrypt(session.encrypted_access_token.encode()).decode()
+        except InvalidToken:
+            await db.delete(session)
+            await db.flush()
+            return None
+
+    async def revoke_calendar_session(
+        self, db: AsyncSession, session_id: str | None
+    ) -> None:
+        """Revoke a Calendar session by its untrusted opaque cookie value."""
+        if not session_id:
+            return
+        session_hash = hashlib.sha256(session_id.encode()).hexdigest()
+        session = await db.scalar(
+            select(CalendarOAuthSession)
+            .where(CalendarOAuthSession.session_hash == session_hash)
+            .with_for_update()
+        )
+        if session is not None:
+            await db.delete(session)
+            await db.flush()
 
     async def create_handoff(
         self,

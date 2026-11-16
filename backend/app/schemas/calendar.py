@@ -19,14 +19,6 @@ from app.schemas.activity_log import (
 # === Request Schemas ===
 
 
-class CalendarSyncRequest(BaseModel):
-    """Request body untuk sync Google Calendar events."""
-
-    access_token: str = Field(
-        ...,
-        description="Google OAuth access token untuk akses Calendar API",
-    )
-
 
 class CalendarMapRequest(BaseModel):
     """Request body untuk memetakan event Google Calendar ke proyek."""

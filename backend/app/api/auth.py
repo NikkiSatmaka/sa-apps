@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Literal
 from urllib.parse import urlparse
 
+from cryptography.fernet import InvalidToken
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
@@ -17,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.schemas.auth import (
     HandoffRequest,
@@ -24,6 +26,7 @@ from app.schemas.auth import (
 )
 from app.services.auth_service import (
     AuthServiceError,
+    CALENDAR_SESSION_TTL_SECONDS,
     DomainNotAllowedError,
     TokenError,
     auth_service,
@@ -35,6 +38,7 @@ from app.services.auth_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+CALENDAR_SESSION_COOKIE = "calendar_session"
 
 
 def _set_refresh_cookie(response: Response, token: str) -> None:
@@ -50,6 +54,28 @@ def _clear_refresh_cookie(response: Response) -> None:
         "refresh_token", httponly=True,
         secure=settings.ENVIRONMENT == "production", samesite="lax",
         path="/api/v1/auth",
+    )
+
+
+def _set_calendar_session_cookie(response: Response, session_id: str) -> None:
+    response.set_cookie(
+        CALENDAR_SESSION_COOKIE,
+        session_id,
+        httponly=True,
+        secure=settings.ENVIRONMENT == "production",
+        samesite="lax",
+        max_age=CALENDAR_SESSION_TTL_SECONDS,
+        path="/api/v1",
+    )
+
+
+def clear_calendar_session_cookie(response: Response) -> None:
+    response.delete_cookie(
+        CALENDAR_SESSION_COOKIE,
+        httponly=True,
+        secure=settings.ENVIRONMENT == "production",
+        samesite="lax",
+        path="/api/v1",
     )
 
 
@@ -220,7 +246,7 @@ async def callback(
     Handle callback dari Google setelah user melakukan consent.
     Mendukung 2 flow:
     - Login biasa: state kosong atau URL redirect biasa
-    - Calendar auth: state diawali 'calendar_auth|' → tukar code, redirect ke frontend dengan token
+    - Calendar auth: state diawali 'calendar_auth|' → tukar code, redirect ke frontend dengan kode sekali pakai
     """
     # Handle jika user membatalkan consent
     if error:
@@ -235,23 +261,31 @@ async def callback(
             detail="Authorization code tidak ditemukan.",
         )
 
-    # === Calendar Auth Flow ===
-    # State format: "calendar_auth|{frontend_url}"
     if state and state.startswith("calendar_auth|"):
-        frontend_url = state.split("|", 1)[1] if "|" in state else "/"
-        # State datang dari client (lewat /auth/login?redirect_url=...). Tanpa pengecekan,
-        # token Google bisa diarahkan ke origin penyerang (open redirect), jadi tolak
-        # sebelum kode OAuth ditukar.
+        state_parts = state.split("|", 2)
+        frontend_url = state_parts[1] if len(state_parts) > 1 else "/"
+        state_code = state_parts[2] if len(state_parts) > 2 else None
+        # The OAuth state binds this callback to the authenticated user who started it.
         if not _frontend_url_diizinkan(frontend_url):
             raise HTTPException(
                 status_code=400,
                 detail="State tidak valid: URL tujuan harus berada di origin frontend.",
             )
         try:
+            if not state_code:
+                raise TokenError("State Calendar tidak valid.")
+            auth_state = await auth_service.consume_handoff(db, state_code, "calendar")
+            if auth_state.user_id is None or auth_state.encrypted_value is not None:
+                raise TokenError("State Calendar tidak valid.")
             google_tokens = await auth_service._exchange_code(code)
-            gcal_token = google_tokens.get("access_token", "")
+            gcal_token = google_tokens.get("access_token")
+            if not gcal_token:
+                raise TokenError("Token Calendar tidak tersedia.")
             handoff_code = await auth_service.create_handoff(
-                db, purpose="calendar", value=gcal_token
+                db,
+                purpose="calendar",
+                user_id=auth_state.user_id,
+                value=gcal_token,
             )
             redirect_url = f"{frontend_url}#gcal_code={handoff_code}"
             return RedirectResponse(url=redirect_url)
@@ -303,19 +337,30 @@ async def exchange_callback(
 async def exchange_calendar(
     body: HandoffRequest,
     request: Request,
+    response: Response,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     _tolak_origin_silang(request)
     try:
         handoff = await auth_service.consume_handoff(db, body.code, "calendar")
-        if not handoff.encrypted_value:
+        if handoff.user_id != current_user.id or not handoff.encrypted_value:
             raise TokenError("Kode kalender tidak valid.")
-        token = auth_service._fernet().decrypt(handoff.encrypted_value.encode()).decode()
+        try:
+            token = auth_service._fernet().decrypt(handoff.encrypted_value.encode()).decode()
+        except (InvalidToken, UnicodeDecodeError) as exc:
+            raise TokenError("Kode kalender tidak valid.") from exc
+        session_id = await auth_service.create_calendar_session(
+            db,
+            user_id=current_user.id,
+            access_token=token,
+            previous_session=request.cookies.get(CALENDAR_SESSION_COOKIE),
+        )
         await db.commit()
-        return {"access_token": token}
     except TokenError as e:
         raise HTTPException(status_code=401, detail=e.detail)
-
+    _set_calendar_session_cookie(response, session_id)
+    return {"connected": True}
 
 @router.post("/refresh", summary="Refresh Access Token")
 async def refresh(
@@ -356,6 +401,11 @@ async def logout(
     refresh_token = request.cookies.get("refresh_token")
     if refresh_token:
         await auth_service.revoke_refresh_token(refresh_token, db)
+    await auth_service.revoke_calendar_session(
+        db, request.cookies.get(CALENDAR_SESSION_COOKIE)
+    )
+    await db.commit()
+    clear_calendar_session_cookie(response)
     _clear_refresh_cookie(response)
 
     return {"message": "Logout berhasil."}

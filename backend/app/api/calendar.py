@@ -8,13 +8,15 @@ import random
 import string
 from datetime import datetime, timezone
 from decimal import Decimal
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import CALENDAR_SESSION_COOKIE, clear_calendar_session_cookie
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import TingkatAkses, ensure_project_access, get_current_user
@@ -24,16 +26,16 @@ from app.models.user import User
 from app.schemas.calendar import (
     CalendarMapRequest,
     CalendarMapResponse,
-    CalendarSyncRequest,
     CalendarSyncResponse,
 )
 from app.schemas.response import error_response, success_response
-from app.services.status_proyek import majukan_ke_in_progress, pastikan_proyek_bisa_ditulis
+from app.services.auth_service import auth_service
 from app.services.calendar_service import (
     CalendarAPIError,
     CalendarTimeoutError,
     calendar_service,
 )
+from app.services.status_proyek import majukan_ke_in_progress, pastikan_proyek_bisa_ditulis
 
 logger = logging.getLogger(__name__)
 
@@ -46,33 +48,21 @@ PESAN_EVENT_SUDAH_DIPETAKAN = "Event sudah dipetakan sebelumnya."
     "/auth-url",
     summary="Generate Google OAuth URL untuk Calendar",
     description=(
-        "Endpoint untuk memulai OAuth flow khusus Google Calendar. "
-        "User akan di-redirect ke Google consent screen. "
-        "Setelah authorize, Google redirect kembali ke frontend dengan token di URL hash."
+        "Memulai otorisasi Google Calendar read-only untuk pengguna yang sedang login. "
+        "State OAuth sekali pakai mengikat callback ke pengguna tersebut."
     ),
 )
-async def get_calendar_auth_url():
-    """
-    Generate Google OAuth URL khusus calendar scope.
-    User akan di-redirect ke Google untuk authorize akses calendar.
-    Setelah callback, token akan tersedia di URL hash frontend.
-    """
-    if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content=error_response(
-                message="Google OAuth belum dikonfigurasi. Calendar sync tidak tersedia."
-            ),
-        )
-
-    # State parameter: "calendar_auth|{return_url}"
-    # Callback handler akan detect prefix ini dan handle sebagai calendar auth.
-    # return_url diarahkan ke halaman Calendar Sync agar komponen CalendarSync
-    # (yang membaca #gcal_token dari URL hash) ter-mount dan menangkap token.
-    # Tanpa path ini, user mendarat di root dan token tidak pernah terbaca.
+async def get_calendar_auth_url(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate Google OAuth URL with a one-time state bound to the current user."""
     frontend_url = settings.FRONTEND_URL.rstrip("/")
     return_url = f"{frontend_url}/activity-logs/calendar"
-    state = f"calendar_auth|{return_url}"
+    state_code = await auth_service.create_handoff(
+        db, purpose="calendar", user_id=current_user.id
+    )
+    state = f"calendar_auth|{return_url}|{state_code}"
 
     params = {
         "client_id": settings.GOOGLE_CLIENT_ID,
@@ -80,13 +70,9 @@ async def get_calendar_auth_url():
         "response_type": "code",
         "scope": "https://www.googleapis.com/auth/calendar.readonly",
         "state": state,
-        "access_type": "offline",
-        "prompt": "consent",
         "include_granted_scopes": "true",
     }
-
-    query_string = "&".join(f"{k}={v}" for k, v in params.items())
-    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{query_string}"
+    auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
 
     return success_response(
         data={"auth_url": auth_url},
@@ -109,39 +95,59 @@ def _generate_log_id() -> str:
     summary="Sync events dari Google Calendar",
     description=(
         "Fetch events 7 hari lalu + 7 hari depan (max 200 events) dari "
-        "Google Calendar primary user. Memerlukan access_token Google OAuth."
+        "Google Calendar primary user menggunakan sesi HttpOnly aktif."
     ),
 )
 async def sync_calendar(
-    request: CalendarSyncRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
-    Sync events dari Google Calendar.
+    Sync event read-only dari Google Calendar dengan token di sesi server terenkripsi.
 
-    Flow:
-    1. Panggil Google Calendar API dengan access_token user
-    2. Parse events (termasuk all-day events dengan durasi 8 jam)
-    3. Return daftar events yang bisa di-map ke proyek
-
-    Error handling:
-    - Timeout 15s → return error "Google Calendar API timeout"
-    - API error → return error dengan detail spesifik
+    Timeout 15s → error 504; kegagalan Calendar API → error 502.
     """
+    session_id = request.cookies.get(CALENDAR_SESSION_COOKIE)
+    access_token = await auth_service.get_calendar_access_token(
+        db,
+        session_id=session_id,
+        user_id=current_user.id,
+    )
+    if not access_token:
+        await db.commit()
+        response = JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content=error_response(message="Calendar session not found."),
+        )
+        clear_calendar_session_cookie(response)
+        return response
+
+    # Release the session-row lock before making the external Google API request.
+    await db.commit()
+
     try:
-        events = await calendar_service.fetch_events(request.access_token)
+        events = await calendar_service.fetch_events(access_token)
     except CalendarTimeoutError:
         return JSONResponse(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             content=error_response(message="Google Calendar API timeout"),
         )
     except CalendarAPIError as e:
+        if any(f"Google Calendar API error ({code})" in e.message for code in (401, 403)):
+            await auth_service.revoke_calendar_session(db, session_id)
+            await db.commit()
+            response = JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content=error_response(message=e.message),
+            )
+            clear_calendar_session_cookie(response)
+            return response
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content=error_response(message=e.message),
         )
 
-    # Buat response
     sync_response = CalendarSyncResponse(
         events=events,
         total_events=len(events),

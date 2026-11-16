@@ -233,26 +233,75 @@ async def test_callback_handoff_hanya_dapat_ditukar_satu_kali(api, monkeypatch):
     assert pakai_ulang.status_code == 401
 
 
-async def test_calendar_callback_location_hanya_membawa_kode_terbatas(api, monkeypatch):
-    from app.core.config import settings
+async def test_calendar_callback_uses_encrypted_user_session_and_logout_revokes_it(
+    api, monkeypatch
+):
+    from urllib.parse import parse_qs, urlparse
+
+    from app.services.calendar_service import calendar_service
 
     monkeypatch.setattr(settings, "FRONTEND_URL", "http://localhost:3000")
+    user_headers = await api.login_demo("SA")
+    auth_url_response = await api.client.get(
+        "/api/v1/calendar/auth-url", headers=user_headers
+    )
+    assert auth_url_response.status_code == 200
+    auth_url = auth_url_response.json()["data"]["auth_url"]
+    state = parse_qs(urlparse(auth_url).query)["state"][0]
+
     pasang_google(monkeypatch, token_body={"access_token": "GOOGLE-SECRET"})
     callback = await api.client.get(
         f"{AUTH}/callback",
-        params={"code": "google-code", "state": "calendar_auth|http://localhost:3000/activity-logs/calendar"},
+        params={"code": "google-code", "state": state},
         follow_redirects=False,
     )
     location = callback.headers["location"]
     assert "GOOGLE-SECRET" not in location
     code = location.split("gcal_code=", 1)[1]
-    exchanged = await api.client.post(f"{AUTH}/calendar/exchange", json={"code": code})
-    assert exchanged.json() == {"access_token": "GOOGLE-SECRET"}
+
+    rejected = await api.client.post(f"{AUTH}/calendar/exchange", json={"code": code})
+    assert rejected.status_code == 401
+    other_user = await api.login_demo("Sales")
+    wrong_user = await api.client.post(
+        f"{AUTH}/calendar/exchange", json={"code": code}, headers=other_user
+    )
+    assert wrong_user.status_code == 401
+
+    exchanged = await api.client.post(
+        f"{AUTH}/calendar/exchange", json={"code": code}, headers=user_headers
+    )
+    assert exchanged.status_code == 200
+    assert exchanged.json() == {"connected": True}
+    cookie = exchanged.headers["set-cookie"]
+    assert "calendar_session=" in cookie
+    assert "GOOGLE-SECRET" not in cookie
+    assert "HttpOnly" in cookie
+    assert "SameSite=lax" in cookie
+    assert "Max-Age=3600" in cookie
+    assert "Path=/api/v1" in cookie
+
+    tokens_used = []
+
+    async def fetch_events(access_token):
+        tokens_used.append(access_token)
+        return []
+
+    monkeypatch.setattr(calendar_service, "fetch_events", fetch_events)
+    synced = await api.client.post(
+        "/api/v1/calendar/sync", headers=user_headers, json={}
+    )
+    assert synced.status_code == 200
+    assert synced.json()["data"]["total_events"] == 0
+    assert tokens_used == ["GOOGLE-SECRET"]
+
+    logged_out = await api.client.post(f"{AUTH}/logout", headers=user_headers)
+    assert logged_out.status_code == 200
     assert (
-        await api.client.post(f"{AUTH}/calendar/exchange", json={"code": code})
+        await api.client.post("/api/v1/calendar/sync", headers=user_headers, json={})
     ).status_code == 401
-
-
+    assert (
+        await api.client.post(f"{AUTH}/calendar/exchange", json={"code": code}, headers=user_headers)
+    ).status_code == 401
 # ------------------------------------------------------------------------- refresh / logout / sesi
 
 

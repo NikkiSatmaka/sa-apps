@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { fetcher, apiRequest } from "@/lib/fetcher";
+import { ApiError, fetcher, apiRequest } from "@/lib/fetcher";
 
 /**
  * Komponen Calendar Sync — tampilan kalender bulanan Google Calendar
  *
  * Alur:
- * 1. Sync Calendar → fetch events (7 hari lalu + 7 hari depan) via OAuth token
+ * 1. Sync Calendar → fetch events (7 hari lalu + 7 hari depan) dengan sesi OAuth server
  * 2. Event ditandai sebagai titik pada grid kalender bulanan
  * 3. Klik tanggal → panel detail menampilkan event pada hari itu
  * 4. Klik "Map ke Subtask" pada event → modal pilih proyek + subtask + durasi
@@ -59,42 +59,6 @@ const MONTH_LABELS = [
   "Juli", "Agustus", "September", "Oktober", "November", "Desember",
 ];
 
-// Konstanta Google Calendar API — fetch langsung dari browser.
-// Dilakukan di sisi klien (bukan via backend /calendar/sync) untuk menghindari
-// WAF Cloudflare yang memblokir POST ke origin dengan payload token.
-// Token Google (OAuth) dikirim langsung browser -> Google via HTTPS.
-const GCAL_EVENTS_ENDPOINT =
-  "https://www.googleapis.com/calendar/v3/calendars/primary/events";
-const GCAL_RANGE_DAYS = 7;
-const GCAL_MAX_RESULTS = 200;
-
-/** Bentuk mentah item event dari Google Calendar API */
-interface GCalRawEvent {
-  id?: string;
-  summary?: string;
-  description?: string;
-  start?: { date?: string; dateTime?: string };
-  end?: { date?: string; dateTime?: string };
-}
-
-/**
- * Parse satu item event Google menjadi CalendarEvent.
- * Mereplikasi logika backend: deteksi all-day via 'date' vs 'dateTime'.
- */
-function parseGCalEvent(item: GCalRawEvent): CalendarEvent | null {
-  if (!item.id) return null;
-  const startRaw = item.start || {};
-  const endRaw = item.end || {};
-  const isAllDay = !!startRaw.date && !startRaw.dateTime;
-  return {
-    gcal_event_id: item.id,
-    title: item.summary || "(No Title)",
-    description: item.description,
-    start: isAllDay ? startRaw.date! : startRaw.dateTime || "",
-    end: isAllDay ? endRaw.date || "" : endRaw.dateTime || "",
-    is_all_day: isAllDay,
-  };
-}
 
 interface Project {
   id: string;
@@ -111,6 +75,17 @@ interface CalendarEvent {
   end: string;
   is_all_day: boolean;
   is_mapped?: boolean;
+}
+
+interface CalendarSyncResponse {
+  events?: Array<{
+    gcal_event_id: string;
+    title: string;
+    description?: string | null;
+    start: string | null;
+    end: string | null;
+    is_all_day: boolean;
+  }>;
 }
 
 interface CalendarSyncProps {
@@ -182,6 +157,7 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
    */
   useEffect(() => {
     if (typeof window === "undefined") return;
+    localStorage.removeItem("google_calendar_token");
     const hash = window.location.hash;
     if (!hash) return;
 
@@ -193,34 +169,25 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
 
     window.history.replaceState(null, "", window.location.pathname + window.location.search);
     if (legacyToken && !code && !error) {
-      localStorage.removeItem("google_calendar_token");
       showToast("error", "Otorisasi Google Calendar perlu diulang.");
       return;
     }
     if (error) {
-      localStorage.removeItem("google_calendar_token");
       showToast("error", "Otorisasi Google Calendar gagal. Silakan coba lagi.");
       return;
     }
 
-    void fetch(`${process.env.NEXT_PUBLIC_API_URL || "/api/v1"}/auth/calendar/exchange`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code }),
-    }).then(async (response) => {
-      if (!response.ok) throw new Error("Kode kalender tidak valid");
-      const result = await response.json();
-      localStorage.setItem("google_calendar_token", result.access_token);
+    void apiRequest<{ connected: boolean }>("/auth/calendar/exchange", {
+      body: { code },
+    }).then(() => {
       showToast("success", "Google Calendar terhubung. Klik Sync Calendar untuk memuat event.");
     }).catch(() => {
-      localStorage.removeItem("google_calendar_token");
       showToast("error", "Otorisasi Google Calendar gagal. Silakan coba lagi.");
     });
   }, [showToast]);
 
   /**
-   * Redirect ke Google OAuth untuk mendapatkan Calendar access token.
+   * Redirect ke Google OAuth untuk otorisasi Calendar.
    */
   const redirectToGoogleAuth = useCallback(async () => {
     try {
@@ -232,56 +199,18 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
   }, [showToast]);
 
   /**
-   * Sync calendar — fetch events LANGSUNG dari Google Calendar API di browser.
-   * Tidak lagi via backend /calendar/sync agar tidak kena WAF Cloudflare.
-   * Jika token belum ada, redirect ke Google OAuth dulu.
+   * Fetch calendar events through the backend, which holds the Google token in an HttpOnly session.
    */
   const handleSync = useCallback(async () => {
-    const gcalToken = localStorage.getItem("google_calendar_token");
-
-    if (!gcalToken) {
-      showToast("success", "Mengarahkan ke Google untuk otorisasi Calendar...");
-      await redirectToGoogleAuth();
-      return;
-    }
-
     setIsSyncing(true);
     try {
-      // Rentang: 7 hari lalu sampai 7 hari depan
-      const now = new Date();
-      const timeMin = new Date(now.getTime() - GCAL_RANGE_DAYS * 86400000).toISOString();
-      const timeMax = new Date(now.getTime() + GCAL_RANGE_DAYS * 86400000).toISOString();
-      const query = new URLSearchParams({
-        timeMin,
-        timeMax,
-        maxResults: String(GCAL_MAX_RESULTS),
-        singleEvents: "true",
-        orderBy: "startTime",
-      });
-
-      const resp = await fetch(`${GCAL_EVENTS_ENDPOINT}?${query.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${gcalToken}`,
-          Accept: "application/json",
-        },
-      });
-
-      // Token kedaluwarsa / tidak sah → minta re-auth
-      if (resp.status === 401 || resp.status === 403) {
-        localStorage.removeItem("google_calendar_token");
-        showToast("error", "Token Google Calendar kedaluwarsa. Silakan sync ulang untuk otorisasi.");
-        return;
-      }
-      if (!resp.ok) {
-        showToast("error", `Gagal sync calendar (Google ${resp.status}).`);
-        return;
-      }
-
-      const data = await resp.json();
-      const items: GCalRawEvent[] = Array.isArray(data?.items) ? data.items : [];
-      const fetched = items
-        .map(parseGCalEvent)
-        .filter((e): e is CalendarEvent => e !== null);
+      const result = await apiRequest<CalendarSyncResponse>("/calendar/sync", { body: {} });
+      const fetched = (Array.isArray(result?.events) ? result.events : []).map((event) => ({
+        ...event,
+        description: event.description ?? undefined,
+        start: event.start ?? "",
+        end: event.end ?? "",
+      }));
 
       setEvents(fetched);
       setHasSynced(true);
@@ -292,8 +221,25 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
           : "Calendar tersinkronisasi, tidak ada event pada rentang 7 hari ini"
       );
     } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 401) {
+        if (err.message.toLowerCase().includes("calendar session not found")) {
+          showToast("success", "Mengarahkan ke Google untuk otorisasi Calendar...");
+          await redirectToGoogleAuth();
+        } else {
+          showToast("error", "Token Google Calendar kedaluwarsa. Silakan sync ulang untuk otorisasi.");
+        }
+        return;
+      }
+
       const message = err instanceof Error ? err.message : "Gagal sync calendar";
-      showToast("error", message);
+      const googleStatus = message.match(/Google Calendar API error \((\d{3})\)/)?.[1];
+      if (googleStatus === "401" || googleStatus === "403") {
+        showToast("error", "Token Google Calendar kedaluwarsa. Silakan sync ulang untuk otorisasi.");
+      } else if (googleStatus) {
+        showToast("error", `Gagal sync calendar (Google ${googleStatus}).`);
+      } else {
+        showToast("error", message);
+      }
     } finally {
       setIsSyncing(false);
     }

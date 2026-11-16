@@ -152,7 +152,6 @@ async def test_retry_document_review_unlock_rejects_missing_document(dunia, api)
     project = await dunia.buat_proyek(
         status="Assigned",
         dq_number="DQ-TEST",
-        sales_pic=dunia.sales.id,
         gdrive_solutions_folder_id="solutions-folder",
     )
     operation = IntegrationOperation(

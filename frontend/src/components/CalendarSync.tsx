@@ -368,7 +368,7 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
           ) : (
             <div className="space-y-2">
               {selectedEvents.map((event) => {
-                const isMapped = mappedIds.has(event.gcal_event_id) || event.is_mapped;
+                const isMapped = mappedIds.has(event.gcal_event_id);
                 return (
                   <div
                     key={event.gcal_event_id}

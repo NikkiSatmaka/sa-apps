@@ -122,7 +122,7 @@ async def test_assign_provisioning_gagal_status_failed_lalu_provision_ulang_berh
     assert (await ambil_sla(dunia.db, pid)) is not None
     assert len(await daftar_subtask(dunia.db, pid)) == 4
 
-    detail = await api.client.get(f"/projects/{pid}", headers=dunia.h["lead"])
+    detail = await api.client.get(f"/api/v1/projects/{pid}", headers=dunia.h["lead"])
     assert detail.status_code == 200, detail.text
     operation = detail.json()["data"]["folder_provisioning_operation"]
     assert operation["status"] == "failed"
@@ -148,7 +148,7 @@ async def test_assign_provisioning_gagal_status_failed_lalu_provision_ulang_berh
     await jalankan_provisioning(dunia.db, tugas[1])
     p = await ambil_proyek(dunia.db, pid)
     assert p.folder_provisioning_status == "provisioned" and p.gdrive_folder_id is not None
-    detail = await api.client.get(f"/projects/{pid}", headers=dunia.h["lead"])
+    detail = await api.client.get(f"/api/v1/projects/{pid}", headers=dunia.h["lead"])
     operation = detail.json()["data"]["folder_provisioning_operation"]
     assert operation["status"] == "succeeded"
     assert len(operation["attempts"]) == 2
@@ -185,7 +185,9 @@ async def test_provisioning_error_tak_terduga_dipersisten_dan_tetap_non_blocking
 
     p = await ambil_proyek(dunia.db, proyek.id_project)
     assert p.folder_provisioning_status == "failed" and p.gdrive_folder_id is None
-    detail = await api.client.get(f"/projects/{proyek.id_project}", headers=dunia.h["lead"])
+    detail = await api.client.get(
+        f"/api/v1/projects/{proyek.id_project}", headers=dunia.h["lead"]
+    )
     operation = detail.json()["data"]["folder_provisioning_operation"]
     assert operation["status"] == "failed"
     assert operation["attempts"][0]["finished_at"] is not None

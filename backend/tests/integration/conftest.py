@@ -11,6 +11,8 @@ Alur:
   `commit()` pada kode produksi menjadi RELEASE SAVEPOINT (`create_savepoint`).
 - Klien API ASGI memakai override `get_db` ke sesi test DAN mem-patch `AsyncSessionLocal`
   di semua modul yang membuka sesinya sendiri (background task, notifikasi, SLA, dst.).
+  Sesi yang berbagi koneksi test diserialisasi per context agar SAVEPOINT tidak saling
+  menghapus saat beberapa notifikasi background berjalan bersamaan.
 
 Seluruh test di folder ini otomatis diberi marker `integration` dan dilewati dengan pesan
 jelas bila `TEST_DATABASE_URL` tidak di-set. Test unit tidak terpengaruh: berkas ini hanya
@@ -27,6 +29,8 @@ import sys
 from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+from weakref import WeakValueDictionary
 from unittest.mock import AsyncMock
 
 import httpx
@@ -199,6 +203,82 @@ async def db_connection(database_uji_url: str) -> AsyncIterator[AsyncConnection]
         await engine.dispose()
 
 
+class _ReentrantSessionLock:
+    """Serialize sessions sharing the test connection, while allowing same-task nesting."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._owner: asyncio.Task | None = None
+        self._depth = 0
+
+    async def acquire(self) -> None:
+        task = asyncio.current_task()
+        if task is None:
+            raise RuntimeError("Test session lock requires an asyncio task.")
+        if task is self._owner:
+            self._depth += 1
+            return
+        await self._lock.acquire()
+        self._owner = task
+        self._depth = 1
+
+    def release(self) -> None:
+        if asyncio.current_task() is not self._owner:
+            raise RuntimeError("Test session lock released by a different task.")
+        self._depth -= 1
+        if self._depth == 0:
+            self._owner = None
+            self._lock.release()
+
+
+class _SerializedSessionContext:
+    def __init__(
+        self,
+        factory: async_sessionmaker[AsyncSession],
+        lock: _ReentrantSessionLock,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> None:
+        self._factory = factory
+        self._lock = lock
+        self._args = args
+        self._kwargs = kwargs
+        self._context: AsyncSession | None = None
+
+    async def __aenter__(self) -> AsyncSession:
+        await self._lock.acquire()
+        try:
+            self._context = self._factory(*self._args, **self._kwargs)
+            return await self._context.__aenter__()
+        except BaseException:
+            self._lock.release()
+            raise
+
+    async def __aexit__(self, exc_type: Any, exc: Any, traceback: Any) -> bool | None:
+        try:
+            assert self._context is not None
+            return await self._context.__aexit__(exc_type, exc, traceback)
+        finally:
+            self._context = None
+            self._lock.release()
+
+
+class _SerializedSessionFactory:
+    """Test-only adapter for service sessions bound to one shared AsyncConnection."""
+
+    def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
+        self._factory = factory
+        self._lock = _ReentrantSessionLock()
+
+    def __call__(self, *args: Any, **kwargs: Any) -> _SerializedSessionContext:
+        return _SerializedSessionContext(self._factory, self._lock, args, kwargs)
+
+
+_SERIALIZED_FACTORIES: WeakValueDictionary[int, _SerializedSessionFactory] = (
+    WeakValueDictionary()
+)
+
+
 @pytest.fixture
 def session_factory(db_connection: AsyncConnection) -> async_sessionmaker[AsyncSession]:
     """
@@ -220,26 +300,33 @@ async def db_session(
     async with session_factory() as session:
         yield session
 
+def _serialized_session_factory(
+    factory: async_sessionmaker[AsyncSession],
+) -> _SerializedSessionFactory:
+    service_factory = _SERIALIZED_FACTORIES.get(id(factory))
+    if service_factory is None or service_factory._factory is not factory:
+        service_factory = _SerializedSessionFactory(factory)
+        _SERIALIZED_FACTORIES[id(factory)] = service_factory
+    return service_factory
+
 
 def patch_session_factory(
     monkeypatch: pytest.MonkeyPatch, factory: async_sessionmaker[AsyncSession]
 ) -> list[str]:
     """
-    Ganti `AsyncSessionLocal` dengan `factory` di SETIAP modul `app.*` yang memilikinya.
+    Patch app modules' independent session factories with the test connection factory.
 
-    Service/background task membuka sesi sendiri (`async with AsyncSessionLocal()`), jadi
-    `dependency_overrides[get_db]` tidak menjangkaunya. Modul yang mengimpor di level modul
-    (mis. `notification_service`, `sla_timer`) menyimpan referensi sendiri, sedangkan yang
-    mengimpor lokal membaca `app.core.database.AsyncSessionLocal` saat dipanggil; memindai
-    `sys.modules` menutup keduanya dan modul baru di masa depan. Mengembalikan nama modul
-    yang dipatch.
+    Sessions share one test connection, so transactions must serialize their savepoint use.
+    The lock is reentrant because a caller may open a helper session in the same task; spawned
+    tasks wait until that caller closes.
     """
     import app.core.database  # noqa: F401  - pastikan modul sudah dimuat
 
     dipatch: list[str] = []
+    service_factory = _serialized_session_factory(factory)
     for nama, modul in list(sys.modules.items()):
         if (nama == "app" or nama.startswith("app.")) and hasattr(modul, "AsyncSessionLocal"):
-            monkeypatch.setattr(modul, "AsyncSessionLocal", factory)
+            monkeypatch.setattr(modul, "AsyncSessionLocal", service_factory)
             dipatch.append(nama)
     return dipatch
 
@@ -253,6 +340,7 @@ class KlienApi:
     generate_requirement: AsyncMock
     session_factory: async_sessionmaker[AsyncSession]
     login_headers: dict[str, dict[str, str]] = field(default_factory=dict)
+    drain_notifications: bool = True
 
     async def login_demo(self, role: str) -> dict[str, str]:
         """Demo login → header Authorization (JWT asli lewat alur produksi)."""
@@ -289,8 +377,9 @@ async def api(
     """
     Klien ASGI (httpx + ASGITransport) terhadap `app` nyata dengan Postgres uji.
 
-    - `get_db` di-override ke sesi dari `session_factory` (satu koneksi, rollback per test).
-    - `AsyncSessionLocal` di-patch di modul yang membuka sesi sendiri.
+    - `get_db` uses the serialized test factory on the shared connection.
+    - `AsyncSessionLocal` is patched in modules that open their own sessions.
+    - Request dependency sessions hold the same lock so service tasks wait until teardown.
     - Event startup TIDAK jalan: `ASGITransport` tidak mengirim lifespan, jadi scheduler SLA
       dan sweep Requirement tidak aktif. `SLA_SCHEDULER_ENABLED` juga dimatikan sebagai
       pengaman bila ada yang memakai lifespan.
@@ -302,28 +391,53 @@ async def api(
     from app.core.config import settings
     from app.core.database import get_db
     from app.main import app
-
-    monkeypatch.setattr(settings, "DEMO_MODE", True)
-    monkeypatch.setattr(settings, "SLA_SCHEDULER_ENABLED", False)
+    from app.services.notification_service import notification_service
+    serialized_factory = _serialized_session_factory(session_factory)
     patch_session_factory(monkeypatch, session_factory)
-
+    api_client: KlienApi | None = None
     gen_requirement = AsyncMock()
     monkeypatch.setattr("app.api.projects.generate_pending_requirement", gen_requirement)
 
     async def _get_db_uji() -> AsyncIterator[AsyncSession]:
-        async with session_factory() as session:
-            yield session
+        pending_notifications: tuple[asyncio.Task, ...] = ()
+        try:
+            async with serialized_factory() as session:
+                try:
+                    yield session
+                except BaseException:
+                    if not session.is_active:
+                        await session.rollback()
+                    raise
+                else:
+                    # Release successful request savepoints. A caught DB error can leave the
+                    # session inactive; rollback it instead of surfacing a fixture teardown error.
+                    if session.is_active:
+                        await session.commit()
+                    else:
+                        await session.rollback()
+        finally:
+            pending_notifications = tuple(notification_service._background_tasks)
+            if (
+                api_client is not None
+                and api_client.drain_notifications
+                and pending_notifications
+            ):
+                await asyncio.gather(*pending_notifications)
 
     app.dependency_overrides[get_db] = _get_db_uji
     transport = httpx.ASGITransport(app=app)
     try:
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-            yield KlienApi(
+            api_client = KlienApi(
                 client=client,
                 generate_requirement=gen_requirement,
                 session_factory=session_factory,
             )
+            yield api_client
     finally:
+        pending_notifications = tuple(notification_service._background_tasks)
+        if pending_notifications:
+            await asyncio.gather(*pending_notifications)
         app.dependency_overrides.pop(get_db, None)
 
 

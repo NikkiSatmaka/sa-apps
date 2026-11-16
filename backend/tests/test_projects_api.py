@@ -617,9 +617,18 @@ class TestFolderProvisioningStatusInResponse:
             result.scalars = MagicMock(return_value=scalars)
             return result
 
-        # Query pertama: daftar proyek; kedua: user orang-per-project (tidak ditemukan → nama None)
+        # Query order: count, project page, then user lookup.
+        def _make_scalar_result(value):
+            result = MagicMock()
+            result.scalar_one = MagicMock(return_value=value)
+            return result
+
         mock_session.execute = AsyncMock(
-            side_effect=[_make_scalars_result([project]), _make_scalars_result([])]
+            side_effect=[
+                _make_scalar_result(1),
+                _make_scalars_result([project]),
+                _make_scalars_result([]),
+            ]
         )
 
         async def override_get_db():

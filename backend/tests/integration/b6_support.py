@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
+import asyncio
 import pytest_asyncio
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -45,17 +46,27 @@ async def komit_sesi_request(api, session_factory: async_sessionmaker[AsyncSessi
     """
     from app.core.database import get_db
     from app.main import app
+    from app.services.notification_service import notification_service
+    from tests.integration.conftest import _serialized_session_factory
+
+    serialized_factory = _serialized_session_factory(session_factory)
 
     async def _get_db_komit() -> AsyncIterator[AsyncSession]:
-        async with session_factory() as session:
-            try:
-                yield session
-            except HTTPException:
-                await session.commit()
-                raise
-            await session.commit()
-
-    app.dependency_overrides[get_db] = _get_db_komit
+        pending_notifications: tuple[asyncio.Task, ...] = ()
+        try:
+            async with serialized_factory() as session:
+                try:
+                    yield session
+                except HTTPException:
+                    await session.commit()
+                    pending_notifications = tuple(notification_service._background_tasks)
+                    raise
+                else:
+                    await session.commit()
+                    pending_notifications = tuple(notification_service._background_tasks)
+        finally:
+            if pending_notifications:
+                await asyncio.gather(*pending_notifications)
 
 
 @dataclass
@@ -124,14 +135,13 @@ async def muat(db: AsyncSession, model, **filter_: Any):
     return obj
 
 
-async def notifikasi(db: AsyncSession, **filter_: Any) -> list[NotificationLog]:
+async def notifikasi(
+    db: AsyncSession, *, channel: str | None = None, **filter_: Any
+) -> list[NotificationLog]:
+    statement = select(NotificationLog).filter_by(**filter_)
+    if channel is not None:
+        statement = statement.where(NotificationLog.channel == channel)
     hasil = (
-        (
-            await db.execute(
-                select(NotificationLog).filter_by(**filter_).order_by(NotificationLog.created_at)
-            )
-        )
-        .scalars()
-        .all()
-    )
+        await db.execute(statement.order_by(NotificationLog.created_at))
+    ).scalars().all()
     return list(hasil)

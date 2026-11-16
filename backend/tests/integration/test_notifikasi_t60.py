@@ -9,17 +9,21 @@ antar-user) dan `notification_service` (in-app, email sukses/retry/gagal akhir/t
 import asyncio
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+import app.services.notification_service as notification_service_module
 from app.models import IntegrationOperation, NotificationLog
 from app.services.notification_service import (
     NotificationEvent,
     NotificationEventType,
     notification_service,
 )
+from tests.integration.conftest import patch_session_factory
 from tests.integration.helpers_t60 import (
     API,
     bearer,
@@ -28,6 +32,11 @@ from tests.integration.helpers_t60 import (
 )
 
 NOTIF = f"{API}/notifications"
+
+
+@pytest.fixture(autouse=True)
+def _sesi_service_terpatch(monkeypatch, session_factory):
+    patch_session_factory(monkeypatch, session_factory)
 
 
 @pytest_asyncio.fixture
@@ -54,11 +63,9 @@ async def api_servis(api, session_factory: async_sessionmaker[AsyncSession]):
 
 
 async def _tunggu_task_latar() -> None:
-    """Tunggu task background email (create_task) selesai agar hasilnya terlihat di DB."""
-    sekarang = asyncio.current_task()
-    tersisa = [t for t in asyncio.all_tasks() if t is not sekarang and not t.done()]
-    if tersisa:
-        await asyncio.wait(tersisa, timeout=5)
+    """Tunggu task email yang dikelola service, bukan task asing di event loop."""
+    while notification_service._background_tasks:
+        await asyncio.gather(*tuple(notification_service._background_tasks))
 
 
 async def _log_email(db, user) -> list[NotificationLog]:
@@ -287,7 +294,7 @@ async def test_email_langsung_gagal_satu_kali_dan_menyimpan_operation(fake_gmail
     )
 
     assert dijadwalkan is True
-    await fake_gmail.tunggu_percobaan(1)
+    await asyncio.gather(*notification_service._background_tasks)
     assert [attempt.berhasil for attempt in fake_gmail.percobaan] == [False]
     operation = (
         await db_session.execute(
@@ -326,6 +333,38 @@ async def test_email_langsung_tanpa_gmail_mencatat_kegagalan(fake_gmail, db_sess
     assert operation.status == "failed"
     assert operation.retryable is False
     assert operation.actionable_error
+
+
+async def test_email_session_starts_after_inapp_session_closes(
+    api, db_session, fake_gmail, monkeypatch
+):
+    factory = notification_service_module.AsyncSessionLocal
+    active_sessions = 0
+    overlapped_sessions = False
+
+    @asynccontextmanager
+    async def tracked_sessions():
+        nonlocal active_sessions, overlapped_sessions
+        async with factory() as session:
+            active_sessions += 1
+            overlapped_sessions |= active_sessions > 1
+            try:
+                yield session
+            finally:
+                # Let create_task run during session cleanup, as it can on the
+                # harness's shared connection.
+                await asyncio.sleep(0)
+                active_sessions -= 1
+
+    monkeypatch.setattr(notification_service_module, "AsyncSessionLocal", tracked_sessions)
+    user = await buat_user(db_session, "SA")
+
+    await notification_service.send_notification(_event(user))
+    await fake_gmail.tunggu_percobaan(1)
+    await _tunggu_task_latar()
+
+    assert not overlapped_sessions
+    assert [log.status for log in await _log_email(db_session, user)] == ["sent"]
 
 
 async def test_send_notification_dengan_gmail_inapp_dan_email_terkirim(api, db_session, fake_gmail):

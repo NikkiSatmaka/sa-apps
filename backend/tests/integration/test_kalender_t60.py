@@ -7,14 +7,29 @@ Pasangan unit: `tests/test_calendar_service_t60.py` (service + parsing murni).
 """
 
 from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from sqlalchemy import func, select
 
+from app.api.auth import CALENDAR_SESSION_COOKIE
 from app.core.config import settings
 from app.models import ActivityLog
+from app.services.auth_service import auth_service
 from tests.integration.fakes.calendar import event_berjadwal, event_seharian
 from tests.integration.helpers_t60 import API, bearer, buat_proyek, buat_user
+
+
+async def _calendar_auth(api, db_session, user, token: str) -> dict[str, str]:
+    session_cookie = await auth_service.create_calendar_session(
+        db_session,
+        user_id=user.id,
+        access_token=token,
+    )
+    await db_session.commit()
+    api.client.cookies.set(CALENDAR_SESSION_COOKIE, session_cookie)
+    return bearer(user)
+
 
 CAL = f"{API}/calendar"
 
@@ -42,28 +57,35 @@ async def _jumlah_log(db, **filter_) -> int:
 # ---  auth-url
 
 
-async def test_auth_url_belum_dikonfigurasi_503(api, monkeypatch):
+async def test_auth_url_belum_dikonfigurasi_503(api, db_session, monkeypatch):
+    sa = await buat_user(db_session, "SA")
     monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "")
 
-    resp = await api.client.get(f"{CAL}/auth-url")
+    resp = await api.client.get(f"{CAL}/auth-url", headers=bearer(sa))
 
     assert resp.status_code == 503
     assert resp.json()["status"] == "error"
 
 
-async def test_auth_url_scope_readonly_dan_state_menuju_halaman_calendar(api, monkeypatch):
+async def test_auth_url_scope_readonly_dan_state_menuju_halaman_calendar(
+    api, db_session, monkeypatch
+):
+    sa = await buat_user(db_session, "SA")
     monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "cid-123")
     monkeypatch.setattr(settings, "GOOGLE_CLIENT_SECRET", "rahasia")
     monkeypatch.setattr(settings, "FRONTEND_URL", "https://portal.contoh.id/")
 
-    resp = await api.client.get(f"{CAL}/auth-url")
+    resp = await api.client.get(f"{CAL}/auth-url", headers=bearer(sa))
 
     assert resp.status_code == 200, resp.text
     url = resp.json()["data"]["auth_url"]
     assert url.startswith("https://accounts.google.com/o/oauth2/v2/auth?")
     assert "client_id=cid-123" in url
-    assert "scope=https://www.googleapis.com/auth/calendar.readonly" in url
-    assert "state=calendar_auth|https://portal.contoh.id/activity-logs/calendar" in url
+    query = parse_qs(urlsplit(url).query)
+    assert query["scope"] == ["https://www.googleapis.com/auth/calendar.readonly"]
+    assert query["state"][0].startswith(
+        "calendar_auth|https://portal.contoh.id/activity-logs/calendar|"
+    )
     assert "rahasia" not in url
 
 
@@ -82,7 +104,7 @@ async def test_sync_mengembalikan_event_ter_parse_dan_meneruskan_token(
     sa = await buat_user(db_session, "SA")
 
     resp = await api.client.post(
-        f"{CAL}/sync", json={"access_token": "ya29.token-uji"}, headers=bearer(sa)
+        f"{CAL}/sync", headers=await _calendar_auth(api, db_session, sa, "ya29.token-uji")
     )
 
     assert resp.status_code == 200, resp.text
@@ -100,7 +122,9 @@ async def test_sync_read_only_tidak_menulis_activity_log(api, db_session, fake_c
     fake_calendar.set_events(event_seharian("e1", "Cuti", "2030-01-02", "2030-01-03"))
     sa = await buat_user(db_session, "SA")
 
-    await api.client.post(f"{CAL}/sync", json={"access_token": "t"}, headers=bearer(sa))
+    await api.client.post(
+        f"{CAL}/sync", headers=await _calendar_auth(api, db_session, sa, "t")
+    )
 
     assert await _jumlah_log(db_session) == 0
 
@@ -108,16 +132,23 @@ async def test_sync_read_only_tidak_menulis_activity_log(api, db_session, fake_c
 async def test_sync_tanpa_event_total_nol(api, db_session, fake_calendar):
     sa = await buat_user(db_session, "SA")
 
-    resp = await api.client.post(f"{CAL}/sync", json={"access_token": "t"}, headers=bearer(sa))
+    resp = await api.client.post(
+        f"{CAL}/sync", headers=await _calendar_auth(api, db_session, sa, "t")
+    )
 
-    assert resp.json()["data"] == {"events": [], "total_events": 0}
+    data = resp.json()["data"]
+    assert data["events"] == []
+    assert data["total_events"] == 0
+    assert data["integration_operation"] is not None
 
 
 async def test_sync_timeout_google_504(api, db_session, fake_calendar):
     fake_calendar.fail_next("timeout")
     sa = await buat_user(db_session, "SA")
 
-    resp = await api.client.post(f"{CAL}/sync", json={"access_token": "t"}, headers=bearer(sa))
+    resp = await api.client.post(
+        f"{CAL}/sync", headers=await _calendar_auth(api, db_session, sa, "t")
+    )
 
     assert resp.status_code == 504
     assert resp.json()["message"] == "Google Calendar API timeout"
@@ -127,7 +158,9 @@ async def test_sync_error_api_google_502_dengan_pesan_spesifik(api, db_session, 
     fake_calendar.fail_next("api", "Google Calendar API error (401): token kedaluwarsa")
     sa = await buat_user(db_session, "SA")
 
-    resp = await api.client.post(f"{CAL}/sync", json={"access_token": "t"}, headers=bearer(sa))
+    resp = await api.client.post(
+        f"{CAL}/sync", headers=await _calendar_auth(api, db_session, sa, "t")
+    )
 
     assert resp.status_code == 502
     assert "token kedaluwarsa" in resp.json()["message"]
@@ -139,21 +172,31 @@ async def test_sync_gagal_sekali_lalu_berhasil_pada_percobaan_berikutnya(
     fake_calendar.set_events(event_seharian("e1", "Cuti", "2030-01-02", "2030-01-03"))
     fake_calendar.fail_next("timeout")
     sa = await buat_user(db_session, "SA")
-    h = bearer(sa)
+    h = await _calendar_auth(api, db_session, sa, "t")
 
-    pertama = await api.client.post(f"{CAL}/sync", json={"access_token": "t"}, headers=h)
-    kedua = await api.client.post(f"{CAL}/sync", json={"access_token": "t"}, headers=h)
+    pertama = await api.client.post(f"{CAL}/sync", headers=h)
+    kedua = await api.client.post(f"{CAL}/sync", headers=h)
 
     assert (pertama.status_code, kedua.status_code) == (504, 200)
     assert kedua.json()["data"]["total_events"] == 1
 
 
-async def test_sync_tanpa_login_401_dan_tanpa_access_token_422(api, db_session, fake_calendar):
+async def test_sync_requires_cookie_session_and_rejects_legacy_raw_token(
+    api, db_session, fake_calendar
+):
     sa = await buat_user(db_session, "SA")
 
     assert (await api.client.post(f"{CAL}/sync", json={"access_token": "t"})).status_code == 401
-    assert (await api.client.post(f"{CAL}/sync", json={}, headers=bearer(sa))).status_code == 422
+    missing_session = await api.client.post(
+        f"{CAL}/sync", headers=bearer(sa), json={"access_token": "t"}
+    )
+    assert missing_session.status_code == 401
     assert fake_calendar.access_token_diterima == []
+
+    authenticated_session = await _calendar_auth(api, db_session, sa, "secure-session-token")
+    success = await api.client.post(f"{CAL}/sync", headers=authenticated_session)
+    assert success.status_code == 200, success.text
+    assert fake_calendar.access_token_diterima == ["secure-session-token"]
 
 
 # ---  map: sukses

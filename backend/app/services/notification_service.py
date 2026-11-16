@@ -27,6 +27,7 @@ from uuid import UUID
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from sqlalchemy import and_, func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
@@ -152,48 +153,62 @@ class NotificationService:
             logger.error(f"Gagal parse Gmail credentials: {e}")
             raise GmailConfigError(f"Format GMAIL_CREDENTIALS tidak valid: {e}")
 
-    async def send_notification(self, event: NotificationEvent) -> None:
+    async def _record_in_app_notification(
+        self, db: AsyncSession, event: NotificationEvent
+    ) -> str:
+        inapp_id = _generate_notification_id()
+        db.add(
+            NotificationLog(
+                id=inapp_id,
+                event_type=event.event_type.value,
+                recipient_user_id=event.recipient_user_id,
+                channel="in-app",
+                status="sent",
+                reference_id=event.reference_id,
+                notification_metadata=event.metadata,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.flush()
+        return inapp_id
+
+    async def send_notification(
+        self, event: NotificationEvent, *, db: Optional[AsyncSession] = None
+    ) -> None:
+        """Persist in-app notification and schedule email when this service owns the session.
+
+        A caller-owned session remains responsible for its transaction and must schedule the email
+        after closing that session.
         """
-        Kirim notifikasi in-app dan jadwalkan email best-effort.
+        if db is not None:
+            await self._record_in_app_notification(db, event)
+            return
 
-        Setiap percobaan email dicatat sebagai operation terpisah; kegagalan Gmail
-        tidak menggagalkan flow utama dan tidak memicu retry otomatis.
-        Args:
-            event: NotificationEvent berisi detail event yang akan dikirim.
+        try:
+            async with AsyncSessionLocal() as session:
+                inapp_id = await self._record_in_app_notification(session, event)
+                await session.commit()
+        except Exception as e:
+            logger.error(f"Gagal mengirim notifikasi: {e}")
+            # Notifikasi tidak boleh menggagalkan flow utama
+            # Hanya log error dan lanjut
+            return
 
-        Requirement: 14.1, 14.2, 14.3
-        """
-        async with AsyncSessionLocal() as db:
-            try:
-                # 1. Buat in-app notification (selalu aktif)
-                inapp_id = _generate_notification_id()
-                inapp_log = NotificationLog(
-                    id=inapp_id,
-                    event_type=event.event_type.value,
-                    recipient_user_id=event.recipient_user_id,
-                    channel="in-app",
-                    status="sent",
-                    reference_id=event.reference_id,
-                    notification_metadata=event.metadata,
-                    created_at=datetime.now(timezone.utc),
-                )
-                db.add(inapp_log)
-                await db.commit()
+        logger.info(
+            f"In-app notification terkirim: {inapp_id} "
+            f"(type={event.event_type.value}, recipient={event.recipient_user_id})"
+        )
+        self.schedule_email(event)
 
-                logger.info(
-                    f"In-app notification terkirim: {inapp_id} "
-                    f"(type={event.event_type.value}, recipient={event.recipient_user_id})"
-                )
-
-                # Email delivery remains best-effort and is recorded independently.
-                task = asyncio.create_task(self._send_email_once(event))
-                self._background_tasks.add(task)
-                task.add_done_callback(self._background_tasks.discard)
-
-            except Exception as e:
-                logger.error(f"Gagal mengirim notifikasi: {e}")
-                # Notifikasi tidak boleh menggagalkan flow utama
-                # Hanya log error dan lanjut
+    def schedule_email(self, event: NotificationEvent) -> None:
+        """Schedule the existing best-effort email pipeline after the caller's DB work."""
+        try:
+            task = asyncio.create_task(self._send_email_once(event))
+        except RuntimeError as e:
+            logger.error(f"Gagal menjadwalkan email {event.event_type.value}: {e}")
+            return
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     async def dispatch_email_for_user(
         self,
@@ -243,10 +258,7 @@ class NotificationService:
                 reference_id=reference_id,
                 metadata=metadata,
             )
-            task = asyncio.create_task(self._send_email_once(event))
-            # Simpan referensi agar task tidak di-GC sebelum selesai.
-            self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
+            self.schedule_email(event)
         except Exception as e:  # noqa: BLE001 - email tidak boleh menggagalkan caller
             logger.error(f"Gagal menjadwalkan email {event_type.value}: {e}")
 
@@ -324,8 +336,8 @@ class NotificationService:
 
     async def _send_email_once(self, event: NotificationEvent) -> None:
         """Send one best-effort email attempt and persist its outcome."""
+        email_id = _generate_notification_id()
         async with AsyncSessionLocal() as db:
-            email_id = _generate_notification_id()
             email_log = NotificationLog(
                 id=email_id,
                 event_type=event.event_type.value,
@@ -339,8 +351,8 @@ class NotificationService:
             db.add(email_log)
             await db.commit()
 
-            project_id = None
             candidate_project_id = (event.metadata or {}).get("project_id") or event.reference_id
+            project_id = None
             if candidate_project_id:
                 project_id = await db.scalar(
                     select(Project.id_project).where(
@@ -348,33 +360,34 @@ class NotificationService:
                     )
                 )
 
-            async def deliver() -> None:
-                sent = await self.send_email(
-                    to=event.recipient_email,
-                    subject=event.subject or self._get_default_subject(event.event_type),
-                    template=event.template or event.event_type.value,
-                    context={
-                        "event_type": event.event_type.value,
-                        "reference_id": event.reference_id,
-                        "metadata": event.metadata,
-                    },
-                )
-                if not sent:
-                    raise RuntimeError("Gmail did not confirm message delivery.")
-
-            sent = await run_side_effect(
-                project_id=project_id,
-                operation_type="email_delivery",
-                action=f"send_{event.event_type.value}_email",
-                context={"event_type": event.event_type.value, "reference_id": event.reference_id},
-                retryable=False,
-                perform=deliver,
-                outcome="Gmail confirmed email delivery.",
-                actionable_failure=(
-                    "Gmail did not confirm this email. Check Gmail configuration and permissions, "
-                    "then confirm the recipient did not receive it before manually sending."
-                ),
+        async def deliver() -> None:
+            sent = await self.send_email(
+                to=event.recipient_email,
+                subject=event.subject or self._get_default_subject(event.event_type),
+                template=event.template or event.event_type.value,
+                context={
+                    "event_type": event.event_type.value,
+                    "reference_id": event.reference_id,
+                    "metadata": event.metadata,
+                },
             )
+            if not sent:
+                raise RuntimeError("Gmail did not confirm message delivery.")
+
+        sent = await run_side_effect(
+            project_id=project_id,
+            operation_type="email_delivery",
+            action=f"send_{event.event_type.value}_email",
+            context={"event_type": event.event_type.value, "reference_id": event.reference_id},
+            retryable=False,
+            perform=deliver,
+            outcome="Gmail confirmed email delivery.",
+            actionable_failure=(
+                "Gmail did not confirm this email. Check Gmail configuration and permissions, "
+                "then confirm the recipient did not receive it before manually sending."
+            ),
+        )
+        async with AsyncSessionLocal() as db:
             await db.execute(
                 update(NotificationLog)
                 .where(NotificationLog.id == email_id)
@@ -382,10 +395,10 @@ class NotificationService:
             )
             await db.commit()
 
-            if sent:
-                logger.info(f"Email terkirim: {email_id} ke {event.recipient_email}")
-            else:
-                logger.error(f"Email gagal: {email_id} ke {event.recipient_email}")
+        if sent:
+            logger.info(f"Email terkirim: {email_id} ke {event.recipient_email}")
+        else:
+            logger.error(f"Email gagal: {email_id} ke {event.recipient_email}")
 
     async def send_email(
         self,

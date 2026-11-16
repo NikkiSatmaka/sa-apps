@@ -1,7 +1,6 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { HttpResponse, api, gagalLaluBerhasil, http, renderWithProviders, server, successEnvelope } from "@/test";
-import { GCAL_EVENTS_URL } from "@/test/msw/handlers/operations";
 import { makeProject } from "@/test/fixtures/projects";
 import CalendarSyncPage from "./page";
 
@@ -15,12 +14,23 @@ function projectPage(items: unknown[], page = 1, pageSize = 100, total = items.l
   };
 }
 async function openMappingModal(user: ReturnType<typeof renderWithProviders>["user"]) {
-  localStorage.setItem("google_calendar_token", "gtoken");
   const today = new Date();
   const iso = (d: Date, h: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), h).toISOString();
   server.use(
-    http.get(GCAL_EVENTS_URL, () =>
-      HttpResponse.json({ items: [{ id: "e1", summary: "Rapat", start: { dateTime: iso(today, 9) }, end: { dateTime: iso(today, 10) } }] })
+    http.post(api("/calendar/sync"), () =>
+      HttpResponse.json(successEnvelope({
+        events: [{
+          gcal_event_id: "e1",
+          title: "Rapat",
+          start: iso(today, 9),
+          end: iso(today, 10),
+          description: null,
+          duration_hours: 1,
+          is_all_day: false,
+        }],
+        total_events: 1,
+        integration_operation: null,
+      }))
     )
   );
   await user.click(screen.getByRole("button", { name: "Sync Calendar" }));

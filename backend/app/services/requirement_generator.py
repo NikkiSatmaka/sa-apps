@@ -436,16 +436,12 @@ def is_source_changed(requirement: Document, current_hash: str) -> bool:
 
 async def _notify_source_changed(
     db: Any, project: Project, requirement: Document, source_hash: str
-) -> None:
+) -> list[NotificationEvent]:
     """
-    Beri tahu SA yang ditugaskan (atau semua Lead_SA bila belum ada SA) bahwa sumber
-    Requirement berubah. Sekali per hash basi: hash yang sudah diberitahukan disimpan di
-    `source_changed_notified_hash`. Memakai event `status_change` + flag metadata
-    `requirement_source_changed` (tanpa migration constraint event_type). Kegagalan kirim
-    tidak melempar; hash belum ditandai sehingga pemicu berikutnya mencoba lagi.
+    Persist in-app notifications and defer their emails until the owning DB session closes.
     """
     if requirement.source_changed_notified_hash == source_hash:
-        return
+        return []
 
     recipients: list[User] = []
     if project.assigned_sa is not None:
@@ -462,47 +458,48 @@ async def _notify_source_changed(
             "[Requirement] %s: sumber berubah tetapi tidak ada penerima notifikasi.",
             project.id_project,
         )
-        return
+        return []
 
     message = (
         f"Sumber Requirement proyek '{project.project_name}' berubah (jawaban kuesioner atau "
         f"Source document). Requirement tidak diperbarui otomatis karena sudah diedit atau "
         f"berstatus Final. Buka tab Dokumen untuk generate ulang atau mempertahankan versi Anda."
     )
+    events: list[NotificationEvent] = []
     try:
         for user in recipients:
-            await notification_service.send_notification(
-                NotificationEvent(
-                    event_type=NotificationEventType.STATUS_CHANGE,
-                    recipient_user_id=user.id,
-                    recipient_email=user.email,
-                    reference_id=project.id_project,
-                    subject="[Portal SA] Sumber Requirement berubah — perlu keputusan",
-                    metadata={
-                        "project_name": project.project_name,
-                        "customer_name": project.customer_name,
-                        "requirement_source_changed": True,
-                        "message": message,
-                    },
-                )
+            event = NotificationEvent(
+                event_type=NotificationEventType.STATUS_CHANGE,
+                recipient_user_id=user.id,
+                recipient_email=user.email,
+                reference_id=project.id_project,
+                subject="[Portal SA] Sumber Requirement berubah — perlu keputusan",
+                metadata={
+                    "project_name": project.project_name,
+                    "customer_name": project.customer_name,
+                    "requirement_source_changed": True,
+                    "message": message,
+                },
             )
+            await notification_service.send_notification(event, db=db)
+            events.append(event)
     except Exception as e:  # noqa: BLE001 - notifikasi tidak boleh mengganggu alur lain
         logger.error("[Requirement] %s: gagal mengirim notifikasi: %s", project.id_project, e)
-        return
+        return []
 
     requirement.source_changed_notified_hash = source_hash
     await db.commit()
-
+    return events
 
 # --------------------------------------------------------------------------- re-summarize (#35)
 TERMINAL_PROJECT_STATUSES = status_konst.STATUS_AKHIR
 
 
-async def _resummarize(db: Any, project_id: str) -> None:
+async def _resummarize(db: Any, project_id: str) -> list[NotificationEvent]:
     result = await db.execute(select(Project).where(Project.id_project == project_id))
     project = result.scalar_one_or_none()
     if project is None or project.status in TERMINAL_PROJECT_STATUSES:
-        return
+        return []
 
     req_result = await db.execute(
         select(Document).where(
@@ -512,17 +509,17 @@ async def _resummarize(db: Any, project_id: str) -> None:
     requirement = req_result.scalar_one_or_none()
     # Belum ada (belum lolos gate / generate awal belum jalan): tidak ada yang diperbarui.
     if requirement is None:
-        return
+        return []
 
     sources, source_hash = await collect_sources(db, project)
     # Di-override atau Final: konten tidak disentuh (ADR 0004); hanya beri tahu SA (#37).
     if is_protected_requirement(requirement):
         if is_source_changed(requirement, source_hash):
-            await _notify_source_changed(db, project, requirement, source_hash)
-        return
+            return await _notify_source_changed(db, project, requirement, source_hash)
+        return []
 
     if source_hash == requirement.source_hash:
-        return
+        return []
 
     extraction, truncated = await _summarize(project, sources)
     now = datetime.now(timezone.utc)
@@ -533,6 +530,7 @@ async def _resummarize(db: Any, project_id: str) -> None:
     requirement.updated_at = now
     await db.commit()
     logger.info("[Requirement] %s: di-resummarize (%d butir).", project_id, len(extraction.items))
+    return []
 
 
 async def resummarize_if_source_changed(project_id: str) -> None:
@@ -548,12 +546,17 @@ async def resummarize_if_source_changed(project_id: str) -> None:
     """
     from app.core.database import AsyncSessionLocal
 
+    emails_to_schedule: list[NotificationEvent] = []
     try:
         async with _project_lock(project_id), AsyncSessionLocal() as db:
             try:
-                await _resummarize(db, project_id)
+                emails_to_schedule = await _resummarize(db, project_id)
             except Exception:
                 await db.rollback()
                 raise
     except Exception as e:  # noqa: BLE001 - tidak boleh mengganggu alur lain
         logger.error("[Requirement] %s: re-summarize gagal: %s", project_id, e)
+        return
+
+    for event in emails_to_schedule:
+        notification_service.schedule_email(event)

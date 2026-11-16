@@ -795,13 +795,13 @@ describe("Detail proyek — provisioning folder Drive", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Provisioning folder gagal");
     expect(screen.getByText("Google Drive menolak pembuatan folder.")).toBeInTheDocument();
     expect(screen.getByText(/bersihkan folder yatim di Drive/)).toBeInTheDocument();
-    expect(screen.getByText("Percobaan 1")).toBeInTheDocument();
+    expect(screen.getByText(/Percobaan 1: failed/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Coba provisioning lagi" }));
 
     await waitFor(() => expect(requestCount).toBe(1));
     expect(await screen.findByRole("status")).toHaveTextContent("Provisioning folder sedang diproses");
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(await screen.findByRole("status")).toHaveTextContent("Percobaan 2: pending");
+    expect(await screen.findByText("Percobaan 2: pending")).toBeInTheDocument();
   });
 
   it("tetap menampilkan kegagalan bagi pengguna lain tetapi menyembunyikan tindakan retry", async () => {

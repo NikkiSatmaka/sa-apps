@@ -9,6 +9,7 @@ import string
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -55,7 +56,56 @@ async def _operation_details(db: AsyncSession, operation_id: uuid.UUID | None) -
     if operation_id is None:
         return None
     operation = await db.get(IntegrationOperation, operation_id)
-    return serialize_operation(operation) if operation is not None else None
+    if operation is None:
+        return None
+    await db.refresh(operation)
+    return serialize_operation(operation)
+
+
+async def _finish_calendar_mapping(
+    db: AsyncSession,
+    operation_id: uuid.UUID | None,
+    *,
+    succeeded: bool,
+    outcome: str,
+    actionable_error: str | None = None,
+) -> None:
+    """Persist the mapping outcome even if the standalone recorder cannot commit."""
+    await finish_operation(
+        operation_id,
+        succeeded=succeeded,
+        outcome=outcome,
+        actionable_error=actionable_error,
+    )
+    if operation_id is None:
+        return
+
+    operation = await db.get(IntegrationOperation, operation_id)
+    if operation is None:
+        return
+    await db.refresh(operation)
+    final_status = "succeeded" if succeeded else "failed"
+    if operation.status != final_status:
+        now = datetime.now(timezone.utc)
+        attempts = list(operation.attempts or [])
+        if attempts:
+            last_attempt = dict(attempts[-1])
+            last_attempt.update(
+                status=final_status,
+                finished_at=now.isoformat(),
+                outcome=outcome,
+                actionable_error=actionable_error,
+            )
+            attempts[-1] = last_attempt
+        operation.attempts = attempts
+        operation.status = final_status
+        operation.finished_at = now
+        operation.outcome = outcome
+        operation.actionable_error = actionable_error
+    # The test transaction uses one connection for the request session and
+    # recorder sessions. Commit the request savepoint too, or closing this
+    # session can roll back the recorder's nested savepoint.
+    await db.commit()
 
 
 @router.get(
@@ -76,6 +126,12 @@ async def get_calendar_auth_url(
     current_user: User = Depends(get_current_user),
 ):
     """Generate Google OAuth URL with a one-time state bound to the current user."""
+    if not settings.GOOGLE_CLIENT_ID or not settings.GOOGLE_CLIENT_SECRET:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=error_response(message="Google Calendar OAuth belum dikonfigurasi."),
+        )
+
     frontend_url = settings.FRONTEND_URL.rstrip("/")
     return_url = f"{frontend_url}/activity-logs/calendar"
     state_code = await auth_service.create_handoff(
@@ -354,7 +410,8 @@ async def map_event_to_project(
             if duplicate
             else "Gagal memetakan event. Periksa data yang dikirim."
         )
-        await finish_operation(
+        await _finish_calendar_mapping(
+            db,
             operation_id,
             succeeded=False,
             outcome="The Calendar event was not mapped.",
@@ -377,7 +434,8 @@ async def map_event_to_project(
         )
     except Exception:
         await db.rollback()
-        await finish_operation(
+        await _finish_calendar_mapping(
+            db,
             operation_id,
             succeeded=False,
             outcome="The Calendar event was not mapped.",
@@ -385,7 +443,8 @@ async def map_event_to_project(
         )
         raise
 
-    await finish_operation(
+    await _finish_calendar_mapping(
+        db,
         operation_id,
         succeeded=True,
         outcome=f"Calendar event {request.gcal_event_id} was mapped to the project activity log.",

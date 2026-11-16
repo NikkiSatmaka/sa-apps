@@ -236,10 +236,12 @@ async def test_callback_handoff_hanya_dapat_ditukar_satu_kali(api, monkeypatch):
 async def test_calendar_callback_uses_encrypted_user_session_and_logout_revokes_it(
     api, monkeypatch
 ):
-    from urllib.parse import parse_qs, urlparse
+    from urllib.parse import parse_qs, urlencode, urlparse
 
     from app.services.calendar_service import calendar_service
 
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_ID", "calendar-test-client")
+    monkeypatch.setattr(settings, "GOOGLE_CLIENT_SECRET", "calendar-test-secret")
     monkeypatch.setattr(settings, "FRONTEND_URL", "http://localhost:3000")
     user_headers = await api.login_demo("SA")
     auth_url_response = await api.client.get(

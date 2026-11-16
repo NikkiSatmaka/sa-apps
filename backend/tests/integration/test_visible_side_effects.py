@@ -1,16 +1,13 @@
 """Consumer-visible persistence for best-effort integration operations."""
 
-import asyncio
-
 import pytest
 
-from app.services.notification_service import notification_service
 from tests.integration.conftest import patch_session_factory
-
 from tests.integration.support_assignment import (
     ASSIGN,
     REASSIGN,
     bangun_dunia,
+    ambil_proyek,
     jalankan_provisioning,
     rekam_background,
 )
@@ -29,8 +26,21 @@ async def dunia(db_session):
 async def test_drive_permission_failure_is_visible_without_rolling_back_reassignment(
     dunia, api, fake_drive, monkeypatch
 ):
+    from app.api.assignment import _pindahkan_akses_drive_sa
+    from app.models.integration_operation import IntegrationOperation
+    from sqlalchemy import select
+
     project = await dunia.buat_proyek(project_name="Core Banking", customer_name="PT Bank")
     background = rekam_background(monkeypatch)
+    reassignment_tasks = []
+
+    async def _tunda_reassignment_operation(*args):
+        reassignment_tasks.append(args)
+
+    monkeypatch.setattr(
+        "app.api.assignment._pindahkan_akses_drive_sa",
+        _tunda_reassignment_operation,
+    )
 
     assigned = await api.client.post(
         ASSIGN.format(project.id_project),
@@ -38,8 +48,15 @@ async def test_drive_permission_failure_is_visible_without_rolling_back_reassign
         headers=dunia.h["lead"],
     )
     assert assigned.status_code == 200, assigned.text
-    await jalankan_provisioning(dunia.db, background[0])
+    assert background, "Initial assignment must schedule folder provisioning."
+    provision_args = background.pop()
+    await jalankan_provisioning(dunia.db, provision_args)
+    project = await ambil_proyek(dunia.db, project.id_project)
+    assert project.gdrive_folder_id, "Reassignment requires a provisioned Drive folder."
 
+    # This test DB shares one connection across sessions via nested SAVEPOINTs.
+    # Defer the route's background work until the request session is closed.
+    assert reassignment_tasks == []
     fake_drive.fail_next("reassign_sa_access", pesan="Google Drive is temporarily unavailable")
     reassigned = await api.client.post(
         REASSIGN.format(project.id_project),
@@ -47,6 +64,17 @@ async def test_drive_permission_failure_is_visible_without_rolling_back_reassign
         headers=dunia.h["lead"],
     )
     assert reassigned.status_code == 200, reassigned.text
+    assert len(reassignment_tasks) == 1, "Reassignment must schedule Drive permission work."
+    await _pindahkan_akses_drive_sa(*reassignment_tasks.pop())
+
+    persisted = await dunia.db.scalar(
+        select(IntegrationOperation).where(
+            IntegrationOperation.project_id == project.id_project,
+            IntegrationOperation.action == "reassign_sa_access",
+        )
+    )
+    assert persisted is not None
+    assert persisted.status == "failed"
 
     detail = await api.client.get(f"/api/v1/projects/{project.id_project}", headers=dunia.h["lead"])
     assert detail.status_code == 200, detail.text
@@ -114,7 +142,8 @@ async def test_calendar_sync_failure_is_persisted_and_reported(
     assert operation["attempts"][-1]["status"] == "failed"
     assert operation["started_at"] and operation["finished_at"]
     assert operation["outcome"]
-    assert "reconnect" in operation["actionable_error"].lower()
+    assert "permissions" in operation["actionable_error"].lower()
+    assert "run sync again" in operation["actionable_error"].lower()
     persisted = await db_session.scalar(
         select(IntegrationOperation).where(IntegrationOperation.id == operation["id"])
     )
@@ -122,7 +151,7 @@ async def test_calendar_sync_failure_is_persisted_and_reported(
 
 
 async def test_calendar_mapping_operation_is_visible_with_project_work(
-    dunia, api, monkeypatch
+    dunia, api, db_session, monkeypatch
 ):
     project = await dunia.buat_proyek(project_name="Calendar project")
     background = rekam_background(monkeypatch)
@@ -147,7 +176,18 @@ async def test_calendar_mapping_operation_is_visible_with_project_work(
         headers=dunia.h["sa"],
     )
     assert mapped.status_code == 201, mapped.text
-    assert mapped.json()["data"]["integration_operation"]["status"] == "succeeded"
+    map_operation = mapped.json()["data"]["integration_operation"]
+    assert map_operation["status"] == "succeeded"
+    assert map_operation["attempts"][-1]["status"] == "succeeded"
+
+    from app.models.integration_operation import IntegrationOperation
+    from sqlalchemy import select
+
+    persisted = await db_session.scalar(
+        select(IntegrationOperation).where(IntegrationOperation.id == map_operation["id"])
+    )
+    assert persisted is not None
+    assert persisted.status == "succeeded"
 
     detail = await api.client.get(
         f"/api/v1/projects/{project.id_project}",
@@ -164,12 +204,15 @@ async def test_calendar_mapping_operation_is_visible_with_project_work(
     assert operation["outcome"]
 
 
-async def test_assignment_email_failure_is_visible_without_blocking_assignment(
-    dunia, api, fake_gmail, monkeypatch
+
+async def test_assignment_keeps_its_existing_in_app_notification_without_email(
+    dunia, api, monkeypatch
 ):
-    fake_gmail.fail_next()
-    fake_gmail.tahan_email()
-    project = await dunia.buat_proyek(project_name="Email outcome")
+    from sqlalchemy import select
+
+    from app.models.notification_log import NotificationLog
+
+    project = await dunia.buat_proyek(project_name="Assignment notification")
     rekam_background(monkeypatch)
 
     assigned = await api.client.post(
@@ -178,33 +221,31 @@ async def test_assignment_email_failure_is_visible_without_blocking_assignment(
         headers=dunia.h["lead"],
     )
     assert assigned.status_code == 200, assigned.text
-    fake_gmail.lepaskan_email()
-    await fake_gmail.tunggu_percobaan(1)
-    await asyncio.gather(*notification_service._background_tasks)
 
     detail = await api.client.get(
         f"/api/v1/projects/{project.id_project}",
         headers=dunia.h["lead"],
     )
     assert detail.status_code == 200, detail.text
-    data = detail.json()["data"]
-    assert data["assigned_sa"]["id"] == str(dunia.sa.id)
-    operation = next(
-        item
-        for item in data["integration_operations"]
-        if item["operation_type"] == "email_delivery"
-        and item["action"] == "send_assignment_email"
+    assert detail.json()["data"]["assigned_sa"]["id"] == str(dunia.sa.id)
+
+    notifications = list(
+        (
+            await dunia.db.execute(
+                select(NotificationLog).where(
+                    NotificationLog.reference_id == project.id_project,
+                    NotificationLog.recipient_user_id == dunia.sa.id,
+                )
+            )
+        ).scalars()
     )
-    assert operation["status"] == "failed"
-    assert len(operation["attempts"]) == 1
-    assert operation["attempts"][0]["status"] == "failed"
-    assert operation["retryable"] is False
-    assert operation["actionable_error"]
+    assert [(item.channel, item.status) for item in notifications] == [("in-app", "sent")]
 
 
 async def test_sla_lock_failure_is_visible_and_safe_retry_updates_sla_state(
     dunia, api, db_session, fake_drive, monkeypatch
 ):
+    import asyncio
     from datetime import datetime, timedelta, timezone
 
     from sqlalchemy import select
@@ -232,6 +273,15 @@ async def test_sla_lock_failure_is_visible_and_safe_retry_updates_sla_state(
     fake_drive.fail_next("lock_solutions_folder", pesan="Drive lock unavailable")
     processed = await api.client.post("/api/v1/sla/process", headers=dunia.h["lead"])
     assert processed.status_code == 200, processed.text
+
+    # The fixture session shares the same connection but is outside the service
+    # session lock. Release it while independent email tasks use SAVEPOINTs.
+    await db_session.close()
+
+    from app.services.notification_service import notification_service
+
+    while notification_service._background_tasks:
+        await asyncio.gather(*tuple(notification_service._background_tasks))
 
     detail = await api.client.get(
         f"/api/v1/projects/{project.id_project}",
@@ -262,6 +312,9 @@ async def test_sla_lock_failure_is_visible_and_safe_retry_updates_sla_state(
         "failed",
         "succeeded",
     ]
-    await db_session.refresh(sla)
-    assert sla.is_locked is True
-    assert sla.locked_at is not None
+    persisted_sla = await db_session.scalar(
+        select(SLATracking).where(SLATracking.project_id == project.id_project)
+    )
+    assert persisted_sla is not None
+    assert persisted_sla.is_locked is True
+    assert persisted_sla.locked_at is not None

@@ -3,14 +3,15 @@ import { screen } from "@testing-library/react";
 import useSWR from "swr";
 import { describe, expect, it } from "vitest";
 import { fetcher, getAccessToken } from "@/lib/fetcher";
+import type { ProjectListPage } from "@/lib/api/projects";
 import { useAuthStore } from "@/store/auth";
 import { useRouter } from "next/navigation";
 import { HttpResponse, http, api, renderWithProviders, router, seedAuth, server, setOnline, setParams, stubLocation } from "@/test";
 
 function Projects() {
-  const { data, error } = useSWR<{ project_name: string }[]>("/projects", fetcher);
+  const { data, error } = useSWR<ProjectListPage<{ project_name: string }>>("/projects", fetcher);
   if (error) return <p>galat: {error.message}</p>;
-  return <ul>{data?.map((p) => <li key={p.project_name}>{p.project_name}</li>)}</ul>;
+  return <ul>{data?.items.map((p) => <li key={p.project_name}>{p.project_name}</li>)}</ul>;
 }
 
 describe("utilitas test", () => {
@@ -40,7 +41,15 @@ describe("utilitas test", () => {
     const { unmount } = renderWithProviders(<Projects />);
     await screen.findByText("Proyek Contoh");
     unmount();
-    server.use(http.get(api("/projects"), () => HttpResponse.json({ data: [{ project_name: "Baru" }] })));
+    server.use(http.get(api("/projects"), () => HttpResponse.json({
+      data: {
+        items: [{ project_name: "Baru" }],
+        total: 1,
+        page: 1,
+        page_size: 20,
+        total_pages: 1,
+      },
+    })));
     renderWithProviders(<Projects />);
     expect(screen.queryByText("Proyek Contoh")).not.toBeInTheDocument();
     expect(await screen.findByText("Baru")).toBeInTheDocument();

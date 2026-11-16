@@ -5,8 +5,13 @@ Pemicu sumber berubah di sini: Lead_SA mengoreksi jawaban kuesioner setelah lolo
 (`PUT .../qualification-answers`, skor tidak dihitung ulang) → background `resummarize`.
 """
 
+import asyncio
 import pytest
 
+from sqlalchemy import select
+
+from app.models.notification_log import NotificationLog
+from app.models.integration_operation import IntegrationOperation
 from app.services.notification_service import notification_service
 from app.services.requirement_generator import MAX_GENERATE_RETRIES, compute_source_hash
 from tests.integration.model_helpers import bangun_user, simpan
@@ -19,6 +24,18 @@ from tests.integration.requirement.conftest import (
 )
 
 
+async def _tunggu_task_latar() -> None:
+    """Tunggu outcome email yang dimiliki service sebelum memakai DB test lagi."""
+    while notification_service._background_tasks:
+        await asyncio.gather(*tuple(notification_service._background_tasks))
+
+
+async def notifikasi_sumber_berubah_in_app(s, id_project):
+    """Return source-change in-app notifications, excluding separate email outcomes."""
+    notifications = await s.notifikasi_sumber_berubah(id_project)
+    return [notification for notification in notifications if notification.channel == "in-app"]
+
+
 async def ubah_jawaban(s, id_project, role="Lead_SA", **perubahan):
     resp = await s.req(
         "PUT",
@@ -27,6 +44,7 @@ async def ubah_jawaban(s, id_project, role="Lead_SA", **perubahan):
         json=jawaban_kuat(**perubahan),
     )
     assert resp.status_code == 200, resp.text
+    await _tunggu_task_latar()
     return resp
 
 
@@ -71,7 +89,7 @@ async def test_koreksi_jawaban_memperbarui_requirement_biasa_dengan_hash_baru(sk
     assert baru.is_overridden is False
     assert (proyek.status, proyek.bant_score) == ("Awaiting Assignment", proyek.bant_score)
     assert s.llm.jumlah("complete_text") == 2
-    assert await s.notifikasi_sumber_berubah(id_project) == []
+    assert await notifikasi_sumber_berubah_in_app(s, id_project) == []
 
 
 async def test_koreksi_dengan_jawaban_identik_tidak_memanggil_llm(skenario):
@@ -140,7 +158,36 @@ async def test_tanpa_requirement_karena_generate_gagal_koreksi_jawaban_tidak_mem
 
 
 # --- dilindungi: override
-async def test_requirement_override_tidak_ditimpa_dan_sa_diberi_tahu_sekali_per_hash_basi(skenario):
+async def test_requirement_override_notifikasi_dari_api_menyimpan_email_setelah_request(
+    skenario, fake_gmail
+):
+    s = skenario
+    id_project = await s.proyek_lolos_gate()
+    sa = await s.tugaskan_sa(id_project)
+    await tambah_butir(s, id_project)
+    await ubah_jawaban(s, id_project, skala="basi-1")
+    assert [attempt.berhasil for attempt in fake_gmail.percobaan] == [True]
+    dokumen = await s.requirement(id_project)
+    assert dokumen is not None and dokumen.is_overridden
+    assert dokumen.source_changed_notified_hash is not None
+    notif = await notifikasi_sumber_berubah_in_app(s, id_project)
+    assert [n.recipient_user_id for n in notif] == [sa.id]
+    assert notif[0].channel == "in-app"
+    email = (
+        await s.db.execute(
+            select(NotificationLog).where(
+                NotificationLog.recipient_user_id == sa.id,
+                NotificationLog.channel == "email",
+                NotificationLog.reference_id == id_project,
+            )
+        )
+    ).scalar_one()
+    assert email.status == "sent"
+
+
+async def test_requirement_override_tidak_ditimpa_dan_sa_diberi_tahu_sekali_per_hash_basi(
+    skenario,
+):
     s = skenario
     id_project = await s.proyek_lolos_gate()
     sa = await s.tugaskan_sa(id_project)
@@ -154,7 +201,7 @@ async def test_requirement_override_tidak_ditimpa_dan_sa_diberi_tahu_sekali_per_
     dokumen = await s.requirement(id_project)
     assert dokumen.content == konten and dokumen.source_hash == hash_awal  # tidak disentuh
     assert s.llm.jumlah("complete_text") == 1
-    notif = await s.notifikasi_sumber_berubah(id_project)
+    notif = await notifikasi_sumber_berubah_in_app(s, id_project)
     assert [n.recipient_user_id for n in notif] == [sa.id]
     assert notif[0].event_type == "status_change" and notif[0].channel == "in-app"
     assert "Sumber Requirement" in notif[0].notification_metadata["message"]
@@ -162,11 +209,11 @@ async def test_requirement_override_tidak_ditimpa_dan_sa_diberi_tahu_sekali_per_
 
     # Hash basi yang sama dipicu lagi → tidak ada notifikasi tambahan.
     await ubah_jawaban(s, id_project, skala="basi-1")
-    assert len(await s.notifikasi_sumber_berubah(id_project)) == 1
+    assert len(await notifikasi_sumber_berubah_in_app(s, id_project)) == 1
 
     # Hash basi BARU → notifikasi baru.
     await ubah_jawaban(s, id_project, skala="basi-2")
-    assert len(await s.notifikasi_sumber_berubah(id_project)) == 2
+    assert len(await notifikasi_sumber_berubah_in_app(s, id_project)) == 2
 
 
 async def test_banner_sumber_berubah_hanya_untuk_requirement_dilindungi_yang_basi(skenario):
@@ -195,8 +242,32 @@ async def test_tanpa_sa_ditugaskan_semua_lead_sa_diberi_tahu(skenario):
 
     await ubah_jawaban(s, id_project, skala="basi")
 
-    penerima = {n.recipient_user_id for n in await s.notifikasi_sumber_berubah(id_project)}
+    penerima = {
+        n.recipient_user_id for n in await notifikasi_sumber_berubah_in_app(s, id_project)
+    }
     assert penerima == {lead.id, lead_lain.id}
+    emails = (
+        await s.db.execute(
+            select(NotificationLog).where(
+                NotificationLog.reference_id == id_project,
+                NotificationLog.channel == "email",
+            )
+        )
+    ).scalars().all()
+    assert {email.recipient_user_id for email in emails} == {lead.id, lead_lain.id}
+    assert all(email.status in {"sent", "failed"} for email in emails)
+
+    operations = (
+        await s.db.execute(
+            select(IntegrationOperation).where(
+                IntegrationOperation.project_id == id_project,
+                IntegrationOperation.operation_type == "email_delivery",
+                IntegrationOperation.action == "send_status_change_email",
+            )
+        )
+    ).scalars().all()
+    assert len(operations) == 2
+    assert all(operation.status in {"succeeded", "failed"} for operation in operations)
 
 
 async def test_requirement_final_tidak_ditimpa_dan_memicu_notifikasi(skenario):
@@ -219,7 +290,9 @@ async def test_requirement_final_tidak_ditimpa_dan_memicu_notifikasi(skenario):
     akhir = await s.requirement(id_project)
     assert akhir.content == konten and akhir.is_overridden is False
     assert s.llm.jumlah("complete_text") == 1
-    assert [n.recipient_user_id for n in await s.notifikasi_sumber_berubah(id_project)] == [sa.id]
+    assert [
+        n.recipient_user_id for n in await notifikasi_sumber_berubah_in_app(s, id_project)
+    ] == [sa.id]
     assert requirement_dari(await daftar_dokumen(s, id_project))["source_changed"] is True
 
 
@@ -242,7 +315,7 @@ async def test_proyek_terminal_tidak_di_resummarize_dan_tidak_diberi_tahu(
     sesudah = await s.requirement(id_project)
     assert (sesudah.content, sesudah.source_hash) == (konten, hash_awal)
     assert s.llm.jumlah("complete_text") == 1
-    assert await s.notifikasi_sumber_berubah(id_project) == []
+    assert await notifikasi_sumber_berubah_in_app(s, id_project) == []
 
 
 async def test_notifikasi_gagal_tidak_menandai_hash_dan_dicoba_lagi_pemicu_berikutnya(
@@ -254,17 +327,17 @@ async def test_notifikasi_gagal_tidak_menandai_hash_dan_dicoba_lagi_pemicu_berik
     await tambah_butir(s, id_project)
     asli = notification_service.send_notification
 
-    async def meledak(event):
+    async def meledak(event, **_kwargs):
         raise RuntimeError("smtp mati")
 
     monkeypatch.setattr(notification_service, "send_notification", meledak)
     await ubah_jawaban(s, id_project, skala="basi")
     assert (await s.requirement(id_project)).source_changed_notified_hash is None
-    assert await s.notifikasi_sumber_berubah(id_project) == []
+    assert await notifikasi_sumber_berubah_in_app(s, id_project) == []
 
     monkeypatch.setattr(notification_service, "send_notification", asli)
     await ubah_jawaban(s, id_project, skala="basi")
-    assert len(await s.notifikasi_sumber_berubah(id_project)) == 1
+    assert len(await notifikasi_sumber_berubah_in_app(s, id_project)) == 1
 
 
 # --- aksi pemilik
@@ -289,10 +362,10 @@ async def test_pertahankan_versi_saya_memajukan_hash_tanpa_mengubah_konten(skena
     assert requirement_dari(await daftar_dokumen(s, id_project))["source_changed"] is False
     # Setelah dipertahankan, pemicu dengan sumber sama tidak memberi tahu lagi...
     await ubah_jawaban(s, id_project, skala="basi")
-    assert len(await s.notifikasi_sumber_berubah(id_project)) == 1
+    assert len(await notifikasi_sumber_berubah_in_app(s, id_project)) == 1
     # ...tetapi perubahan sumber berikutnya basi lagi dan diberitahukan.
     await ubah_jawaban(s, id_project, skala="basi-baru")
-    assert len(await s.notifikasi_sumber_berubah(id_project)) == 2
+    assert len(await notifikasi_sumber_berubah_in_app(s, id_project)) == 2
 
 
 async def test_pertahankan_versi_pada_requirement_biasa_ditolak_409_hash_tak_berubah(skenario):

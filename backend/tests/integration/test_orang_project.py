@@ -7,12 +7,15 @@ Seam: HTTP API terhadap Postgres nyata (pembuatan, daftar, detail, akses, assign
 Layanan eksternal (Drive, Gmail) memakai fake bersama.
 """
 
+import asyncio
 from datetime import timedelta
 
 import pytest
 from sqlalchemy import func, select
 
 from app.models import NotificationLog, Project
+from app.models.integration_operation import IntegrationOperation
+from app.services.notification_service import notification_service
 from app.services.sla_timer import sla_timer
 from tests.integration.conftest import patch_session_factory
 from tests.integration.kualifikasi_support import (  # noqa: F401
@@ -224,11 +227,13 @@ async def test_daftar_menampilkan_orang_per_proyek(api, db_session):
     await _proyek_dengan_orang(db_session, sales=None, produk=produk, pembuat=lead)
 
     data = (await api.client.get(f"{API}/projects", headers=bearer(lead))).json()["data"]
+    projects = data["items"]
 
-    assert len(data) == 2
-    assert {d["product_pic"]["name"] for d in data} == {"Pia Produk"}
-    assert {d["created_by"]["name"] for d in data} == {"Lena Lead"}
-    assert sorted(d["sales_pic"]["name"] if d["sales_pic"] else "-" for d in data) == [
+    assert data["total"] == 2
+    assert len(projects) == 2
+    assert {d["product_pic"]["name"] for d in projects} == {"Pia Produk"}
+    assert {d["created_by"]["name"] for d in projects} == {"Lena Lead"}
+    assert sorted(d["sales_pic"]["name"] if d["sales_pic"] else "-" for d in projects) == [
         "-",
         "Sari Sales",
     ]
@@ -361,6 +366,8 @@ async def test_eskalasi_sla_proyek_tanpa_sales_tidak_crash_dan_manager_tetap_dib
     bekukan_waktu(monkeypatch, T0 + timedelta(days=5))
 
     stats = await sla_timer.process_sla_actions()
+    while notification_service._background_tasks:
+        await asyncio.gather(*tuple(notification_service._background_tasks))
 
     assert stats["errors"] == []
     assert stats["escalations_sent"] == 1
@@ -372,6 +379,31 @@ async def test_eskalasi_sla_proyek_tanpa_sales_tidak_crash_dan_manager_tetap_dib
         )
     ).scalars().all()
     assert dunia.lead.id in penerima  # manager tetap menerima eskalasi
+    emails = (
+        await db_session.execute(
+            select(NotificationLog).where(
+                NotificationLog.reference_id == proyek.id_project,
+                NotificationLog.channel == "email",
+            )
+        )
+    ).scalars().all()
+    assert {email.recipient_user_id for email in emails} == {
+        dunia.lead.id,
+        dunia.admin.id,
+    }
+    assert all(email.status in {"sent", "failed"} for email in emails)
+
+    operations = (
+        await db_session.execute(
+            select(IntegrationOperation).where(
+                IntegrationOperation.project_id == proyek.id_project,
+                IntegrationOperation.operation_type == "email_delivery",
+                IntegrationOperation.action == "send_sla_escalation_email",
+            )
+        )
+    ).scalars().all()
+    assert len(operations) == 2
+    assert all(operation.status in {"succeeded", "failed"} for operation in operations)
 
 
 # --------------------------------------------------------------- pencarian user per role

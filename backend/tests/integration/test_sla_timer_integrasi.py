@@ -8,6 +8,7 @@ Waktu dikendalikan lewat `bekukan_waktu` (jam `sla_timer` digeser); tidak ada sl
 sesinya sendiri; email dijadwalkan di background sehingga ditahan/dilepas lewat `fake_gmail`.
 """
 
+import asyncio
 from datetime import timedelta
 
 import pytest
@@ -46,10 +47,13 @@ def jam(monkeypatch):
     return bekukan_waktu(monkeypatch, T0)
 
 
-async def _proses(db):
-    """Commit state test lalu jalankan cron SLA (sesi sendiri), dan segarkan cache test."""
+async def _proses(db, *, wait_for_notifications: bool = True):
+    """Commit state, run the SLA cron, and wait for its email outcomes."""
     await db.commit()
     stats = await sla_timer.process_sla_actions()
+    pending = tuple(notification_service._background_tasks)
+    if wait_for_notifications and pending:
+        await asyncio.gather(*pending)
     return stats
 
 
@@ -122,10 +126,11 @@ async def test_reminder_memicu_email_ke_sales_lewat_gmail_palsu(dunia, jam, fake
     jam.ke(T0 + timedelta(days=3))
     fake_gmail.tahan_email()
 
-    await _proses(dunia.db)
+    await _proses(dunia.db, wait_for_notifications=False)
     fake_gmail.lepaskan_email()
 
     await fake_gmail.tunggu_percobaan(1)
+    await asyncio.gather(*notification_service._background_tasks)
     surat = fake_gmail.terkirim[0]
     assert surat.to == dunia.sales.email
     assert surat.context["event_type"] == "sla_reminder"

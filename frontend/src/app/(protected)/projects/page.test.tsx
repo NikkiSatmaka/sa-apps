@@ -10,6 +10,16 @@ const proyek = [
   makeProject({ id_project: "id-ccc", project_name: "Gamma Data", customer_name: "Satu Sejahtera", status: "Lost", dq_number: null }),
 ];
 
+function projectPage(items: typeof proyek, page = 1, pageSize = 20) {
+  return {
+    items: items.slice((page - 1) * pageSize, page * pageSize),
+    total: items.length,
+    page,
+    page_size: pageSize,
+    total_pages: Math.ceil(items.length / pageSize),
+  };
+}
+
 /** Rekam URL request daftar proyek dan sajikan halaman hasil terfilter. */
 function serve(data = proyek) {
   const urls: URL[] = [];
@@ -83,27 +93,23 @@ describe("Daftar proyek — daftar penuh untuk semua peran (#109, ADR 0011)", ()
         urls.push(url);
         const sempit = url.searchParams.get("involved") === "me";
         const data = sempit ? [proyek[0]] : proyek;
-        const pageSize = Number(url.searchParams.get("page_size") ?? "20");
-        return HttpResponse.json(successEnvelope({
-          items: data,
-          total: data.length,
-          page: 1,
-          page_size: pageSize,
-          total_pages: Math.ceil(data.length / pageSize),
-        }));
+        return HttpResponse.json(successEnvelope(projectPage(data)));
       }),
     );
     const { user } = setup(role);
-    await screen.findByText("Menampilkan 3 dari 3 proyek");
+    await screen.findByText("Alfa Cloud");
+    expect(screen.getByText("Beta Security")).toBeInTheDocument();
 
     await user.click(screen.getByRole("checkbox", { name: "Hanya proyek saya" }));
-    expect(await screen.findByText("Menampilkan 1 dari 1 proyek")).toBeInTheDocument();
-    expect(urls.at(-1)!.searchParams.get("involved")).toBe("me");
+    await waitFor(() => {
+      expect(urls.at(-1)!.searchParams.get("involved")).toBe("me");
+      expect(screen.getByText("Alfa Cloud")).toBeInTheDocument();
+      expect(screen.queryByText("Beta Security")).not.toBeInTheDocument();
+    });
     expect(urls.at(-1)!.searchParams.get("sort")).toBe("-updated_at");
-    expect(screen.queryByText("Beta Security")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("checkbox", { name: "Hanya proyek saya" }));
-    expect(await screen.findByText("Menampilkan 3 dari 3 proyek")).toBeInTheDocument();
+    await screen.findByText("Beta Security");
     await waitFor(() => expect(urls.at(-1)!.searchParams.has("involved")).toBe(false));
     expect(screen.getByRole("checkbox", { name: "Hanya proyek saya" })).not.toBeChecked();
   });
@@ -147,14 +153,14 @@ describe("Daftar proyek — memuat, kosong, error", () => {
     server.use(
       http.get(api("/projects"), async () => {
         await tunggu;
-        return HttpResponse.json(successEnvelope(proyek));
+        return HttpResponse.json(successEnvelope(projectPage(proyek)));
       }),
     );
     const { container } = setup("Lead_SA");
     expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
     expect(screen.queryByText(/Menampilkan/)).not.toBeInTheDocument();
     lepas();
-    expect(await screen.findByText("Menampilkan 3 dari 3 proyek")).toBeInTheDocument();
+    expect(await screen.findByText("Alfa Cloud")).toBeInTheDocument();
     expect(container.querySelector(".animate-pulse")).not.toBeInTheDocument();
   });
 
@@ -170,15 +176,16 @@ describe("Daftar proyek — memuat, kosong, error", () => {
     expect(await screen.findByRole("heading", { name: "Belum ada proyek" })).toBeInTheDocument();
     expect(screen.getByText(petunjuk)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reset Filter" })).not.toBeInTheDocument();
-    expect(screen.getByText("Menampilkan 0 dari 0 proyek")).toBeInTheDocument();
+    expect(screen.getByText(/Menampilkan 0 dari 0 proyek/)).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Navigasi halaman proyek" })).not.toBeInTheDocument();
   });
 
   it.each(SEMUA_PERAN)("%s: keadaan kosong saat sakelar aktif memakai 'Tidak ada proyek milik Anda'", async (role) => {
     server.use(
       http.get(api("/projects"), ({ request }) =>
-        HttpResponse.json(
-          successEnvelope(new URL(request.url).searchParams.get("involved") === "me" ? [] : proyek),
-        ),
+        HttpResponse.json(successEnvelope(projectPage(
+          new URL(request.url).searchParams.get("involved") === "me" ? [] : proyek,
+        ))),
       ),
     );
     const { user } = setup(role);
@@ -198,12 +205,12 @@ describe("Daftar proyek — memuat, kosong, error", () => {
   });
 
   it("error server: pesan error (bukan 'Belum ada proyek'), coba lagi memuat ulang daftar", async () => {
-    server.use(gagalLaluBerhasil("/projects", proyek));
+    server.use(gagalLaluBerhasil("/projects", projectPage(proyek)));
     const { user } = setup("Lead_SA");
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat daftar proyek.");
     expect(screen.queryByText("Belum ada proyek")).not.toBeInTheDocument();
-    expect(screen.queryByText(/Menampilkan \d+ dari \d+ proyek/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Menampilkan/)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Proyek", level: 1 })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Coba lagi" }));
@@ -276,14 +283,14 @@ describe("Daftar proyek — filter", () => {
     expect(router.push).toHaveBeenCalledWith("/projects/id-bbb");
   });
 
-  it("filter status meminta hasil terfilter ke server dan memperbarui jumlah", async () => {
+  it("filter status meminta hasil terfilter ke server dan menyembunyikan pagination untuk satu hasil", async () => {
     const urls = serve();
     const { user } = setup("Lead_SA");
     await screen.findByText("Alfa Cloud");
     await user.selectOptions(screen.getByRole("combobox"), "Lost");
     expect(await screen.findByText("Gamma Data")).toBeInTheDocument();
     expect(screen.queryByText("Alfa Cloud")).not.toBeInTheDocument();
-    expect(await screen.findByText("Menampilkan 1 dari 1 proyek")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Navigasi halaman proyek" })).not.toBeInTheDocument();
     await waitFor(() => expect(urls.at(-1)!.searchParams.get("status")).toBe("Lost"));
   });
   it("dropdown status memuat semua status", async () => {
@@ -326,7 +333,7 @@ describe("Daftar proyek — filter", () => {
     const { user } = setup("Lead_SA");
     await screen.findByText("Alfa Cloud");
     await user.type(screen.getByPlaceholderText("Cari nama proyek atau customer..."), "   ");
-    expect(screen.getByText("Menampilkan 3 dari 3 proyek")).toBeInTheDocument();
+    expect(screen.getByText("Alfa Cloud")).toBeInTheDocument();
   });
 
   it("status + pencarian digabung (AND)", async () => {
@@ -346,7 +353,7 @@ describe("Daftar proyek — filter", () => {
     expect(await screen.findByRole("heading", { name: "Tidak ada hasil" })).toBeInTheDocument();
     expect(screen.getByText("Coba ubah kata kunci atau filter status.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Reset Filter" }));
-    expect(await screen.findByText("Menampilkan 3 dari 3 proyek")).toBeInTheDocument();
+    expect(await screen.findByText("Alfa Cloud")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Cari nama proyek atau customer...")).toHaveValue("");
     expect(screen.getByRole("combobox")).toHaveValue("");
   });
@@ -374,7 +381,7 @@ describe("Daftar proyek — pagination", () => {
     await user.click(screen.getByRole("checkbox", { name: "Hanya proyek saya" }));
     await user.selectOptions(screen.getByRole("combobox"), "In Progress");
     await user.type(screen.getByPlaceholderText("Cari nama proyek atau customer..."), "project");
-    expect(await screen.findByText("Menampilkan 20 dari 23 proyek")).toBeInTheDocument();
+    expect(await screen.findByText("Menampilkan 1–20 dari 23 proyek")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Halaman berikutnya" }));
 
     expect(await screen.findByText("Project 041")).toBeInTheDocument();
@@ -390,6 +397,6 @@ describe("Daftar proyek — pagination", () => {
 
     await user.click(screen.getByRole("button", { name: "Halaman sebelumnya" }));
     expect(await screen.findByText("Project 001")).toBeInTheDocument();
-    expect(urls.at(-1)!.searchParams.get("page")).toBe("1");
+    await waitFor(() => expect(urls.at(-1)!.searchParams.get("page")).toBe("1"));
   });
 });

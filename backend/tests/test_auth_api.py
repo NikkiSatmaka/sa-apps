@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app.core.config import settings
 from app.core.database import get_db

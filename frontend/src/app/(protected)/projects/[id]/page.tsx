@@ -24,6 +24,7 @@ import { HandoverAction } from "@/components/HandoverAction";
 import { StatusActions } from "@/components/StatusActions";
 import { StatusBadge } from "@/components/StatusBadge";
 import { isPrivileged } from "@/lib/roles";
+import { reprovisionFolder } from "@/lib/api/assignment";
 import { useAksesProyek } from "@/lib/useAksesProyek";
 
 /**
@@ -38,6 +39,24 @@ import { useAksesProyek } from "@/lib/useAksesProyek";
  *
  * Requirements: 17.1, 17.6
  */
+
+interface FolderProvisioningAttempt {
+  attempt: number;
+  status: "pending" | "failed" | "succeeded";
+  started_at: string;
+  finished_at: string | null;
+  outcome: string | null;
+  actionable_error: string | null;
+}
+
+interface FolderProvisioningOperation {
+  status: "pending" | "failed" | "succeeded";
+  attempts: FolderProvisioningAttempt[];
+  started_at: string | null;
+  finished_at: string | null;
+  outcome: string | null;
+  actionable_error: string | null;
+}
 
 interface ProjectDetail {
   id_project: string;
@@ -82,6 +101,7 @@ interface ProjectDetail {
   source_documents?: SourceDocumentItem[];
   gdrive_folder_id: string | null;
   folder_provisioning_status: "pending" | "provisioned" | "failed" | null;
+  folder_provisioning_operation?: FolderProvisioningOperation | null;
   created_at: string;
   updated_at: string;
 }
@@ -99,6 +119,8 @@ export default function ProjectDetailPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showReassignModal, setShowReassignModal] = useState(false);
+  const [isReprovisioning, setIsReprovisioning] = useState(false);
+  const [reprovisionError, setReprovisionError] = useState<string | null>(null);
 
   // Fetch detail proyek
   const { data: project, error: projError, isLoading, mutate: mutateProject } = useSWR<ProjectDetail>(
@@ -139,6 +161,20 @@ export default function ProjectDetailPage() {
     } finally {
       setIsDeleting(false);
       setShowDeleteConfirm(false);
+    }
+  };
+
+  const handleReprovisionFolder = async () => {
+    if (!project || !isPrivileged(user) || project.gdrive_folder_id) return;
+    setIsReprovisioning(true);
+    setReprovisionError(null);
+    try {
+      await reprovisionFolder(project.id_project);
+      await mutateProject();
+    } catch {
+      setReprovisionError("Gagal memulai ulang provisioning folder. Silakan coba lagi.");
+    } finally {
+      setIsReprovisioning(false);
     }
   };
 
@@ -275,6 +311,16 @@ export default function ProjectDetailPage() {
               </div>
             )}
           </div>
+
+          <FolderProvisioningSection
+            status={project.folder_provisioning_status}
+            operation={project.folder_provisioning_operation}
+            hasMasterFolder={!!project.gdrive_folder_id}
+            canRetry={isPrivileged(user)}
+            isRetrying={isReprovisioning}
+            retryError={reprovisionError}
+            onRetry={handleReprovisionFolder}
+          />
 
           {/* Section: Ganti orang (hanya Lead_SA/Admin; dijaga di dalam komponen) */}
           <PeopleSection project={project} onChanged={() => mutateProject()} />
@@ -629,5 +675,105 @@ function ProjectActivitySection({ projectId }: { projectId: string }) {
         </div>
       )}
     </div>
+  );
+}
+interface FolderProvisioningSectionProps {
+  status: ProjectDetail["folder_provisioning_status"];
+  operation?: FolderProvisioningOperation | null;
+  hasMasterFolder: boolean;
+  canRetry: boolean;
+  isRetrying: boolean;
+  retryError: string | null;
+  onRetry: () => void;
+}
+
+function FolderProvisioningSection({
+  status,
+  operation,
+  hasMasterFolder,
+  canRetry,
+  isRetrying,
+  retryError,
+  onRetry,
+}: FolderProvisioningSectionProps) {
+  const failed = status === "failed" || operation?.status === "failed";
+  const pending = !failed && (status === "pending" || operation?.status === "pending");
+  const provisioned = !failed && !pending && (
+    status === "provisioned" || operation?.status === "succeeded"
+  );
+
+  if (!failed && !pending && !provisioned) return null;
+
+  const outcome = operation?.outcome ?? operation?.attempts.at(-1)?.outcome;
+  const actionableError = operation?.actionable_error
+    ?? operation?.attempts.at(-1)?.actionable_error;
+
+  return (
+    <section
+      aria-labelledby="folder-provisioning-heading"
+      aria-live="polite"
+      className={`rounded-lg border p-5 ${
+        failed ? "border-red-200 bg-red-50" : pending ? "border-amber-200 bg-amber-50" : "border-green-200 bg-green-50"
+      }`}
+    >
+      <h2 id="folder-provisioning-heading" className="text-sm font-semibold text-neutral-800">
+        Provisioning folder Google Drive
+      </h2>
+      {failed ? (
+        <p role="alert" className="mt-2 text-sm font-medium text-red-700">
+          Provisioning folder gagal
+        </p>
+      ) : pending ? (
+        <p role="status" className="mt-2 text-sm font-medium text-amber-800">
+          Provisioning folder sedang diproses
+        </p>
+      ) : (
+        <p role="status" className="mt-2 text-sm font-medium text-green-700">
+          Folder Google Drive berhasil dibuat
+        </p>
+      )}
+      {outcome && (
+        <p className="mt-2 text-sm text-neutral-700">
+          Hasil terakhir: <span>{outcome}</span>
+        </p>
+      )}
+      {actionableError && (
+        <p className="mt-2 text-sm text-neutral-700">{actionableError}</p>
+      )}
+      {operation?.attempts && operation.attempts.length > 0 && (
+        <ol className="mt-3 space-y-1 text-xs text-neutral-600" aria-label="Riwayat percobaan provisioning">
+          {operation.attempts.map((attempt) => (
+            <li key={`${attempt.attempt}-${attempt.started_at}`}>
+              Percobaan {attempt.attempt}: {attempt.status}
+              {attempt.finished_at && ` — selesai ${new Date(attempt.finished_at).toLocaleString("id-ID")}`}
+            </li>
+          ))}
+        </ol>
+      )}
+      {failed && canRetry && !hasMasterFolder && (
+        <div className="mt-4">
+          <p className="mb-3 text-sm text-neutral-700">
+            Pastikan izin service account benar dan hapus folder yatim di Drive sebelum mencoba lagi.
+          </p>
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={isRetrying}
+            className="rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white
+                       hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isRetrying ? "Memulai provisioning..." : "Coba provisioning lagi"}
+          </button>
+        </div>
+      )}
+      {failed && hasMasterFolder && (
+        <p className="mt-3 text-sm text-neutral-700">
+          Folder Drive sudah tersimpan; retry otomatis tidak tersedia. Periksa folder yang ada dan perbaiki izinnya secara manual.
+        </p>
+      )}
+      {retryError && (
+        <p role="alert" className="mt-3 text-sm text-red-700">{retryError}</p>
+      )}
+    </section>
   );
 }

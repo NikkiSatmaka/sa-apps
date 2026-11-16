@@ -1,11 +1,19 @@
 "use client";
 
+import { useState } from "react";
 import { statusBadgeClass } from "@/lib/status";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import { LoadError } from "@/components/LoadError";
 import { ProjectCard } from "@/components/ProjectCard";
+import { ProjectPagination } from "@/components/ProjectPagination";
+import {
+  PROJECT_LIST_PAGE_SIZE,
+  projectListUrl,
+  type ProjectListItem,
+  type ProjectListPage,
+} from "@/lib/api/projects";
 import { useAuthStore } from "@/store/auth";
 
 /**
@@ -22,18 +30,7 @@ import { useAuthStore } from "@/store/auth";
  * Requirements: 9.1, 19.5
  */
 
-/** Tipe project yang dikembalikan dari API */
-interface SalesProject {
-  id_project: string;
-  project_name: string;
-  customer_name: string;
-  status: string;
-  dq_number: string | null;
-  bant_score: number | null;
-  sla_days_elapsed?: number | null;
-  sla_is_locked?: boolean;
-  updated_at: string;
-}
+type SalesProject = ProjectListItem;
 
 /** Tipe ringkasan proyek per status */
 interface StatusCount {
@@ -44,12 +41,21 @@ interface StatusCount {
 export default function SalesDashboard() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
+  const [page, setPage] = useState(1);
 
-  // Fetch proyek yang melibatkan user saat ini, sorted by updated_at descending
-  const { data: projects, isLoading, error: projectsError, mutate: mutateProjects } = useSWR<SalesProject[]>(
-    user ? "/projects?involved=me&sort=-updated_at" : null,
-    fetcher
-  );
+  // Fetch proyek yang melibatkan user saat ini, sorted by updated_at descending.
+  const { data: projects, isLoading, error: projectsError, mutate: mutateProjects } =
+    useSWR<ProjectListPage<SalesProject>>(
+      user
+        ? projectListUrl({
+          page,
+          pageSize: PROJECT_LIST_PAGE_SIZE,
+          involved: "me",
+          sort: "-updated_at",
+        })
+        : null,
+      fetcher,
+    );
 
   // Fetch ringkasan status proyek yang melibatkan user
   const {
@@ -160,26 +166,35 @@ export default function SalesDashboard() {
       {/* Konten utama: daftar proyek atau empty state */}
       {!isLoading && projects && (
         <>
-          {projects.length === 0 ? (
+          {projects.items.length === 0 ? (
             <EmptyState onCreateNew={() => router.push("/projects/new")} />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {projects.map((project) => (
-                <ProjectCard
-                  key={project.id_project}
-                  id={project.id_project}
-                  projectName={project.project_name}
-                  customerName={project.customer_name}
-                  status={project.status}
-                  dqNumber={project.dq_number}
-                  lastUpdated={project.updated_at}
-                  bantScore={project.bant_score}
-                  slaDaysElapsed={project.sla_days_elapsed}
-                  slaIsLocked={project.sla_is_locked}
-                  onClick={() => router.push(`/projects/${project.id_project}`)}
-                />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {projects.items.map((project) => (
+                  <ProjectCard
+                    key={project.id_project}
+                    id={project.id_project}
+                    projectName={project.project_name}
+                    customerName={project.customer_name}
+                    status={project.status}
+                    dqNumber={project.dq_number}
+                    lastUpdated={project.updated_at || ""}
+                    bantScore={project.bant_score}
+                    slaDaysElapsed={project.sla_days_elapsed}
+                    slaIsLocked={project.sla_is_locked}
+                    onClick={() => router.push(`/projects/${project.id_project}`)}
+                  />
+                ))}
+              </div>
+              <ProjectPagination
+                page={projects.page}
+                pageSize={projects.page_size}
+                total={projects.total}
+                totalPages={projects.total_pages}
+                onPageChange={setPage}
+              />
+            </>
           )}
         </>
       )}

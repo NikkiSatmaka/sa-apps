@@ -4,17 +4,40 @@ import { HttpResponse, api, gagalLaluBerhasil, http, renderWithProviders, server
 import { makeProject } from "@/test/fixtures/projects";
 import ActivityLogsPage from "./page";
 
-function useProjects() {
+function projectPage(items: unknown[], page = 1, pageSize = 100) {
+  return {
+    items,
+    total: items.length,
+    page,
+    page_size: pageSize,
+    total_pages: Math.ceil(items.length / pageSize),
+  };
+}
+
+function useProjects(items = [
+  makeProject({ id_project: "p-1", project_name: "Migrasi Cloud", status: "Intake" }),
+  makeProject({ id_project: "p-2", project_name: "Rollout Jaringan", status: "Handed Over" }),
+]) {
+  const requests: URL[] = [];
   server.use(
-    http.get(api("/projects"), () =>
-      HttpResponse.json(
-        successEnvelope([
-          makeProject({ id_project: "p-1", project_name: "Migrasi Cloud", status: "Intake" }),
-          makeProject({ id_project: "p-2", project_name: "Rollout Jaringan", status: "Handed Over" }),
-        ])
-      )
-    )
+    http.get(api("/projects"), ({ request }) => {
+      const url = new URL(request.url);
+      requests.push(url);
+      const page = Number(url.searchParams.get("page") ?? "1");
+      const pageSize = Number(url.searchParams.get("page_size") ?? "100");
+      const response = projectPage(
+        items.slice((page - 1) * pageSize, page * pageSize),
+        page,
+        pageSize,
+      );
+      return HttpResponse.json(successEnvelope({
+        ...response,
+        total: items.length,
+        total_pages: Math.ceil(items.length / pageSize),
+      }));
+    }),
   );
+  return requests;
 }
 
 describe("ActivityLogsPage", () => {
@@ -50,7 +73,7 @@ describe("ActivityLogsPage", () => {
   });
 
   it("daftar proyek kosong: form tetap tampil tanpa pilihan proyek", async () => {
-    server.use(http.get(api("/projects"), () => HttpResponse.json(successEnvelope([]))));
+    server.use(http.get(api("/projects"), () => HttpResponse.json(successEnvelope(projectPage([])))));
     renderWithProviders(<ActivityLogsPage />, { role: "SA" });
     await screen.findByRole("form", { name: "Form activity log" });
     expect(screen.getAllByRole("option", { name: "Pilih proyek..." })).toHaveLength(1);
@@ -58,7 +81,9 @@ describe("ActivityLogsPage", () => {
   });
 
   it("error memuat proyek: pesan error menggantikan form (daftar proyek kosong tak berguna), coba lagi memuat ulang", async () => {
-    server.use(gagalLaluBerhasil("/projects", [makeProject({ id_project: "p-1", project_name: "Migrasi Cloud", status: "Intake" })]));
+    server.use(gagalLaluBerhasil("/projects", projectPage([
+      makeProject({ id_project: "p-1", project_name: "Migrasi Cloud", status: "Intake" }),
+    ])));
     const { user } = renderWithProviders(<ActivityLogsPage />, { role: "SA" });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat daftar proyek.");
@@ -90,5 +115,19 @@ describe("ActivityLogsPage", () => {
     await screen.findByText("Activity log berhasil disimpan");
     expect(body).toMatchObject({ id_project: "p-1", raw_notes: "Catatan hari ini", work_type: "Project" });
     await waitFor(() => expect(screen.getByLabelText(/^Catatan/)).toHaveValue(""));
+  });
+  it("memuat proyek setelah setiap halaman API terbatas untuk Activity Log", async () => {
+    const items = Array.from({ length: 101 }, (_, index) =>
+      makeProject({
+        id_project: `p-${index + 1}`,
+        project_name: `Proyek ${index + 1}`,
+      }),
+    );
+    const requests = useProjects(items);
+    renderWithProviders(<ActivityLogsPage />, { role: "SA" });
+
+    await screen.findByRole("option", { name: "Proyek 101" });
+    expect(requests.map((url) => url.searchParams.get("page"))).toEqual(["1", "2"]);
+    expect(requests.every((url) => url.searchParams.get("page_size") === "100")).toBe(true);
   });
 });

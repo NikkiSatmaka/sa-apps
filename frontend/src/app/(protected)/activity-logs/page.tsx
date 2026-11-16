@@ -3,9 +3,9 @@
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
-import { fetcher } from "@/lib/fetcher";
 import { LoadError } from "@/components/LoadError";
 import { ActivityLogForm } from "@/components/ActivityLogForm";
+import { getAllProjects, type ProjectListItem } from "@/lib/api/projects";
 
 /**
  * Halaman Activity Log
@@ -20,11 +20,6 @@ import { ActivityLogForm } from "@/components/ActivityLogForm";
  * Requirements: 8.1
  */
 
-interface ProjectItem {
-  id_project: string;
-  project_name: string;
-  status?: string;
-}
 
 interface Project {
   id: string;
@@ -49,9 +44,9 @@ function ActivityLogsContent() {
     isLoading: projectsLoading,
     error: projectsError,
     mutate: mutateProjects,
-  } = useSWR<ProjectItem[]>(
-    "/projects",
-    fetcher
+  } = useSWR<ProjectListItem[]>(
+    "projects:all",
+    getAllProjects,
   );
 
   // API mengembalikan id_project; form butuh { id, project_name, status }

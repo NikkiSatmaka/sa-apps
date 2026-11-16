@@ -10,13 +10,32 @@ const proyek = [
   makeProject({ id_project: "id-ccc", project_name: "Gamma Data", customer_name: "Satu Sejahtera", status: "Lost", dq_number: null }),
 ];
 
-/** Rekam URL request daftar proyek dan sajikan data. */
+/** Rekam URL request daftar proyek dan sajikan halaman hasil terfilter. */
 function serve(data = proyek) {
   const urls: URL[] = [];
   server.use(
     http.get(api("/projects"), ({ request }) => {
-      urls.push(new URL(request.url));
-      return HttpResponse.json(successEnvelope(data));
+      const url = new URL(request.url);
+      urls.push(url);
+      const page = Number(url.searchParams.get("page") ?? "1");
+      const pageSize = Number(url.searchParams.get("page_size") ?? "20");
+      const status = url.searchParams.get("status");
+      const search = url.searchParams.get("search")?.toLocaleLowerCase("id-ID");
+      const filtered = data.filter((project) =>
+        (!status || project.status === status)
+        && (!search || [
+          project.project_name,
+          project.customer_name,
+          project.id_project,
+        ].some((field) => field?.toLocaleLowerCase("id-ID").includes(search))),
+      );
+      return HttpResponse.json(successEnvelope({
+        items: filtered.slice((page - 1) * pageSize, page * pageSize),
+        total: filtered.length,
+        page,
+        page_size: pageSize,
+        total_pages: Math.ceil(filtered.length / pageSize),
+      }));
     }),
   );
   return urls;
@@ -63,7 +82,15 @@ describe("Daftar proyek — daftar penuh untuk semua peran (#109, ADR 0011)", ()
         const url = new URL(request.url);
         urls.push(url);
         const sempit = url.searchParams.get("involved") === "me";
-        return HttpResponse.json(successEnvelope(sempit ? [proyek[0]] : proyek));
+        const data = sempit ? [proyek[0]] : proyek;
+        const pageSize = Number(url.searchParams.get("page_size") ?? "20");
+        return HttpResponse.json(successEnvelope({
+          items: data,
+          total: data.length,
+          page: 1,
+          page_size: pageSize,
+          total_pages: Math.ceil(data.length / pageSize),
+        }));
       }),
     );
     const { user } = setup(role);
@@ -235,8 +262,10 @@ describe("Daftar proyek — filter", () => {
       const { user } = setup("Lead_SA");
       await screen.findByText("Cocok");
       await user.selectOptions(screen.getByRole("combobox"), status);
-      expect(screen.getByText("Cocok")).toBeInTheDocument();
-      expect(screen.queryByText("Beda")).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByText("Cocok")).toBeInTheDocument();
+        expect(screen.queryByText("Beda")).not.toBeInTheDocument();
+      });
     },
   );
 
@@ -247,17 +276,16 @@ describe("Daftar proyek — filter", () => {
     expect(router.push).toHaveBeenCalledWith("/projects/id-bbb");
   });
 
-  it("filter status menyaring sisi klien dan memperbarui jumlah", async () => {
+  it("filter status meminta hasil terfilter ke server dan memperbarui jumlah", async () => {
     const urls = serve();
     const { user } = setup("Lead_SA");
     await screen.findByText("Alfa Cloud");
     await user.selectOptions(screen.getByRole("combobox"), "Lost");
-    expect(screen.getByText("Gamma Data")).toBeInTheDocument();
+    expect(await screen.findByText("Gamma Data")).toBeInTheDocument();
     expect(screen.queryByText("Alfa Cloud")).not.toBeInTheDocument();
-    expect(screen.getByText("Menampilkan 1 dari 3 proyek")).toBeInTheDocument();
-    expect(urls).toHaveLength(1); // tidak ada request baru: filter sisi klien
+    expect(await screen.findByText("Menampilkan 1 dari 1 proyek")).toBeInTheDocument();
+    await waitFor(() => expect(urls.at(-1)!.searchParams.get("status")).toBe("Lost"));
   });
-
   it("dropdown status memuat semua status", async () => {
     serve();
     setup("Lead_SA");
@@ -274,7 +302,7 @@ describe("Daftar proyek — filter", () => {
     const { user } = setup("Lead_SA");
     await screen.findByText("Alfa Cloud");
     await user.type(screen.getByPlaceholderText("Cari nama proyek atau customer..."), "BETA");
-    expect(screen.getByText("Beta Security")).toBeInTheDocument();
+    expect(await screen.findByText("Beta Security")).toBeInTheDocument();
     expect(screen.queryByText("Alfa Cloud")).not.toBeInTheDocument();
   });
 
@@ -284,12 +312,12 @@ describe("Daftar proyek — filter", () => {
     await screen.findByText("Alfa Cloud");
     const cari = screen.getByPlaceholderText("Cari nama proyek atau customer...");
     await user.type(cari, "satu");
-    expect(screen.getByText("Alfa Cloud")).toBeInTheDocument();
+    expect(await screen.findByText("Alfa Cloud")).toBeInTheDocument();
     expect(screen.getByText("Gamma Data")).toBeInTheDocument();
     expect(screen.queryByText("Beta Security")).not.toBeInTheDocument();
     await user.clear(cari);
     await user.type(cari, "id-ccc");
-    expect(screen.getByText("Gamma Data")).toBeInTheDocument();
+    expect(await screen.findByText("Gamma Data")).toBeInTheDocument();
     expect(screen.queryByText("Alfa Cloud")).not.toBeInTheDocument();
   });
 
@@ -307,7 +335,7 @@ describe("Daftar proyek — filter", () => {
     await screen.findByText("Alfa Cloud");
     await user.selectOptions(screen.getByRole("combobox"), "Lost");
     await user.type(screen.getByPlaceholderText("Cari nama proyek atau customer..."), "alfa");
-    expect(screen.getByRole("heading", { name: "Tidak ada hasil" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Tidak ada hasil" })).toBeInTheDocument();
   });
 
   it("tidak ada hasil: pesan + Reset Filter mengembalikan semua", async () => {
@@ -315,10 +343,10 @@ describe("Daftar proyek — filter", () => {
     const { user } = setup("Lead_SA");
     await screen.findByText("Alfa Cloud");
     await user.type(screen.getByPlaceholderText("Cari nama proyek atau customer..."), "tidak-ada");
-    expect(screen.getByRole("heading", { name: "Tidak ada hasil" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Tidak ada hasil" })).toBeInTheDocument();
     expect(screen.getByText("Coba ubah kata kunci atau filter status.")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Reset Filter" }));
-    expect(screen.getByText("Menampilkan 3 dari 3 proyek")).toBeInTheDocument();
+    expect(await screen.findByText("Menampilkan 3 dari 3 proyek")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Cari nama proyek atau customer...")).toHaveValue("");
     expect(screen.getByRole("combobox")).toHaveValue("");
   });
@@ -327,5 +355,41 @@ describe("Daftar proyek — filter", () => {
     serve([makeProject({ updated_at: null, project_name: "Tanpa Tanggal" })]);
     setup("Lead_SA");
     expect(await screen.findByText("Tanpa Tanggal")).toBeInTheDocument();
+  });
+});
+describe("Daftar proyek — pagination", () => {
+  it("mempertahankan filter, pencarian, penyempit, dan urutan saat berpindah halaman", async () => {
+    const projects = Array.from({ length: 45 }, (_, index) => {
+      const number = String(index + 1).padStart(3, "0");
+      return makeProject({
+        id_project: `id-${number}`,
+        project_name: `Project ${number}`,
+        status: index % 2 === 0 ? "In Progress" : "Assigned",
+      });
+    });
+    const urls = serve(projects);
+    const { user } = setup("Lead_SA");
+    await screen.findByText("Project 001");
+
+    await user.click(screen.getByRole("checkbox", { name: "Hanya proyek saya" }));
+    await user.selectOptions(screen.getByRole("combobox"), "In Progress");
+    await user.type(screen.getByPlaceholderText("Cari nama proyek atau customer..."), "project");
+    expect(await screen.findByText("Menampilkan 20 dari 23 proyek")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Halaman berikutnya" }));
+
+    expect(await screen.findByText("Project 041")).toBeInTheDocument();
+    expect(screen.queryByText("Project 039")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Halaman sebelumnya" })).toBeEnabled();
+    const secondPage = urls.at(-1)!;
+    expect(secondPage.searchParams.get("involved")).toBe("me");
+    expect(secondPage.searchParams.get("status")).toBe("In Progress");
+    expect(secondPage.searchParams.get("search")).toBe("project");
+    expect(secondPage.searchParams.get("sort")).toBe("-updated_at");
+    expect(secondPage.searchParams.get("page")).toBe("2");
+    expect(secondPage.searchParams.get("page_size")).toBe("20");
+
+    await user.click(screen.getByRole("button", { name: "Halaman sebelumnya" }));
+    expect(await screen.findByText("Project 001")).toBeInTheDocument();
+    expect(urls.at(-1)!.searchParams.get("page")).toBe("1");
   });
 });

@@ -1,9 +1,9 @@
 "use client";
 
 import useSWR from "swr";
-import { fetcher } from "@/lib/fetcher";
 import { LoadError } from "@/components/LoadError";
 import { CalendarSync } from "@/components/CalendarSync";
+import { getAllProjects, type ProjectListItem } from "@/lib/api/projects";
 
 /**
  * Halaman Calendar Sync
@@ -15,12 +15,6 @@ import { CalendarSync } from "@/components/CalendarSync";
  * Requirements: 13.1, 13.2
  */
 
-/** Bentuk item dari API /projects (field id_project) */
-interface ProjectItem {
-  id_project: string;
-  project_name: string;
-  status?: string;
-}
 
 interface Project {
   id: string;
@@ -29,15 +23,15 @@ interface Project {
 }
 
 export default function CalendarSyncPage() {
-  // Fetch daftar proyek untuk mapping dropdown
+  // Load every project through bounded API pages for the mapping dropdown.
   const {
     data: rawProjects,
     isLoading: projectsLoading,
     error: projectsError,
     mutate: mutateProjects,
-  } = useSWR<ProjectItem[]>(
-    "/projects",
-    fetcher
+  } = useSWR<ProjectListItem[]>(
+    "projects:all",
+    getAllProjects,
   );
 
   // Normalisasi: API mengembalikan id_project, komponen butuh { id, project_name }

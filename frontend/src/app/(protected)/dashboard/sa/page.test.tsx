@@ -5,7 +5,25 @@ import { makeTugasSaya } from "@/test/fixtures/project-detail";
 import { makeSAProject } from "@/test/fixtures/shell";
 import SADashboard from "./page";
 
-const projects = (data: unknown) => server.use(http.get(api("/projects"), () => HttpResponse.json(successEnvelope(data))));
+function projectPage(data: unknown, page: number, pageSize: number) {
+  const all = Array.isArray(data) ? data : [];
+  return {
+    items: all.slice((page - 1) * pageSize, page * pageSize),
+    total: all.length,
+    page,
+    page_size: pageSize,
+    total_pages: Math.ceil(all.length / pageSize),
+  };
+}
+
+const projects = (data: unknown, urls?: URL[]) =>
+  server.use(http.get(api("/projects"), ({ request }) => {
+    const url = new URL(request.url);
+    urls?.push(url);
+    const page = Number(url.searchParams.get("page") ?? "1");
+    const pageSize = Number(url.searchParams.get("page_size") ?? "20");
+    return HttpResponse.json(successEnvelope(projectPage(data, page, pageSize)));
+  }));
 
 describe("Dashboard SA", () => {
   it("memuat: skeleton tanpa empty state", () => {
@@ -22,8 +40,11 @@ describe("Dashboard SA", () => {
     const urls: string[] = [];
     server.use(
       http.get(api("/projects"), ({ request }) => {
-        urls.push(new URL(request.url).search);
-        return HttpResponse.json(successEnvelope([]));
+        const url = new URL(request.url);
+        urls.push(url.search);
+        const page = Number(url.searchParams.get("page") ?? "1");
+        const pageSize = Number(url.searchParams.get("page_size") ?? "20");
+        return HttpResponse.json(successEnvelope(projectPage([], page, pageSize)));
       }),
       http.get(api("/projects/status-summary"), ({ request }) => {
         urls.push(new URL(request.url).search);
@@ -32,8 +53,25 @@ describe("Dashboard SA", () => {
     );
     renderWithProviders(<SADashboard />, { role: "SA" });
     await screen.findByText(/Belum ada proyek yang ditugaskan/);
-    expect(urls).toContain("?involved=me&sort=-updated_at");
+    expect(urls).toContain("?involved=me&sort=-updated_at&page=1&page_size=20");
     expect(urls).toContain("?involved=me");
+  });
+  it("dashboard SA menampilkan satu halaman dan dapat membuka halaman selanjutnya", async () => {
+    const urls: URL[] = [];
+    const items = Array.from({ length: 21 }, (_, index) =>
+      makeSAProject({
+        id_project: `project-${index + 1}`,
+        project_name: `Project ${String(index + 1).padStart(2, "0")}`,
+      }),
+    );
+    projects(items, urls);
+    const { user } = renderWithProviders(<SADashboard />, { role: "SA" });
+
+    expect(await screen.findByRole("article", { name: "Proyek Project 01 - PT Pelanggan" })).toBeInTheDocument();
+    expect(screen.queryByRole("article", { name: "Proyek Project 21 - PT Pelanggan" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Halaman berikutnya" }));
+    expect(await screen.findByRole("article", { name: "Proyek Project 21 - PT Pelanggan" })).toBeInTheDocument();
+    expect(urls.at(-1)?.search).toBe("?involved=me&sort=-updated_at&page=2&page_size=20");
   });
 
   it("kosong: pesan belum ada proyek dan ringkasan kosong", async () => {
@@ -115,7 +153,11 @@ describe("Dashboard SA", () => {
   });
 
   it("error memuat proyek: pesan error (bukan empty state), coba lagi memuat ulang daftar", async () => {
-    server.use(gagalLaluBerhasil("/projects", [makeSAProject({ project_name: "Pulih", customer_name: "PT P" })]));
+    server.use(gagalLaluBerhasil("/projects", projectPage(
+      [makeSAProject({ project_name: "Pulih", customer_name: "PT P" })],
+      1,
+      20,
+    )));
     const { user } = renderWithProviders(<SADashboard />, { role: "SA" });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat daftar proyek.");

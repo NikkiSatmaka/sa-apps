@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { statusBadgeClass } from "@/lib/status";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
@@ -7,6 +8,13 @@ import { fetcher } from "@/lib/fetcher";
 import { LoadError } from "@/components/LoadError";
 import { SLABadge } from "@/components/SLABadge";
 import { TugasSayaSection } from "@/components/TugasSayaSection";
+import { ProjectPagination } from "@/components/ProjectPagination";
+import {
+  PROJECT_LIST_PAGE_SIZE,
+  projectListUrl,
+  type ProjectListItem,
+  type ProjectListPage,
+} from "@/lib/api/projects";
 
 /**
  * Dashboard SA (Solutions Architect)
@@ -22,20 +30,12 @@ import { TugasSayaSection } from "@/components/TugasSayaSection";
  */
 
 /** Tipe proyek dari backend (endpoint GET /api/v1/projects untuk SA) */
-interface SAProject {
-  id_project: string;
-  project_name: string;
-  customer_name: string;
-  status: string;
-  dq_number: string | null;
-  updated_at: string;
+interface SAProject extends ProjectListItem {
   /** Jumlah dokumen berstatus Final */
   doc_final_count: number;
   /** Total dokumen proyek */
   doc_total_count: number;
-  /** SLA days elapsed (null jika tidak aktif) */
   sla_days_elapsed: number | null;
-  /** Apakah folder Solutions terkunci */
   sla_is_locked: boolean;
 }
 
@@ -61,12 +61,19 @@ interface StatusCount {
 
 export default function SADashboard() {
   const router = useRouter();
+  const [page, setPage] = useState(1);
 
-  // Fetch proyek yang ditugaskan ke SA yang login
-  const { data: projects, isLoading, error: projectsError, mutate: mutateProjects } = useSWR<SAProject[]>(
-    "/projects?involved=me&sort=-updated_at",
-    fetcher
-  );
+  // Fetch proyek yang ditugaskan ke SA yang login.
+  const { data: projects, isLoading, error: projectsError, mutate: mutateProjects } =
+    useSWR<ProjectListPage<SAProject>>(
+      projectListUrl({
+        page,
+        pageSize: PROJECT_LIST_PAGE_SIZE,
+        involved: "me",
+        sort: "-updated_at",
+      }),
+      fetcher,
+    );
 
   // Fetch ringkasan status proyek SA
   const {
@@ -178,7 +185,7 @@ export default function SADashboard() {
       )}
 
       {/* Empty state */}
-      {!isLoading && projects && projects.length === 0 && (
+      {!isLoading && projects && projects.items.length === 0 && (
         <div className="rounded-lg border border-neutral-200 bg-white p-12 text-center">
           <div className="mx-auto w-12 h-12 rounded-full bg-neutral-100 flex items-center justify-center mb-4">
             <svg
@@ -202,17 +209,25 @@ export default function SADashboard() {
         </div>
       )}
 
-      {/* Daftar proyek */}
-      {!isLoading && projects && projects.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {projects.map((project) => (
-            <SAProjectCard
-              key={project.id_project}
-              project={project}
-              onNavigate={(path) => router.push(path)}
-            />
-          ))}
-        </div>
+      {!isLoading && projects && projects.items.length > 0 && (
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {projects.items.map((project) => (
+              <SAProjectCard
+                key={project.id_project}
+                project={project}
+                onNavigate={(path) => router.push(path)}
+              />
+            ))}
+          </div>
+          <ProjectPagination
+            page={projects.page}
+            pageSize={projects.page_size}
+            total={projects.total}
+            totalPages={projects.total_pages}
+            onPageChange={setPage}
+          />
+        </>
       )}
     </div>
   );
@@ -321,7 +336,7 @@ function SAProjectCard({
       {/* Footer: tanggal update + quick links */}
       <div className="flex items-center justify-between pt-3 border-t border-neutral-100">
         <span className="text-xs text-neutral-400">
-          Update: {formatDate(project.updated_at)}
+          Update: {formatDate(project.updated_at || "")}
         </span>
 
         {/* Quick links */}

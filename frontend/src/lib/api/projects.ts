@@ -6,8 +6,79 @@
  * - getBANTResult: Ambil hasil scoring BANT
  */
 
-import { apiCall, apiRequest } from "../fetcher";
+import { apiCall, apiRequest, fetcher } from "../fetcher";
 import { toPayload, type QualificationAnswers, type QualificationSchema } from "../qualification";
+
+export const PROJECT_LIST_PAGE_SIZE = 20;
+export const PROJECT_LIST_MAX_PAGE_SIZE = 100;
+
+export interface ProjectListItem {
+  id_project: string;
+  project_name: string;
+  customer_name: string;
+  status: string;
+  qualification_state?: string | null;
+  dq_number: string | null;
+  bant_score: number | null;
+  use_case_tags: string[];
+  target_submit: string | null;
+  updated_at: string | null;
+  sla_days_elapsed?: number | null;
+  sla_is_locked?: boolean;
+  doc_final_count?: number;
+  doc_total_count?: number;
+}
+
+export interface ProjectListPage<T = ProjectListItem> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface ProjectListParams {
+  page: number;
+  pageSize?: number;
+  involved?: "me";
+  status?: string;
+  search?: string;
+  sort?: string;
+}
+
+export function projectListUrl({
+  page,
+  pageSize = PROJECT_LIST_PAGE_SIZE,
+  involved,
+  status,
+  search,
+  sort = "-updated_at",
+}: ProjectListParams): string {
+  const params = new URLSearchParams();
+  if (involved) params.set("involved", involved);
+  if (status) params.set("status", status);
+  const query = search?.trim();
+  if (query) params.set("search", query);
+  params.set("sort", sort);
+  params.set("page", String(page));
+  params.set("page_size", String(pageSize));
+  return `/projects?${params.toString()}`;
+}
+
+export async function getAllProjects(): Promise<ProjectListItem[]> {
+  const pageSize = PROJECT_LIST_MAX_PAGE_SIZE;
+  const firstPage = await fetcher<ProjectListPage>(
+    projectListUrl({ page: 1, pageSize }),
+  );
+  const projects = [...firstPage.items];
+  for (let page = 2; page <= firstPage.total_pages; page += 1) {
+    const nextPage = await fetcher<ProjectListPage>(
+      projectListUrl({ page, pageSize }),
+    );
+    projects.push(...nextPage.items);
+  }
+  return projects;
+}
 
 /** Tipe response BANT Result dari backend */
 export interface BANTResult {

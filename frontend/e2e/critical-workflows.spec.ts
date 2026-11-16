@@ -14,6 +14,20 @@ const project = {
   updated_at: "2026-11-16T09:00:00Z",
 };
 
+const projectRecords = Array.from({ length: 101 }, (_, index) => {
+  const number = String(index + 1).padStart(3, "0");
+  const inProgress = index % 2 === 0;
+  return {
+    ...project,
+    id_project: `PRJ-E2E-${number}`,
+    project_name: index === 0
+      ? project.project_name
+      : `${inProgress ? "Beta" : "Alpha"} Project ${number}`,
+    customer_name: `Example Customer ${number}`,
+    status: inProgress ? "In Progress" : "Assigned",
+  };
+});
+
 const calendarStart = new Date();
 calendarStart.setHours(10, 0, 0, 0);
 const calendarEnd = new Date(calendarStart.getTime() + 60 * 60 * 1000);
@@ -90,7 +104,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 async function installFixtures(page: Page) {
-  const requests: { path: string; method: string; body?: unknown }[] = [];
+  const requests: { path: string; method: string; body?: unknown; search: string }[] = [];
   let reprovisionStarted = false;
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
@@ -99,7 +113,7 @@ async function installFixtures(page: Page) {
     const method = request.method();
     const postData = request.postData();
     const body = postData ? asRecord(request.postDataJSON()) : {};
-    requests.push({ path, method, body });
+    requests.push({ path, method, body, search: url.search });
 
     if (path === "/auth/config") return json(route, { demo_mode: true });
     if (path === "/auth/demo-login") {
@@ -115,7 +129,33 @@ async function installFixtures(page: Page) {
         tokens: { access_token: "fixture-app-session", expires_in: 900 },
       });
     }
-    if (path === "/projects" && method === "GET") return json(route, [project]);
+    if (path === "/projects/status-summary" && method === "GET") {
+      return json(route, []);
+    }
+    if (path === "/projects" && method === "GET") {
+      const page = Number(url.searchParams.get("page") ?? "1");
+      const pageSize = Number(url.searchParams.get("page_size") ?? "25");
+      const statusFilter = url.searchParams.get("status");
+      const searchTerm = url.searchParams.get("search")?.toLocaleLowerCase();
+      const filtered = projectRecords.filter((item) =>
+        (!statusFilter || item.status === statusFilter)
+        && (!searchTerm || [
+          item.project_name,
+          item.customer_name,
+          item.id_project,
+        ].some((field) => field.toLocaleLowerCase().includes(searchTerm))),
+      );
+      return json(route, {
+        data: {
+          items: filtered.slice((page - 1) * pageSize, page * pageSize),
+          total: filtered.length,
+          page,
+          page_size: pageSize,
+          total_pages: Math.ceil(filtered.length / pageSize),
+        },
+        message: `Ditemukan ${filtered.length} proyek.`,
+      });
+    }
     if (path === `/projects/${project.id_project}` && method === "GET") {
       return json(route, projectDetails(reprovisionStarted ? "pending" : "failed"));
     }
@@ -158,6 +198,61 @@ async function loginAsRole(page: Page, role: "SA" | "Sales" | "Lead_SA") {
 async function loginAsSA(page: Page) {
   await loginAsRole(page, "SA");
 }
+
+test("project pages retain filters and both activity pickers reach the final API page", async ({ page }) => {
+  const requests = await installFixtures(page);
+  await loginAsSA(page);
+  await page.goto("/projects");
+
+  const search = page.getByPlaceholder("Cari nama proyek atau customer...");
+  await search.fill("beta");
+  await page.getByRole("combobox").selectOption("In Progress");
+  await expect(page.getByRole("button", { name: "Proyek Beta Project 003 - Example Customer 003" }))
+    .toBeVisible();
+  await expect(page.getByText("Menampilkan 20 dari 50 proyek")).toBeVisible();
+  const previous = page.getByRole("button", { name: "Halaman sebelumnya" });
+  const next = page.getByRole("button", { name: "Halaman berikutnya" });
+  await expect(previous).toBeDisabled();
+  await page.getByRole("button", { name: "Halaman berikutnya" }).click();
+  await expect(page.getByRole("button", { name: "Proyek Beta Project 043 - Example Customer 043" }))
+    .toBeVisible();
+  await expect(search).toHaveValue("beta");
+  await expect(page.getByRole("combobox")).toHaveValue("In Progress");
+  await expect(previous).toBeEnabled();
+  await expect(next).toBeEnabled();
+
+  const pageTwo = requests
+    .filter((request) => request.path === "/projects" && request.method === "GET")
+    .map((request) => new URLSearchParams(request.search))
+    .find((params) => params.get("page") === "2");
+  expect(pageTwo?.get("status")).toBe("In Progress");
+  expect(pageTwo?.get("search")).toBe("beta");
+  expect(pageTwo?.get("sort")).toBe("-updated_at");
+  expect(pageTwo?.get("page_size")).toBe("20");
+  await next.click();
+  await expect(page.getByRole("button", { name: "Proyek Beta Project 083 - Example Customer 083" }))
+    .toBeVisible();
+  await expect(page.getByRole("button", { name: "Proyek Beta Project 101 - Example Customer 101" }))
+    .toBeVisible();
+  await expect(page.getByText("Menampilkan 41–50 dari 50 proyek")).toBeVisible();
+  await expect(next).toBeDisabled();
+
+  await page.goto("/activity-logs");
+  const activityProject = page.getByLabel("Proyek");
+  await expect(activityProject.locator('option[value="PRJ-E2E-101"]')).toHaveText("Beta Project 101");
+  await activityProject.selectOption("PRJ-E2E-101");
+  await expect(activityProject).toHaveValue("PRJ-E2E-101");
+
+  await page.goto("/activity-logs/calendar?code=one-time-calendar-handoff");
+  await expect(page.getByRole("alert")).toContainText("Google Calendar terhubung");
+  await page.getByRole("button", { name: /sync calendar/i }).click();
+  await expect(page.getByRole("heading", { name: "Design review" })).toBeVisible();
+  await page.getByRole("button", { name: "Map ke Subtask" }).click();
+  const calendarProject = page.getByLabel(/^Proyek/);
+  await expect(calendarProject.locator('option[value="PRJ-E2E-101"]')).toHaveText("Beta Project 101");
+  await calendarProject.selectOption("PRJ-E2E-101");
+  await expect(calendarProject).toHaveValue("PRJ-E2E-101");
+});
 
 test("Lead SA sees Drive failure details, retries, and sees pending attempt status", async ({ page }) => {
   const requests = await installFixtures(page);

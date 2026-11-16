@@ -320,11 +320,7 @@ async def _tentukan_orang(
 @router.get(
     "",
     summary="Daftar proyek",
-    description=(
-        "Menampilkan daftar proyek berdasarkan role user yang login. "
-        "Sales hanya melihat proyeknya sendiri, SA melihat proyek yang ditugaskan, "
-        "Lead_SA melihat semua proyek aktif."
-    ),
+    description="Daftar proyek terfilter, terurut secara deterministik, dan dipaginasi.",
 )
 async def list_projects(
     involved: Optional[str] = Query(
@@ -333,53 +329,82 @@ async def list_projects(
     status_filter: Optional[str] = Query(
         None, alias="status", description="Filter berdasarkan status proyek"
     ),
+    search: Optional[str] = Query(
+        None, description="Cari nama proyek, customer, atau ID proyek"
+    ),
     sort: Optional[str] = Query(
         "-updated_at", description="Sort: field name, prefix '-' untuk desc"
+    ),
+    page: int = Query(1, ge=1, description="Nomor halaman (1-based)"),
+    page_size: int = Query(
+        25,
+        ge=1,
+        le=100,
+        description="Jumlah proyek per halaman (maksimal 100)",
     ),
     current_user: User = Depends(get_current_user),
     _: None = Depends(_tolak_param_lama),
     db: AsyncSession = Depends(get_db),
 ):
+    """Ambil halaman daftar proyek dengan filter berdasarkan keterlibatan, status, dan pencarian.
+
+    Sort tetap memakai nama field dan prefix `-` untuk descending. `id_project` menjadi
+    pemecah seri ascending agar setiap halaman memiliki urutan stabil.
     """
-    Ambil daftar proyek dengan filter berdasarkan role.
+    filters = []
 
-    Filter:
-    - involved=me → proyek yang melibatkan user saat ini (semua peran, ADR 0014)
-    - status=<value> → filter berdasarkan status
-
-    Sort:
-    - -updated_at (default): terbaru diupdate
-    - updated_at: terlama diupdate
-    - -created_at: terbaru dibuat
-    """
-    query = select(Project)
-
-    # Semua proyek dapat dilihat semua pengguna terautentikasi (keputusan 2026-11-10); hanya akses
-    # TULIS yang dibatasi. Query param `involved=me` hanyalah penyempit opsional (hanya
-    # mempersempit, tidak memperluas akses).
+    # Semua proyek dapat dilihat semua pengguna terautentikasi (ADR 0011); involved=me hanya
+    # mempersempit daftar, tidak memperluas akses.
     if involved == "me":
-        query = query.where(_terlibat(current_user.id))
+        filters.append(_terlibat(current_user.id))
 
-    # Filter status
     if status_filter:
-        query = query.where(Project.status == status_filter)
+        filters.append(Project.status == status_filter)
 
-    # Sorting
+    search_term = (search or "").strip()
+    if search_term:
+        pattern = f"%{search_term}%"
+        filters.append(
+            or_(
+                Project.project_name.ilike(pattern),
+                Project.customer_name.ilike(pattern),
+                Project.id_project.ilike(pattern),
+            )
+        )
+
+    total_result = await db.execute(
+        select(func.count()).select_from(Project).where(*filters)
+    )
+    total = total_result.scalar_one()
+
     if sort:
         if sort.startswith("-"):
             field_name = sort[1:]
-            if hasattr(Project, field_name):
-                query = query.order_by(desc(getattr(Project, field_name)))
-            else:
-                query = query.order_by(desc(Project.updated_at))
+            sort_column = (
+                getattr(Project, field_name)
+                if hasattr(Project, field_name)
+                else Project.updated_at
+            )
+            order = desc(sort_column)
         else:
-            if hasattr(Project, sort):
-                query = query.order_by(asc(getattr(Project, sort)))
-            else:
-                query = query.order_by(desc(Project.updated_at))
+            sort_column = (
+                getattr(Project, sort) if hasattr(Project, sort) else Project.updated_at
+            )
+            order = (
+                asc(sort_column)
+                if hasattr(Project, sort)
+                else desc(Project.updated_at)
+            )
     else:
-        query = query.order_by(desc(Project.updated_at))
+        order = desc(Project.updated_at)
 
+    query = (
+        select(Project)
+        .where(*filters)
+        .order_by(order, asc(Project.id_project))
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     result = await db.execute(query)
     projects = result.scalars().all()
 
@@ -413,8 +438,14 @@ async def list_projects(
         )
 
     return success_response(
-        data=projects_data,
-        message=f"Ditemukan {len(projects_data)} proyek.",
+        data={
+            "items": projects_data,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size,
+        },
+        message=f"Ditemukan {total} proyek.",
     )
 
 

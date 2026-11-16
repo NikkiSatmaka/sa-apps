@@ -122,6 +122,23 @@ async def test_assign_provisioning_gagal_status_failed_lalu_provision_ulang_berh
     assert (await ambil_sla(dunia.db, pid)) is not None
     assert len(await daftar_subtask(dunia.db, pid)) == 4
 
+    detail = await api.client.get(f"/projects/{pid}", headers=dunia.h["lead"])
+    assert detail.status_code == 200, detail.text
+    operation = detail.json()["data"]["folder_provisioning_operation"]
+    assert operation["status"] == "failed"
+    assert len(operation["attempts"]) == 1
+    attempt = operation["attempts"][0]
+    assert attempt["attempt"] == 1
+    assert attempt["status"] == "failed"
+    assert attempt["started_at"] is not None and attempt["finished_at"] is not None
+    assert attempt["outcome"] == operation["outcome"] == "Drive provisioning failed"
+    assert attempt["actionable_error"] == operation["actionable_error"]
+    assert "manual provision" in operation["actionable_error"]
+    assert operation["started_at"] is not None
+    assert operation["finished_at"] is not None
+    assert operation["outcome"] == "Drive provisioning failed"
+    assert operation["actionable_error"]
+
     # Provision ulang (Lead_SA): menandai pending lalu menjadwalkan task yang sama.
     resp = await api.client.post(REPROVISION.format(pid), headers=dunia.h["lead"])
 
@@ -131,6 +148,14 @@ async def test_assign_provisioning_gagal_status_failed_lalu_provision_ulang_berh
     await jalankan_provisioning(dunia.db, tugas[1])
     p = await ambil_proyek(dunia.db, pid)
     assert p.folder_provisioning_status == "provisioned" and p.gdrive_folder_id is not None
+    detail = await api.client.get(f"/projects/{pid}", headers=dunia.h["lead"])
+    operation = detail.json()["data"]["folder_provisioning_operation"]
+    assert operation["status"] == "succeeded"
+    assert len(operation["attempts"]) == 2
+    assert [entry["status"] for entry in operation["attempts"]] == ["failed", "succeeded"]
+    assert all(entry["started_at"] and entry["finished_at"] for entry in operation["attempts"])
+    assert operation["outcome"] == "Project Drive folders provisioned"
+    assert operation["actionable_error"] is None
 
     # Guard idempotensi (ADR 0006): sudah ada folder → 409 dan Drive tidak disentuh lagi.
     panggilan_sebelum = len(fake_drive.panggilan)
@@ -140,7 +165,7 @@ async def test_assign_provisioning_gagal_status_failed_lalu_provision_ulang_berh
     assert len(tugas) == 2
 
 
-async def test_provisioning_error_tak_terduga_tidak_meledak_dan_status_tetap_pending(
+async def test_provisioning_error_tak_terduga_dipersisten_dan_tetap_non_blocking(
     dunia, api, fake_drive, monkeypatch
 ):
     proyek = await dunia.buat_proyek()
@@ -159,7 +184,12 @@ async def test_provisioning_error_tak_terduga_tidak_meledak_dan_status_tetap_pen
     await jalankan_provisioning(dunia.db, tugas[0])  # tidak boleh raise
 
     p = await ambil_proyek(dunia.db, proyek.id_project)
-    assert p.folder_provisioning_status == "pending" and p.gdrive_folder_id is None
+    assert p.folder_provisioning_status == "failed" and p.gdrive_folder_id is None
+    detail = await api.client.get(f"/projects/{proyek.id_project}", headers=dunia.h["lead"])
+    operation = detail.json()["data"]["folder_provisioning_operation"]
+    assert operation["status"] == "failed"
+    assert operation["attempts"][0]["finished_at"] is not None
+    assert operation["actionable_error"]
 
 
 async def test_provisioning_proyek_hilang_dilewati_tanpa_menyentuh_drive(dunia, fake_drive):

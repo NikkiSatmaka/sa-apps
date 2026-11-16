@@ -161,8 +161,30 @@ async def _trigger_folder_provisioner(
                 )
                 return
 
-            # Tandai pending sebelum memanggil provisioner
+            started_at = datetime.now(timezone.utc)
+            operation = dict(project.folder_provisioning_operation or {})
+            attempts = list(operation.get("attempts", []))
+            attempt = {
+                "attempt": len(attempts) + 1,
+                "status": "pending",
+                "started_at": started_at.isoformat(),
+                "finished_at": None,
+                "outcome": None,
+                "actionable_error": None,
+            }
+            attempts.append(attempt)
+            operation.update(
+                {
+                    "status": "pending",
+                    "attempts": attempts,
+                    "started_at": started_at.isoformat(),
+                    "finished_at": None,
+                    "outcome": None,
+                    "actionable_error": None,
+                }
+            )
             project.folder_provisioning_status = "pending"
+            project.folder_provisioning_operation = operation
             await db.commit()
 
             try:
@@ -172,8 +194,30 @@ async def _trigger_folder_provisioner(
                     lead_sa_email,
                     sales_email,
                 )
-            except FolderProvisioningError as e:
+            except Exception as e:  # noqa: BLE001 - kegagalan Drive harus persisten dan non-blocking
+                finished_at = datetime.now(timezone.utc).isoformat()
+                attempt.update(
+                    {
+                        "status": "failed",
+                        "finished_at": finished_at,
+                        "outcome": "Drive provisioning failed",
+                        "actionable_error": (
+                            "Review the project’s Drive folders and permissions, then use "
+                            "the authorized manual provision action."
+                        ),
+                    }
+                )
+                operation.update(
+                    {
+                        "status": "failed",
+                        "attempts": attempts,
+                        "finished_at": finished_at,
+                        "outcome": "Drive provisioning failed",
+                        "actionable_error": attempt["actionable_error"],
+                    }
+                )
                 project.folder_provisioning_status = "failed"
+                project.folder_provisioning_operation = operation
                 await db.commit()
                 logger.error(
                     f"[FolderProvisioner] Gagal provision folder proyek "
@@ -181,10 +225,28 @@ async def _trigger_folder_provisioner(
                 )
                 return
 
+            finished_at = datetime.now(timezone.utc).isoformat()
+            attempt.update(
+                {
+                    "status": "succeeded",
+                    "finished_at": finished_at,
+                    "outcome": "Project Drive folders provisioned",
+                }
+            )
+            operation.update(
+                {
+                    "status": "succeeded",
+                    "attempts": attempts,
+                    "finished_at": finished_at,
+                    "outcome": "Project Drive folders provisioned",
+                    "actionable_error": None,
+                }
+            )
             # Sukses — persist kedua id folder + status provisioned
             project.gdrive_folder_id = result.master
             project.gdrive_solutions_folder_id = result.solutions
             project.folder_provisioning_status = "provisioned"
+            project.folder_provisioning_operation = operation
             await db.commit()
 
             logger.info(

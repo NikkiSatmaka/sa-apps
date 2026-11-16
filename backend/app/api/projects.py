@@ -580,8 +580,8 @@ async def get_project_detail(
         else None,
         "collaborators": collab_list,
         "source_documents": source_documents,
-        "gdrive_folder_id": project.gdrive_folder_id,
         "folder_provisioning_status": project.folder_provisioning_status,
+        "folder_provisioning_operation": project.folder_provisioning_operation,
         "created_at": project.created_at.isoformat() if project.created_at else None,
         "updated_at": project.updated_at.isoformat() if project.updated_at else None,
     }

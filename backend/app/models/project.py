@@ -189,6 +189,11 @@ class Project(Base):
         nullable=True,
         comment="Status provisioning folder: pending/provisioned/failed",
     )
+    folder_provisioning_operation: Mapped[Optional[dict]] = mapped_column(
+        MutableDict.as_mutable(JSONB),
+        nullable=True,
+        comment="Persisted status, attempt history, outcome, and repair guidance for Drive provisioning",
+    )
     # Konfigurasi handover PMO/Delivery (per-proyek, requirement 17.6)
     pmo_lead_email: Mapped[Optional[str]] = mapped_column(
         String(255),

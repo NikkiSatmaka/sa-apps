@@ -9,7 +9,6 @@ import string
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
-from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -26,11 +25,13 @@ from app.models.integration_operation import IntegrationOperation
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.calendar import (
+    CalendarAuthUrlResponse,
     CalendarMapRequest,
     CalendarMapResponse,
+    CalendarSyncErrorData,
     CalendarSyncResponse,
 )
-from app.schemas.response import error_response, success_response
+from app.schemas.response import ErrorResponse, SuccessResponse, error_response, success_response
 from app.services.auth_service import auth_service
 from app.services.calendar_service import (
     CalendarAPIError,
@@ -64,6 +65,11 @@ async def _operation_details(db: AsyncSession, operation_id: uuid.UUID | None) -
         "Memulai otorisasi Google Calendar read-only untuk pengguna yang sedang login. "
         "State OAuth sekali pakai mengikat callback ke pengguna tersebut."
     ),
+    response_model=SuccessResponse[CalendarAuthUrlResponse],
+    responses={
+        401: {"model": ErrorResponse[None]},
+        503: {"model": ErrorResponse[None]},
+    },
 )
 async def get_calendar_auth_url(
     db: AsyncSession = Depends(get_db),
@@ -110,6 +116,13 @@ def _generate_log_id() -> str:
         "Fetch events 7 hari lalu + 7 hari depan (max 200 events) dari "
         "Google Calendar primary user menggunakan sesi HttpOnly aktif."
     ),
+    response_model=SuccessResponse[CalendarSyncResponse],
+    responses={
+        401: {"model": ErrorResponse[CalendarSyncErrorData]},
+        422: {"model": ErrorResponse[list[dict[str, str]]]},
+        502: {"model": ErrorResponse[CalendarSyncErrorData]},
+        504: {"model": ErrorResponse[CalendarSyncErrorData]},
+    },
 )
 async def sync_calendar(
     request: Request,

@@ -15,7 +15,7 @@ from app.schemas.activity_log import (
     subtask_categories_for,
 )
 
-
+from app.schemas.integration_operation import IntegrationOperationResponse
 # === Request Schemas ===
 
 
@@ -117,6 +117,15 @@ class CalendarMapRequest(BaseModel):
 # === Response Schemas ===
 
 
+class CalendarAuthUrlResponse(BaseModel):
+    auth_url: str
+
+
+class CalendarSyncErrorData(BaseModel):
+    integration_operation: Optional[IntegrationOperationResponse] = None
+
+
+
 class CalendarEventResponse(BaseModel):
     """Representasi satu event Google Calendar setelah sync."""
 
@@ -134,6 +143,7 @@ class CalendarSyncResponse(BaseModel):
 
     events: list[CalendarEventResponse]
     total_events: int
+    integration_operation: Optional[IntegrationOperationResponse] = None
 
 
 class CalendarMapResponse(BaseModel):

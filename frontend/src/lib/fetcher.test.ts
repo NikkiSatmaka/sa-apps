@@ -206,4 +206,16 @@ describe("ApiError", () => {
     expect(err).toBeInstanceOf(Error);
     expect(err).toMatchObject({ name: "ApiError", message: "x", status: 418, data: { a: 1 } });
   });
+
+  it("menyediakan error envelope terstruktur tanpa mengubah data mentah", () => {
+    const body = {
+      status: "error",
+      data: { integration_operation: { status: "failed" } },
+      message: "Calendar session not found.",
+    };
+    const err = new ApiError(body.message, 401, body);
+
+    expect(err.data).toBe(body);
+    expect(err.response).toEqual(body);
+  });
 });

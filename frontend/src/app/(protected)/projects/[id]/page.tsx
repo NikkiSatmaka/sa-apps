@@ -25,6 +25,7 @@ import { StatusActions } from "@/components/StatusActions";
 import { StatusBadge } from "@/components/StatusBadge";
 import { isPrivileged } from "@/lib/roles";
 import { reprovisionFolder } from "@/lib/api/assignment";
+import type { IntegrationOperationResponse } from "@/lib/api/projects";
 import { useAksesProyek } from "@/lib/useAksesProyek";
 
 /**
@@ -102,6 +103,7 @@ interface ProjectDetail {
   gdrive_folder_id: string | null;
   folder_provisioning_status: "pending" | "provisioned" | "failed" | null;
   folder_provisioning_operation?: FolderProvisioningOperation | null;
+  integration_operations: IntegrationOperationResponse[];
   created_at: string;
   updated_at: string;
 }

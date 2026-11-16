@@ -12,6 +12,12 @@ import { toPayload, type QualificationAnswers, type QualificationSchema } from "
 export const PROJECT_LIST_PAGE_SIZE = 20;
 export const PROJECT_LIST_MAX_PAGE_SIZE = 100;
 
+export interface ProjectListPerson {
+  id: string;
+  name: string | null;
+  email: string | null;
+}
+
 export interface ProjectListItem {
   id_project: string;
   project_name: string;
@@ -21,7 +27,15 @@ export interface ProjectListItem {
   dq_number: string | null;
   bant_score: number | null;
   use_case_tags: string[];
+  estimasi_nilai?: string | null;
   target_submit: string | null;
+  assigned_sa?: string | null;
+  created_by?: ProjectListPerson | null;
+  product_pic?: ProjectListPerson | null;
+  sales_pic?: ProjectListPerson | null;
+  gdrive_folder_id?: string | null;
+  folder_provisioning_status?: string | null;
+  created_at?: string | null;
   updated_at: string | null;
   sla_days_elapsed?: number | null;
   sla_is_locked?: boolean;
@@ -35,6 +49,29 @@ export interface ProjectListPage<T = ProjectListItem> {
   page: number;
   page_size: number;
   total_pages: number;
+}
+
+export interface IntegrationOperationAttempt {
+  attempt: number;
+  status: "pending" | "succeeded" | "failed";
+  started_at: string;
+  finished_at: string | null;
+  outcome: string | null;
+  actionable_error: string | null;
+}
+
+export interface IntegrationOperationResponse {
+  id: string;
+  operation_type: string;
+  action: string;
+  status: "pending" | "succeeded" | "failed";
+  attempts: IntegrationOperationAttempt[];
+  started_at: string | null;
+  finished_at: string | null;
+  outcome: string | null;
+  actionable_error: string | null;
+  retryable: boolean;
+  context: Record<string, unknown>;
 }
 
 export interface ProjectListParams {

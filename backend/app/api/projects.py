@@ -9,7 +9,7 @@ import uuid
 import string
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import (
     APIRouter,
@@ -46,9 +46,14 @@ from app.models.sla_tracking import SLATracking
 from app.models.source_document import DOC_TYPES, SourceDocument
 from app.models.user import User
 from app.schemas.dq_number import DQNumberInput
-from app.schemas.project import FileUploadResult, ProjectResponse
+from app.schemas.project import (
+    FileUploadResult,
+    ProjectDetailResponse,
+    ProjectListPageResponse,
+    ProjectResponse,
+)
 from app.schemas.qualification import parse_answers, validate_answers
-from app.schemas.response import error_response, success_response
+from app.schemas.response import ErrorResponse, SuccessResponse, error_response, success_response
 from app.services import bant_rubric
 from app.services.scoring_engine import scoring_engine
 from app.services.qualification_view import build_qualification_view
@@ -321,6 +326,11 @@ async def _tentukan_orang(
     "",
     summary="Daftar proyek",
     description="Daftar proyek terfilter, terurut secara deterministik, dan dipaginasi.",
+    response_model=SuccessResponse[ProjectListPageResponse],
+    responses={
+        401: {"model": ErrorResponse[dict[str, Any]]},
+        422: {"model": ErrorResponse[list[dict[str, str]]]},
+    },
 )
 async def list_projects(
     involved: Optional[str] = Query(
@@ -487,6 +497,12 @@ async def get_status_summary(
     "/{project_id}",
     summary="Detail proyek",
     description="Mengambil detail satu proyek berdasarkan ID, termasuk info PIC Sales dan SA.",
+    response_model=SuccessResponse[ProjectDetailResponse],
+    responses={
+        401: {"model": ErrorResponse[dict[str, Any]]},
+        404: {"model": ErrorResponse[None]},
+        422: {"model": ErrorResponse[list[dict[str, str]]]},
+    },
 )
 async def get_project_detail(
     project_id: str,

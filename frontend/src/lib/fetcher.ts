@@ -72,6 +72,22 @@ async function authenticatedFetch(url: string, init: RequestInit): Promise<Respo
   return fetch(url, { ...init, headers, credentials: "include" });
 }
 
+export interface ApiSuccessResponse<T> {
+  status: "success";
+  data: T | null;
+  message: string;
+}
+
+export interface ApiErrorResponse<T = unknown> {
+  status: "error";
+  data: T | null;
+  message: string;
+}
+
+export type ApiResponse<T, E = unknown> =
+  | ApiSuccessResponse<T>
+  | ApiErrorResponse<E>;
+
 /**
  * Error class khusus untuk API errors
  * Menyimpan status code dan response data untuk handling di UI
@@ -79,12 +95,22 @@ async function authenticatedFetch(url: string, init: RequestInit): Promise<Respo
 export class ApiError extends Error {
   status: number;
   data: unknown;
+  response: ApiErrorResponse | null;
 
   constructor(message: string, status: number, data?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.data = data;
+    this.response =
+      typeof data === "object" &&
+      data !== null &&
+      "status" in data &&
+      data.status === "error" &&
+      "message" in data &&
+      typeof data.message === "string"
+        ? (data as ApiErrorResponse)
+        : null;
   }
 }
 
@@ -131,8 +157,8 @@ export async function fetcher<T>(endpoint: string): Promise<T> {
     );
   }
 
-  const json = await response.json();
-  return json.data ?? json;
+  const json = await response.json() as ApiSuccessResponse<T> | { data?: T };
+  return json.data ?? json as T;
 }
 
 /**
@@ -170,8 +196,8 @@ export async function apiRequest<T>(
     );
   }
 
-  const json = await response.json();
-  return json.data ?? json;
+  const json = await response.json() as ApiSuccessResponse<T> | { data?: T };
+  return json.data ?? json as T;
 }
 
 /** Opsi `apiCall`: satu pintu untuk klien API di `lib/api/*` (menggantikan `fetch` langsung). */

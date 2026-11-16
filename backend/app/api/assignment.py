@@ -38,7 +38,8 @@ from app.schemas.assignment import (
     ProjectBrief,
     SAAvailability,
 )
-from app.schemas.response import success_response
+from app.schemas.integration_operation import IntegrationOperationResponse
+from app.schemas.response import ErrorResponse, SuccessResponse, success_response
 from app.services.folder_provisioner import (
     FolderProvisioningError,
     folder_provisioner,
@@ -301,6 +302,14 @@ async def _pindahkan_akses_drive_sa(
 @router.post(
     "/projects/{project_id}/integration-operations/{operation_id}/retry",
     summary="Retry an idempotent integration operation",
+    response_model=SuccessResponse[IntegrationOperationResponse],
+    responses={
+        401: {"model": ErrorResponse[None]},
+        403: {"model": ErrorResponse[None]},
+        404: {"model": ErrorResponse[None]},
+        409: {"model": ErrorResponse[None]},
+        422: {"model": ErrorResponse[list[dict[str, str]]]},
+    },
 )
 async def retry_integration_operation(
     project_id: str,

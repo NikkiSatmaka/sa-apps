@@ -3,7 +3,7 @@ Standard response format untuk semua API endpoint.
 Semua response mengikuti format: {"status": "success|error", "data": {...}, "message": "..."}
 """
 
-from typing import Any, Generic, List, Optional, TypeVar
+from typing import Any, Generic, Literal, Optional, TypeVar
 
 from pydantic import BaseModel
 
@@ -25,6 +25,22 @@ class StandardResponse(BaseModel, Generic[T]):
     data: Optional[T] = None
     message: str
 
+
+
+class SuccessResponse(BaseModel, Generic[T]):
+    """Typed success envelope used by migrated endpoints."""
+
+    status: Literal["success"] = "success"
+    data: Optional[T] = None
+    message: str = "Success"
+
+
+class ErrorResponse(BaseModel, Generic[T]):
+    """Typed error envelope; `data` carries structured error details when present."""
+
+    status: Literal["error"] = "error"
+    data: Optional[T] = None
+    message: str
 
 def success_response(data: Any = None, message: str = "Success") -> dict:
     """

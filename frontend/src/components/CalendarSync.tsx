@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { ApiError, fetcher, apiRequest } from "@/lib/fetcher";
+import { ApiError, type ApiErrorResponse, fetcher, apiRequest } from "@/lib/fetcher";
+import type { IntegrationOperationResponse } from "@/lib/api/projects";
 
 /**
  * Komponen Calendar Sync — tampilan kalender bulanan Google Calendar
@@ -66,26 +67,23 @@ interface Project {
   status?: string;
 }
 
-interface CalendarEvent {
-  // Backend mengirim gcal_event_id (bukan id), lihat CalendarEventResponse
-  gcal_event_id: string;
-  title: string;
-  description?: string;
-  start: string;
-  end: string;
-  is_all_day: boolean;
-  is_mapped?: boolean;
+
+interface CalendarSyncErrorData {
+  integration_operation: IntegrationOperationResponse | null;
 }
 
 interface CalendarSyncResponse {
-  events?: Array<{
+  events: Array<{
     gcal_event_id: string;
     title: string;
-    description?: string | null;
+    description: string | null;
     start: string | null;
     end: string | null;
+    duration_hours: number;
     is_all_day: boolean;
   }>;
+  total_events: number;
+  integration_operation: IntegrationOperationResponse | null;
 }
 
 interface CalendarSyncProps {
@@ -221,8 +219,11 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
           : "Calendar tersinkronisasi, tidak ada event pada rentang 7 hari ini"
       );
     } catch (err: unknown) {
+      const calendarError = err instanceof ApiError
+        ? err.response as ApiErrorResponse<CalendarSyncErrorData> | null
+        : null;
       if (err instanceof ApiError && err.status === 401) {
-        if (err.message.toLowerCase().includes("calendar session not found")) {
+        if ((calendarError?.message ?? err.message).toLowerCase().includes("calendar session not found")) {
           showToast("success", "Mengarahkan ke Google untuk otorisasi Calendar...");
           await redirectToGoogleAuth();
         } else {
@@ -231,7 +232,7 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
         return;
       }
 
-      const message = err instanceof Error ? err.message : "Gagal sync calendar";
+      const message = calendarError?.message ?? (err instanceof Error ? err.message : "Gagal sync calendar");
       const googleStatus = message.match(/Google Calendar API error \((\d{3})\)/)?.[1];
       if (googleStatus === "401" || googleStatus === "403") {
         showToast("error", "Token Google Calendar kedaluwarsa. Silakan sync ulang untuk otorisasi.");

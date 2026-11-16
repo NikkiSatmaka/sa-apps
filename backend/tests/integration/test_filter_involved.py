@@ -26,7 +26,7 @@ pytestmark = pytest.mark.usefixtures("tanpa_tunggu")
 async def _ids(api, user, query: str = "involved=me", path: str = "projects") -> set[str]:
     resp = await api.client.get(f"{API}/{path}?{query}", headers=bearer(user))
     assert resp.status_code == 200, resp.text
-    return {d["id_project"] for d in resp.json()["data"]}
+    return {d["id_project"] for d in resp.json()["data"]["items"]}
 
 
 async def _proyek_orang_lain(db, **o):
@@ -94,6 +94,25 @@ async def test_involved_me_kosong_bila_tidak_terkait(api, db_session):
     assert len(await _ids(api, orang_asing, query="sort=-updated_at")) == 1
 
 
+@pytest.mark.parametrize("role", ["Sales", "Product", "SA", "Lead_SA", "Admin"])
+async def test_detail_dan_daftar_proyek_dapat_dibaca_semua_role(api, db_session, role):
+    """ADR 0011: relasi proyek tidak membatasi pembacaan detail maupun daftar tanpa filter."""
+    reader = await user_baru(db_session, role)
+    proyek = await _proyek_orang_lain(db_session)
+
+    projects = await api.client.get(
+        f"{API}/projects?page=1&page_size=100", headers=bearer(reader)
+    )
+    detail = await api.client.get(
+        f"{API}/projects/{proyek.id_project}", headers=bearer(reader)
+    )
+
+    assert projects.status_code == 200, projects.text
+    assert proyek.id_project in {item["id_project"] for item in projects.json()["data"]["items"]}
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["data"]["id_project"] == proyek.id_project
+
+
 async def test_involved_me_tidak_menggandakan_baris_untuk_project_multi_hubungan(
     api, db_session
 ):
@@ -114,7 +133,7 @@ async def test_involved_me_tidak_menggandakan_baris_untuk_project_multi_hubungan
         f"{API}/projects/status-summary?involved=me", headers=bearer(user)
     )
 
-    assert [d["id_project"] for d in resp.json()["data"]] == [proyek.id_project]
+    assert [d["id_project"] for d in resp.json()["data"]["items"]] == [proyek.id_project]
     assert sum(r["count"] for r in ringkasan.json()["data"]) == 1
 
 

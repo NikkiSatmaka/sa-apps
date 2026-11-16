@@ -243,7 +243,7 @@ test("project pages retain filters and both activity pickers reach the final API
   await activityProject.selectOption("PRJ-E2E-101");
   await expect(activityProject).toHaveValue("PRJ-E2E-101");
 
-  await page.goto("/activity-logs/calendar?code=one-time-calendar-handoff");
+  await page.goto("/activity-logs/calendar#gcal_code=one-time-calendar-handoff");
   await expect(page.getByRole("alert")).toContainText("Google Calendar terhubung");
   await page.getByRole("button", { name: /sync calendar/i }).click();
   await expect(page.getByRole("heading", { name: "Design review" })).toBeVisible();
@@ -340,7 +340,7 @@ for (const width of supportedViewports) {
 test("Calendar handoff exchanges a one-time code without storing a Calendar token in browser storage", async ({ page }) => {
   const requests = await installFixtures(page);
   await loginAsSA(page);
-  await page.goto("/activity-logs/calendar?code=one-time-calendar-handoff");
+  await page.goto("/activity-logs/calendar#gcal_code=one-time-calendar-handoff");
 
   await expect(page.getByRole("heading", { name: "Calendar Sync", level: 1 })).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("Google Calendar terhubung");

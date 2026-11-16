@@ -310,7 +310,7 @@ export function ActivityLogForm({ projects, onSuccess, defaultProjectId }: Activ
                   <option key={ph} value={ph}>{ph}</option>
                 ))}
               </select>
-              <p className="text-xs text-neutral-400 mt-1">
+              <p className="text-xs text-neutral-600 mt-1">
                 Default dari status proyek — ubah bila aktivitas berada di fase berbeda.
               </p>
             </div>
@@ -395,7 +395,7 @@ export function ActivityLogForm({ projects, onSuccess, defaultProjectId }: Activ
             ) : (
               <span />
             )}
-            <p className={`text-xs ${rawNotes.length > MAX_NOTES_LENGTH ? "text-red-600" : "text-neutral-400"}`}>
+            <p className={`text-xs ${rawNotes.length > MAX_NOTES_LENGTH ? "text-red-600" : "text-neutral-600"}`}>
               {rawNotes.length}/{MAX_NOTES_LENGTH}
             </p>
           </div>

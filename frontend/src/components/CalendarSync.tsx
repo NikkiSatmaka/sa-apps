@@ -293,7 +293,7 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
           {/* Label hari */}
           <div className="grid grid-cols-7 gap-1 mb-1">
             {WEEKDAY_LABELS.map((w) => (
-              <div key={w} className="text-center text-[11px] font-medium text-neutral-400 py-1">
+              <div key={w} className="text-center text-[11px] font-medium text-neutral-600 py-1">
                 {w}
               </div>
             ))}
@@ -343,7 +343,7 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
           </div>
 
           {!hasSynced && (
-            <p className="mt-4 text-center text-xs text-neutral-400">
+            <p className="mt-4 text-center text-xs text-neutral-600">
               Klik &quot;Sync Calendar&quot; untuk memuat event dari Google Calendar
               (rentang 7 hari lalu sampai 7 hari depan).
             </p>
@@ -352,7 +352,7 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
 
         {/* Panel detail harian */}
         <div className="rounded-xl border border-neutral-200 p-4">
-          <p className="text-[11px] font-medium text-neutral-400 uppercase tracking-wide">
+          <p className="text-[11px] font-medium text-neutral-600 uppercase tracking-wide">
             Detail untuk
           </p>
           <h4 className="text-sm font-semibold text-neutral-800 mb-3">
@@ -360,7 +360,7 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
           </h4>
 
           {selectedEvents.length === 0 ? (
-            <div className="py-8 text-center text-sm text-neutral-400">
+            <div className="py-8 text-center text-sm text-neutral-600">
               {hasSynced
                 ? "Tidak ada event pada tanggal ini"
                 : "Belum ada event. Sinkronkan calendar terlebih dahulu."}
@@ -388,7 +388,7 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
                     </div>
                     <p className="text-xs text-neutral-500">{formatEventTime(event)}</p>
                     {event.description && (
-                      <p className="text-xs text-neutral-400 mt-1 line-clamp-2">
+                      <p className="text-xs text-neutral-600 mt-1 line-clamp-2">
                         {event.description}
                       </p>
                     )}

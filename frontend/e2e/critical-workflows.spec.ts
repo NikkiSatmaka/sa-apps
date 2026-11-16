@@ -179,6 +179,51 @@ async function installFixtures(page: Page) {
     if (path === "/calendar/auth-url") {
       return json(route, { auth_url: "https://accounts.google.com/o/oauth2/v2/auth?state=fixture" });
     }
+    if (path === `/projects/${project.id_project}/story` && method === "GET") {
+      return json(route, {
+        data: { items: [], total: 0, page: 1, page_size: 5, total_pages: 1 },
+        message: "Project story kosong.",
+      });
+    }
+    if (path === "/projects/pending-assignment" && method === "GET") {
+      return json(route, []);
+    }
+    if (path === "/sa/available" && method === "GET") {
+      return json(route, []);
+    }
+    if (path === "/sa/utilization" && method === "GET") {
+      return json(route, {
+        data: {
+          year: Number(url.searchParams.get("year") ?? new Date().getFullYear()),
+          monthly_data: [],
+          summary: { months: {}, total_hours: 0, sa_count: 0 },
+        },
+        message: "Utilisasi kosong.",
+      });
+    }
+    if (path === "/utilization/summary" && method === "GET") {
+      return json(route, {
+        data: {
+          year: Number(url.searchParams.get("year") ?? new Date().getFullYear()),
+          work_type: {
+            months: {},
+            totals: { Project: 0, "Non-Project": 0 },
+            grand_total: 0,
+          },
+          project_phase: { totals: {}, total: 0 },
+        },
+        message: "Ringkasan utilisasi kosong.",
+      });
+    }
+    if (path === "/subtasks/saya" && method === "GET") {
+      return json(route, {
+        data: { items: [], total: 0, page: 1, page_size: 20, total_pages: 1 },
+        message: "Tidak ada tugas.",
+      });
+    }
+    if (path === "/utilization/projects" && method === "GET") {
+      return json(route, []);
+    }
     return json(route, {});
   });
   return requests;
@@ -191,7 +236,7 @@ async function loginAsRole(page: Page, role: "SA" | "Sales" | "Lead_SA") {
     Lead_SA: "Login sebagai Lead SA",
   }[role];
   await page.goto("/demo");
-  await page.getByRole("button", { name: buttonName }).click();
+  await page.getByRole("button", { name: buttonName, exact: true }).click();
   await expect(page).toHaveURL(/\/$/);
 }
 
@@ -202,7 +247,7 @@ async function loginAsSA(page: Page) {
 test("project pages retain filters and both activity pickers reach the final API page", async ({ page }) => {
   const requests = await installFixtures(page);
   await loginAsSA(page);
-  await page.goto("/projects");
+  await page.getByTitle("Proyek").click();
 
   const search = page.getByPlaceholder("Cari nama proyek atau customer...");
   await search.fill("beta");
@@ -237,18 +282,19 @@ test("project pages retain filters and both activity pickers reach the final API
   await expect(page.getByText("Menampilkan 41–50 dari 50 proyek")).toBeVisible();
   await expect(next).toBeDisabled();
 
-  await page.goto("/activity-logs");
-  const activityProject = page.getByLabel("Proyek");
+  await page.getByTitle("Activity Log").click();
+  const activityProject = page.getByLabel("Proyek *", { exact: true });
   await expect(activityProject.locator('option[value="PRJ-E2E-101"]')).toHaveText("Beta Project 101");
   await activityProject.selectOption("PRJ-E2E-101");
   await expect(activityProject).toHaveValue("PRJ-E2E-101");
 
   await page.goto("/activity-logs/calendar#gcal_code=one-time-calendar-handoff");
-  await expect(page.getByRole("alert")).toContainText("Google Calendar terhubung");
+  await expect(page.getByText("Google Calendar terhubung. Klik Sync Calendar untuk memuat event.", { exact: true }))
+    .toBeVisible();
   await page.getByRole("button", { name: /sync calendar/i }).click();
   await expect(page.getByRole("heading", { name: "Design review" })).toBeVisible();
   await page.getByRole("button", { name: "Map ke Subtask" }).click();
-  const calendarProject = page.getByLabel(/^Proyek/);
+  const calendarProject = page.getByLabel("Proyek *", { exact: true });
   await expect(calendarProject.locator('option[value="PRJ-E2E-101"]')).toHaveText("Beta Project 101");
   await calendarProject.selectOption("PRJ-E2E-101");
   await expect(calendarProject).toHaveValue("PRJ-E2E-101");
@@ -257,7 +303,11 @@ test("project pages retain filters and both activity pickers reach the final API
 test("Lead SA sees Drive failure details, retries, and sees pending attempt status", async ({ page }) => {
   const requests = await installFixtures(page);
   await loginAsRole(page, "Lead_SA");
-  await page.goto(`/projects/${project.id_project}`);
+  await page.getByTitle("Proyek").click();
+  await page.getByRole("button", {
+    name: "Proyek Demo Cloud Migration - Example Customer 001",
+    exact: true,
+  }).click();
 
   const driveSection = page.getByRole("region", { name: "Provisioning folder Google Drive" });
   await expect(driveSection.getByRole("alert")).toHaveText("Provisioning folder gagal");
@@ -285,7 +335,11 @@ test("Lead SA sees Drive failure details, retries, and sees pending attempt stat
 test("Sales can read the Drive failure but cannot retry provisioning", async ({ page }) => {
   await installFixtures(page);
   await loginAsRole(page, "Sales");
-  await page.goto(`/projects/${project.id_project}`);
+  await page.getByTitle("Proyek").click();
+  await page.getByRole("button", {
+    name: "Proyek Demo Cloud Migration - Example Customer 001",
+    exact: true,
+  }).click();
 
   const driveSection = page.getByRole("region", { name: "Provisioning folder Google Drive" });
   await expect(driveSection.getByRole("alert")).toHaveText("Provisioning folder gagal");
@@ -303,14 +357,14 @@ for (const width of supportedViewports) {
     const requests = await installFixtures(page);
     await loginAsSA(page);
 
-    await page.goto("/activity-logs");
+    await page.getByTitle("Activity Log").click();
     await expect(page.getByRole("heading", { name: "Activity Log", level: 1 })).toBeVisible();
     const form = page.getByRole("form", { name: "Form activity log" });
     await expect(form).toBeVisible();
     await expect(page.getByRole("link", { name: "Calendar Sync" })).toBeVisible();
 
     // Use native keyboard interaction for the required project-work path.
-    const projectSelect = page.getByLabel("Proyek");
+    const projectSelect = page.getByLabel("Proyek *", { exact: true });
     await projectSelect.focus();
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
@@ -319,7 +373,7 @@ for (const width of supportedViewports) {
     await page.getByLabel("Catatan").fill("Validated browser workflow for project work.");
     await page.getByRole("button", { name: "Simpan Activity Log" }).focus();
     await page.keyboard.press("Enter");
-    await expect(page.getByRole("alert")).toContainText("Activity log berhasil disimpan");
+    await expect(page.getByText("Activity log berhasil disimpan", { exact: true })).toBeVisible();
     expect(requests).toContainEqual(expect.objectContaining({
       path: "/activity-logs",
       method: "POST",
@@ -343,7 +397,8 @@ test("Calendar handoff exchanges a one-time code without storing a Calendar toke
   await page.goto("/activity-logs/calendar#gcal_code=one-time-calendar-handoff");
 
   await expect(page.getByRole("heading", { name: "Calendar Sync", level: 1 })).toBeVisible();
-  await expect(page.getByRole("alert")).toContainText("Google Calendar terhubung");
+  await expect(page.getByText("Google Calendar terhubung. Klik Sync Calendar untuk memuat event.", { exact: true }))
+    .toBeVisible();
   await expect(page).toHaveURL(/\/activity-logs\/calendar$/);
   expect(requests).toContainEqual(expect.objectContaining({
     path: "/auth/calendar/exchange",
@@ -353,7 +408,7 @@ test("Calendar handoff exchanges a one-time code without storing a Calendar toke
 
   await page.getByRole("button", { name: /sync calendar/i }).focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("alert")).toContainText("Calendar tersinkronisasi");
+  await expect(page.getByText(/Calendar tersinkronisasi/)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Design review" })).toBeVisible();
   expect(requests).toContainEqual(expect.objectContaining({
     path: "/calendar/sync",

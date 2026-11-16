@@ -305,9 +305,17 @@ class TestCallbackCalendar:
     def test_gagal_tukar_kode_redirect_dengan_penanda_error(self, klien, monkeypatch):
         monkeypatch.setattr(settings, "FRONTEND_URL", "http://localhost:3000")
         pasang_google(monkeypatch, token_status=400, token_body="invalid_grant")
+
+        async def consume_state(_db, _code, _purpose):
+            return SimpleNamespace(user_id=uuid.uuid4(), encrypted_value=None)
+
+        monkeypatch.setattr("app.api.auth.auth_service.consume_handoff", consume_state)
         resp = klien().get(
             f"{P}/callback",
-            params={"code": "basi", "state": self._state("http://localhost:3000/x")},
+            params={
+                "code": "basi",
+                "state": self._state("http://localhost:3000/x", "calendar-state"),
+            },
         )
         assert resp.status_code in (302, 307)
         assert (

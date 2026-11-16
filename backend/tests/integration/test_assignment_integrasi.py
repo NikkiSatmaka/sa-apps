@@ -8,10 +8,12 @@ provisioning ditangkap lalu `_trigger_folder_provisioner` ASLI dijalankan setela
 `test_fake_boundary_contoh.py`).
 """
 
+import uuid
+
 import pytest
 from sqlalchemy import func, select
 
-from app.models import Subtask
+from app.models import IntegrationOperation, Subtask
 from app.services.folder_provisioner import folder_provisioner
 from app.services.sla_timer import sla_timer
 from tests.integration.conftest import patch_session_factory
@@ -40,6 +42,86 @@ def _sesi_service_terpatch(monkeypatch, session_factory):
 @pytest.fixture
 async def dunia(db_session):
     return await bangun_dunia(db_session)
+
+
+RETRY_OPERATION = "/api/v1/projects/{}/integration-operations/{}/retry"
+
+
+async def test_retry_integration_operation_requires_existing_project(dunia, api):
+    response = await api.client.post(
+        RETRY_OPERATION.format("PRJ-MISSING", uuid.uuid4()),
+        headers=dunia.h["lead"],
+    )
+
+    assert response.status_code == 404
+    assert response.json()["message"] == "Project not found."
+
+
+async def test_retry_integration_operation_requires_existing_operation(dunia, api):
+    project = await dunia.buat_proyek()
+
+    response = await api.client.post(
+        RETRY_OPERATION.format(project.id_project, uuid.uuid4()),
+        headers=dunia.h["lead"],
+    )
+
+    assert response.status_code == 404
+    assert response.json()["message"] == "Integration operation not found."
+
+
+async def test_retry_integration_operation_rejects_pending_operation(dunia, api):
+    project = await dunia.buat_proyek()
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type="drive_permission",
+        action="reassign_sa_access",
+        status="pending",
+        retryable=True,
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        RETRY_OPERATION.format(project.id_project, operation.id),
+        headers=dunia.h["lead"],
+    )
+
+    assert response.status_code == 409
+    assert response.json()["message"] == "This operation cannot be retried safely."
+    assert operation.status == "pending"
+
+
+async def test_retry_reassignment_rejects_changed_assignment(dunia, api):
+    project = await dunia.buat_proyek(
+        status="Assigned",
+        assigned_sa=dunia.sa.id,
+        gdrive_folder_id="drive-folder-current",
+    )
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type="drive_permission",
+        action="reassign_sa_access",
+        status="failed",
+        retryable=True,
+        context={
+            "master_folder_id": "drive-folder-current",
+            "old_sa_email": "old-sa@example.com",
+            "new_sa_email": "different-sa@example.com",
+        },
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        RETRY_OPERATION.format(project.id_project, operation.id),
+        headers=dunia.h["lead"],
+    )
+
+    assert response.status_code == 409
+    assert response.json()["message"] == (
+        "The project assignment changed; reconcile permissions from the current assignment."
+    )
+    assert operation.status == "failed"
 
 
 # ----------------------------------------------------------------------------- assign: alur penuh

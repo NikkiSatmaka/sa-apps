@@ -228,12 +228,14 @@ export interface ProjectDriveFolderPreview {
   folder_id: string;
   name: string;
   parent_id: string | null;
+  parents: string[];
   detected_project_number: number | null;
   inventory_folder_id: string;
   diagram_folder_id: string;
   solutions_folder_id: string;
   parent_mismatch: boolean;
   expected_customer_folder_id: string | null;
+  reason: string;
 }
 
 export function previewProjectDriveFolder(
@@ -250,9 +252,10 @@ export function registerProjectDriveFolder(
   projectId: string,
   folderId: string,
   reason: string,
+  preview: ProjectDriveFolderPreview,
 ): Promise<unknown> {
   return apiRequest(`/projects/${projectId}/register-folder`, {
-    body: { folder_id: folderId, reason, confirm: true },
+    body: { folder_id: folderId, reason, confirm: true, preview },
   });
 }
 

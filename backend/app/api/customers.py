@@ -5,6 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -39,10 +40,17 @@ async def create_customer(body: CustomerInput, db: AsyncSession = Depends(get_db
         raise HTTPException(status_code=422, detail="Nama Customer wajib diisi.")
     existing = await db.scalar(select(Customer).where(Customer.normalized_name == normalized))
     if existing:
-        return {"id": str(existing.id), "name": existing.name}
+        raise HTTPException(status_code=409, detail="Customer dengan nama tersebut sudah ada.")
     customer = Customer(name=name, normalized_name=normalized)
     db.add(customer)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        existing = await db.scalar(select(Customer).where(Customer.normalized_name == normalized))
+        if existing is not None:
+            raise HTTPException(status_code=409, detail="Customer dengan nama tersebut sudah ada.") from exc
+        raise
     await db.refresh(customer)
     return {"id": str(customer.id), "name": customer.name}
 

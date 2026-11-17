@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import status as status_konst
@@ -133,6 +133,7 @@ class ProjectFolderRegistrationInput(BaseModel):
     folder_id: str = Field(min_length=1, max_length=255)
     reason: str = Field(min_length=1)
     confirm: bool = False
+    preview: dict | None = None
 
 
 def _require_folder_registration_operator(current_user: User) -> None:
@@ -157,7 +158,12 @@ async def _read_project_folder_registration(project_id: str, folder_id: str, db:
 
     linked = await db.execute(
         select(Project.id_project).where(
-            Project.gdrive_folder_id == folder_id,
+            or_(
+                Project.gdrive_folder_id == folder_id,
+                Project.gdrive_inventory_folder_id == folder_id,
+                Project.gdrive_diagram_folder_id == folder_id,
+                Project.gdrive_solutions_folder_id == folder_id,
+            ),
             Project.id_project != project_id,
         )
     )
@@ -224,7 +230,10 @@ async def preview_project_folder_registration(
     if not body.reason.strip():
         raise HTTPException(status_code=422, detail="Alasan pendaftaran wajib diisi.")
     _, preview = await _read_project_folder_registration(project_id, body.folder_id, db)
-    return success_response(data=preview, message="Folder Drive berhasil diverifikasi.")
+    return success_response(
+        data={**preview, "reason": body.reason.strip()},
+        message="Folder Drive berhasil diverifikasi.",
+    )
 
 
 @router.post("/{project_id}/register-folder", summary="Daftarkan folder Drive yang sudah ada")
@@ -244,6 +253,8 @@ async def register_project_folder(
     project, detected = await _read_project_folder_registration(
         project_id, body.folder_id, db
     )
+    if body.preview is None or body.preview != {**detected, "reason": reason}:
+        raise HTTPException(status_code=409, detail="Preview folder sudah berubah. Tinjau ulang sebelum mendaftar.")
     old_value = {
         "gdrive_folder_id": project.gdrive_folder_id,
         "gdrive_inventory_folder_id": project.gdrive_inventory_folder_id,

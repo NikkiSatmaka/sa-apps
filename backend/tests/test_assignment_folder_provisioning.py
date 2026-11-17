@@ -466,9 +466,21 @@ def test_manual_drive_folder_registration_persists_ids_and_audit_without_drive_w
     provider = _manual_folder_provider()
 
     with patch("app.api.project_lifecycle_api.folder_provisioner", provider):
-        response = TestClient(app).post(
+        client = TestClient(app)
+        preview_response = client.post(
+            f"/api/v1/projects/{PROJECT_ID}/register-folder/preview",
+            json={"folder_id": "manual-master", "reason": "Provisioned outside app"},
+        )
+        snapshot = preview_response.json()["data"]
+        session.execute_count = 0
+        response = client.post(
             f"/api/v1/projects/{PROJECT_ID}/register-folder",
-            json={"folder_id": "manual-master", "reason": "Provisioned outside app", "confirm": True},
+            json={
+                "folder_id": "manual-master",
+                "reason": "Provisioned outside app",
+                "confirm": True,
+                "preview": snapshot,
+            },
         )
 
     assert response.status_code == status.HTTP_200_OK
@@ -481,9 +493,36 @@ def test_manual_drive_folder_registration_persists_ids_and_audit_without_drive_w
     assert session.audit[0].action == "drive_folder_registered"
     assert session.audit[0].new_value["parent_mismatch"] is True
     assert session.audit[0].new_value["reason"] == "Provisioned outside app"
-    provider.get_folder_metadata.assert_awaited_once_with("manual-master")
-    provider.list_folder_children.assert_awaited_once_with("manual-master")
+    provider.get_folder_metadata.assert_awaited()
+    provider.list_folder_children.assert_awaited()
     provider.create_folder.assert_not_called()
+
+
+def test_manual_drive_registration_rejects_child_folder_linked_to_another_project():
+    project = _manual_folder_project()
+    other_project = _manual_folder_project()
+    other_project.id_project = "PRJ-OTHER"
+    other_project.gdrive_inventory_folder_id = "manual-master"
+    session = _FolderRegistrationSession(project)
+    session.execute = AsyncMock(side_effect=[
+        _execute_result_scalar(project),
+        _execute_result_scalar("PRJ-OTHER"),
+    ])
+    _override_db(session)
+    _override_current_user(_make_user())
+    provider = _manual_folder_provider()
+
+    with patch("app.api.project_lifecycle_api.folder_provisioner", provider):
+        response = TestClient(app).post(
+            f"/api/v1/projects/{PROJECT_ID}/register-folder/preview",
+            json={"folder_id": "manual-master", "reason": "Review duplicate"},
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert project.gdrive_folder_id is None
+    assert session.audit == []
+    assert session.commits == 0
+    provider.get_folder_metadata.assert_not_awaited()
 
 
 def test_manual_drive_registration_missing_child_fails_before_project_or_audit_mutation():
@@ -500,13 +539,43 @@ def test_manual_drive_registration_missing_child_fails_before_project_or_audit_m
     with patch("app.api.project_lifecycle_api.folder_provisioner", provider):
         response = TestClient(app).post(
             f"/api/v1/projects/{PROJECT_ID}/register-folder",
-            json={"folder_id": "manual-master", "reason": "Repair", "confirm": True},
+            json={"folder_id": "manual-master", "reason": "Repair", "confirm": True, "preview": {}},
         )
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
     assert project.gdrive_folder_id is None
     assert session.audit == []
     assert session.commits == 0
+def test_manual_drive_registration_rejects_changed_metadata_without_mutation():
+    project = _manual_folder_project()
+    session = _FolderRegistrationSession(project)
+    _override_db(session)
+    _override_current_user(_make_user())
+    provider = _manual_folder_provider()
+
+    with patch("app.api.project_lifecycle_api.folder_provisioner", provider):
+        client = TestClient(app)
+        preview = client.post(
+            f"/api/v1/projects/{PROJECT_ID}/register-folder/preview",
+            json={"folder_id": "manual-master", "reason": "Initial reason"},
+        ).json()["data"]
+        session.execute_count = 0
+        provider.get_folder_metadata.return_value["name"] = "05-Renamed"
+        response = client.post(
+            f"/api/v1/projects/{PROJECT_ID}/register-folder",
+            json={
+                "folder_id": "manual-master",
+                "reason": "Initial reason",
+                "confirm": True,
+                "preview": preview,
+            },
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert project.gdrive_folder_id is None
+    assert session.audit == []
+    assert session.commits == 0
+
 
 
 def test_manual_drive_registration_rejects_unauthorized_user_without_mutation():

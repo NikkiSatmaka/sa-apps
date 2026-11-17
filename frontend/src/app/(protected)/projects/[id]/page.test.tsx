@@ -923,7 +923,7 @@ describe("Detail proyek — perbaikan tautan Customer", () => {
 });
 
 describe("Detail proyek — pendaftaran folder Drive manual", () => {
-  it("meninjau metadata dan memerlukan konfirmasi eksplisit sebelum menyimpan", async () => {
+  it("mengikat konfirmasi ke snapshot dan alasan yang ditinjau serta membatalkan preview saat input berubah", async () => {
     let previewBody: unknown;
     let registerBody: unknown;
     server.use(
@@ -933,12 +933,14 @@ describe("Detail proyek — pendaftaran folder Drive manual", () => {
           folder_id: "manual-master",
           name: "04-Migrasi",
           parent_id: "legacy-parent",
+          parents: ["legacy-parent"],
           detected_project_number: 4,
           inventory_folder_id: "inventory-id",
           diagram_folder_id: "diagram-id",
           solutions_folder_id: "solutions-id",
           parent_mismatch: true,
           expected_customer_folder_id: "customer-parent",
+          reason: (previewBody as { reason: string }).reason,
         }));
       }),
       http.post(api(`/projects/${DETAIL_ID}/register-folder`), async ({ request }) => {
@@ -951,22 +953,34 @@ describe("Detail proyek — pendaftaran folder Drive manual", () => {
     await user.type(screen.getByLabelText("ID folder Google Drive"), "manual-master");
     await user.type(screen.getByLabelText("Alasan pendaftaran"), "Folder dibuat manual");
     await user.click(screen.getByRole("button", { name: "Periksa dan tinjau" }));
-
     expect(await screen.findByText("Nama folder: 04-Migrasi")).toBeInTheDocument();
     expect(screen.getByText(/Parent folder berbeda/)).toBeInTheDocument();
-    expect(previewBody).toEqual({
-      folder_id: "manual-master",
-      reason: "Folder dibuat manual",
-    });
-    const confirm = screen.getByRole("button", { name: "Konfirmasi pendaftaran" });
-    expect(confirm).toBeDisabled();
     await user.click(screen.getByLabelText(/Saya telah meninjau/));
-    await user.click(confirm);
-
+    await user.clear(screen.getByLabelText("Alasan pendaftaran"));
+    await user.type(screen.getByLabelText("Alasan pendaftaran"), "Alasan berubah");
+    expect(screen.queryByText("Nama folder: 04-Migrasi")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Konfirmasi pendaftaran" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Periksa dan tinjau" }));
+    await screen.findByText("Nama folder: 04-Migrasi");
+    await user.click(screen.getByLabelText(/Saya telah meninjau/));
+    await user.click(screen.getByRole("button", { name: "Konfirmasi pendaftaran" }));
     await waitFor(() => expect(registerBody).toEqual({
       folder_id: "manual-master",
-      reason: "Folder dibuat manual",
+      reason: "Alasan berubah",
       confirm: true,
+      preview: expect.objectContaining({
+        folder_id: "manual-master",
+        name: "04-Migrasi",
+        parent_id: "legacy-parent",
+        detected_project_number: 4,
+        inventory_folder_id: "inventory-id",
+        diagram_folder_id: "diagram-id",
+        solutions_folder_id: "solutions-id",
+        parent_mismatch: true,
+        expected_customer_folder_id: "customer-parent",
+        reason: "Alasan berubah",
+      }),
     }));
+    expect(previewBody).toEqual({ folder_id: "manual-master", reason: "Alasan berubah" });
   });
 });

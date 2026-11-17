@@ -19,6 +19,7 @@ class FakeSession:
         scalar_result = existing if existing is not None else duplicate
         self.scalar = AsyncMock(return_value=scalar_result)
         self.commit = AsyncMock()
+        self.rollback = AsyncMock()
         self.refresh = AsyncMock()
         self.get = AsyncMock(return_value=customer)
         self.flush = AsyncMock(side_effect=self._flush)
@@ -87,15 +88,26 @@ def test_create_customer_trims_and_persists_new_identity():
     assert response.json()["id"] == str(session.added[0].id)
     session.commit.assert_awaited_once()
 
-def test_create_customer_reuses_existing_normalized_identity():
+def test_create_customer_rejects_existing_normalized_identity():
     customer = Customer(id=uuid.uuid4(), name="PT Acme", normalized_name="pt acme")
     session = FakeSession(existing=customer)
     with api_as(user("Lead_SA"), session) as client:
         response = client.post("/api/v1/customers", json={"name": "PT ACME"})
-    assert response.status_code == 201
-    assert response.json() == {"id": str(customer.id), "name": "PT Acme"}
+    assert response.status_code == 409
     assert session.added == []
 
+
+def test_create_customer_returns_conflict_after_concurrent_duplicate_insert():
+    from sqlalchemy.exc import IntegrityError
+
+    customer = Customer(id=uuid.uuid4(), name="PT Acme", normalized_name="pt acme")
+    session = FakeSession()
+    session.commit.side_effect = IntegrityError("insert", {}, Exception("unique"))
+    session.scalar.side_effect = [None, customer]
+    with api_as(user("Lead_SA"), session) as client:
+        response = client.post("/api/v1/customers", json={"name": "PT ACME"})
+    assert response.status_code == 409
+    session.rollback.assert_awaited_once()
 
 @pytest.mark.parametrize("role,is_admin", [("Sales", False), ("Product", False), ("SA", False), ("Admin", False)])
 def test_create_customer_rejects_unprivileged_role(role, is_admin):

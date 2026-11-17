@@ -646,8 +646,13 @@ function FolderProvisioningSection({
     setPreview(null);
     setConfirmed(false);
     setIsLoadingPreview(true);
+    const requestedFolderId = folderId.trim();
+    const requestedReason = reason.trim();
     try {
-      setPreview(await previewProjectDriveFolder(projectId, folderId.trim(), reason.trim()));
+      const result = await previewProjectDriveFolder(projectId, requestedFolderId, requestedReason);
+      if (folderId.trim() === requestedFolderId && reason.trim() === requestedReason) {
+        setPreview(result);
+      }
     } catch (cause) {
       setRegistrationError(cause instanceof Error ? cause.message : "Gagal memeriksa folder Drive.");
     } finally {
@@ -659,8 +664,7 @@ function FolderProvisioningSection({
     setIsRegistering(true);
     setRegistrationError(null);
     try {
-      await registerProjectDriveFolder(projectId, folderId.trim(), reason.trim());
-      setShowRegistration(false);
+      await registerProjectDriveFolder(projectId, folderId.trim(), reason.trim(), preview);
       setPreview(null);
       onRegistered();
     } catch (cause) {

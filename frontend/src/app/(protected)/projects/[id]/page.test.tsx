@@ -926,9 +926,15 @@ describe("Detail proyek — pendaftaran folder Drive manual", () => {
   it("mengikat konfirmasi ke snapshot dan alasan yang ditinjau serta membatalkan preview saat input berubah", async () => {
     let previewBody: unknown;
     let registerBody: unknown;
+    let finishPendingPreview: (() => void) | undefined;
+    let deferFirstPreview = true;
     server.use(
       http.post(api(`/projects/${DETAIL_ID}/register-folder/preview`), async ({ request }) => {
         previewBody = await request.json();
+        if (deferFirstPreview) {
+          deferFirstPreview = false;
+          await new Promise<void>((resolve) => { finishPendingPreview = resolve; });
+        }
         return HttpResponse.json(successEnvelope({
           folder_id: "manual-master",
           name: "04-Migrasi",
@@ -953,6 +959,10 @@ describe("Detail proyek — pendaftaran folder Drive manual", () => {
     await user.type(screen.getByLabelText("ID folder Google Drive"), "manual-master");
     await user.type(screen.getByLabelText("Alasan pendaftaran"), "Folder dibuat manual");
     await user.click(screen.getByRole("button", { name: "Periksa dan tinjau" }));
+    expect(await screen.findByRole("button", { name: "Memeriksa folder..." })).toBeDisabled();
+    expect(screen.getByLabelText("ID folder Google Drive")).toBeDisabled();
+    expect(screen.getByLabelText("Alasan pendaftaran")).toBeDisabled();
+    finishPendingPreview?.();
     expect(await screen.findByText("Nama folder: 04-Migrasi")).toBeInTheDocument();
     expect(screen.getByText(/Parent folder berbeda/)).toBeInTheDocument();
     await user.click(screen.getByLabelText(/Saya telah meninjau/));

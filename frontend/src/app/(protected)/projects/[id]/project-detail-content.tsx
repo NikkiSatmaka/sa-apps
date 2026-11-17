@@ -683,11 +683,11 @@ function FolderProvisioningSection({
         <div className="space-y-3">
           <label className="block text-sm">
             ID folder Google Drive
-            <input className="mt-1 block w-full rounded border border-neutral-300 px-3 py-2" value={folderId} onChange={(event) => { setFolderId(event.target.value); setPreview(null); setConfirmed(false); }} />
+            <input disabled={isLoadingPreview} className="mt-1 block w-full rounded border border-neutral-300 px-3 py-2" value={folderId} onChange={(event) => { setFolderId(event.target.value); setPreview(null); setConfirmed(false); }} />
           </label>
           <label className="block text-sm">
             Alasan pendaftaran
-            <textarea className="mt-1 block w-full rounded border border-neutral-300 px-3 py-2" value={reason} onChange={(event) => { setReason(event.target.value); setPreview(null); setConfirmed(false); }} />
+            <textarea disabled={isLoadingPreview} className="mt-1 block w-full rounded border border-neutral-300 px-3 py-2" value={reason} onChange={(event) => { setReason(event.target.value); setPreview(null); setConfirmed(false); }} />
           </label>
           <button type="button" disabled={!folderId.trim() || !reason.trim() || isLoadingPreview} onClick={loadPreview} className="rounded border px-3 py-2 text-sm disabled:opacity-50">
             {isLoadingPreview ? "Memeriksa folder..." : "Periksa dan tinjau"}

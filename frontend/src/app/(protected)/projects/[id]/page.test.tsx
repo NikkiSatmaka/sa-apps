@@ -766,6 +766,21 @@ describe("Detail proyek — aksi status terpasang", () => {
     expect(screen.queryByRole("button", { name: "Buka Kembali" })).not.toBeInTheDocument();
   });
 });
+describe("Detail proyek — tautan folder Drive", () => {
+  it("menampilkan link folder master dari ID tersimpan", async () => {
+    setup("Sales", { gdrive_folder_id: "master-folder-42", folder_provisioning_status: "provisioned" });
+
+    const link = await screen.findByRole("link", { name: "Buka folder Google Drive" });
+    expect(link).toHaveAttribute("href", "https://drive.google.com/drive/folders/master-folder-42");
+  });
+
+  it("menampilkan folder belum terdaftar tanpa membuat URL jika ID master kosong", async () => {
+    setup("Lead_SA", { gdrive_folder_id: null, folder_provisioning_status: null });
+
+    expect(await screen.findByText("Folder Google Drive belum terdaftar")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Buka folder Google Drive" })).not.toBeInTheDocument();
+  });
+});
 describe("Detail proyek — provisioning folder Drive", () => {
   it("menampilkan kegagalan dan panduan perbaikan, lalu Lead_SA dapat mengulang secara manual", async () => {
     let status: "failed" | "pending" = "failed";

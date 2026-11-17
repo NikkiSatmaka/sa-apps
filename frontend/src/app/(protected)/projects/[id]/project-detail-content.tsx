@@ -218,7 +218,7 @@ export function ProjectDetailContent({
       <FolderProvisioningSection
         status={project.folder_provisioning_status}
         operation={project.folder_provisioning_operation}
-        hasMasterFolder={!!project.gdrive_folder_id}
+        masterFolderId={project.gdrive_folder_id}
         canRetry={isPrivileged(user)}
         isRetrying={folderProvisioning.isRetrying}
         retryError={folderProvisioning.error}
@@ -475,7 +475,7 @@ function ProjectActivitySection({ projectId }: { projectId: string }) {
 interface FolderProvisioningSectionProps {
   status: ProjectDetail["folder_provisioning_status"];
   operation?: FolderProvisioningOperation | null;
-  hasMasterFolder: boolean;
+  masterFolderId: string | null;
   canRetry: boolean;
   isRetrying: boolean;
   retryError: string | null;
@@ -485,7 +485,7 @@ interface FolderProvisioningSectionProps {
 function FolderProvisioningSection({
   status,
   operation,
-  hasMasterFolder,
+  masterFolderId,
   canRetry,
   isRetrying,
   retryError,
@@ -497,7 +497,25 @@ function FolderProvisioningSection({
   const provisioned =
     !failed && !pending && (status === "provisioned" || operation?.status === "succeeded");
 
-  if (!failed && !pending && !provisioned) return null;
+  if (!failed && !pending && !provisioned) {
+    return (
+      <section className="rounded-lg border border-neutral-200 bg-white p-5">
+        <h2 className="text-sm font-semibold text-neutral-700">Folder Google Drive</h2>
+        {masterFolderId ? (
+          <a
+            className="mt-2 inline-block text-sm font-medium text-primary-700 underline"
+            href={`https://drive.google.com/drive/folders/${encodeURIComponent(masterFolderId)}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Buka folder Google Drive
+          </a>
+        ) : (
+          <p className="mt-2 text-sm text-neutral-600">Folder Google Drive belum terdaftar</p>
+        )}
+      </section>
+    );
+  }
 
   const latestAttempt = operation?.attempts.at(-1);
   const outcome = operation?.outcome ?? latestAttempt?.outcome;
@@ -516,6 +534,22 @@ function FolderProvisioningSection({
             : "border-green-200 bg-green-50"
       }`}
     >
+      <div className="mb-3">
+        <h2 className="text-sm font-semibold text-neutral-700">Folder Google Drive</h2>
+        {masterFolderId ? (
+          <a
+            className="mt-2 inline-block text-sm font-medium text-primary-700 underline"
+            href={`https://drive.google.com/drive/folders/${encodeURIComponent(masterFolderId)}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Buka folder Google Drive
+          </a>
+        ) : (
+          <p className="mt-2 text-sm text-neutral-600">Folder Google Drive belum terdaftar</p>
+        )}
+      </div>
+
       <h2
         id="folder-provisioning-heading"
         className="text-sm font-semibold text-neutral-800"
@@ -557,7 +591,7 @@ function FolderProvisioningSection({
           ))}
         </ol>
       )}
-      {failed && canRetry && !hasMasterFolder && (
+      {failed && canRetry && !masterFolderId && (
         <div className="mt-4">
           <p className="mb-3 text-sm text-neutral-700">
             Pastikan izin service account benar dan hapus folder yatim di Drive
@@ -573,7 +607,7 @@ function FolderProvisioningSection({
           </button>
         </div>
       )}
-      {failed && hasMasterFolder && (
+      {failed && masterFolderId && (
         <p className="mt-3 text-sm text-neutral-700">
           Folder Drive sudah tersimpan; retry otomatis tidak tersedia. Periksa
           folder yang ada dan perbaiki izinnya secara manual.
@@ -586,5 +620,6 @@ function FolderProvisioningSection({
       )}
     </section>
   );
+
 }
 

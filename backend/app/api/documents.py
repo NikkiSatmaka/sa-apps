@@ -40,6 +40,7 @@ from app.schemas.document import (
 from app.schemas.response import success_response
 from app.services.dq_akses import saring_dokumen_terlihat
 from app.services.folder_provisioner import folder_provisioner
+from app.services.integration_operations import run_side_effect
 from app.services.notification_service import (
     NotificationEvent,
     NotificationEventType,
@@ -206,16 +207,30 @@ async def _handle_doc_ready(document: Document, db: AsyncSession) -> None:
         )
         return
 
-    try:
+    async def unlock_sales_access() -> None:
         await folder_provisioner.unlock_solutions_folder(
             solutions_folder_id=project.gdrive_solutions_folder_id,
             sales_email=sales_user.email,
         )
-    except Exception as e:  # noqa: BLE001 - side-effect tidak boleh menggagalkan transisi
-        logger.error(
-            f"Gagal membuka akses Solutions untuk Sales pada proyek '{project.id_project}': {e}"
-        )
 
+    await run_side_effect(
+        project_id=project.id_project,
+        operation_type="drive_permission",
+        action="document_review_unlock",
+        actor_user_id=document.updated_by,
+        context={
+            "folder_id": project.gdrive_solutions_folder_id,
+            "sales_email": sales_user.email,
+            "document_id": document.id_doc,
+        },
+        retryable=True,
+        perform=unlock_sales_access,
+        outcome="Sales viewer access restored after document review.",
+        actionable_failure=(
+            "Document review was saved, but Drive access was not restored. "
+            "Ask a Lead SA or Admin to retry after confirming the Solutions folder still exists."
+        ),
+    )
 
 @router.post(
     "/projects/{project_id}/documents",

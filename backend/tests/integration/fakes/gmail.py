@@ -1,8 +1,8 @@
 """
-Fake Gmail: pengganti `notification_service.send_email` (dan penanda "Gmail terkonfigurasi").
+Fake Gmail: replaces `notification_service.send_email` and its configured-state check.
 
-Produksi `send_email` TIDAK pernah raise: gagal = return False (lalu `_send_email_with_retry`
-mencoba ulang). Fake meniru kontrak itu. Interval retry dinolkan agar test tidak menunggu 30 detik.
+The fake matches production: a failed delivery returns False after one provider call; the
+operation recorder owns the visible failure outcome and manual email retries are disabled.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from typing import Any
 
 import pytest
 
-from app.services import notification_service as modul_notifikasi
 from app.services.notification_service import notification_service
 
 
@@ -101,13 +100,11 @@ class FakeGmail:
         monkeypatch.setattr(
             notification_service, "_is_gmail_configured", lambda: self.terkonfigurasi
         )
-        monkeypatch.setattr(modul_notifikasi, "EMAIL_RETRY_INTERVAL", 0)
-
-        kirim_asli = notification_service._send_email_with_retry
+        kirim_asli = notification_service._send_email_once
         fake = self
 
         async def kirim_dengan_gerbang(event):
             await fake._gerbang_event().wait()
             await kirim_asli(event)
 
-        monkeypatch.setattr(notification_service, "_send_email_with_retry", kirim_dengan_gerbang)
+        monkeypatch.setattr(notification_service, "_send_email_once", kirim_dengan_gerbang)

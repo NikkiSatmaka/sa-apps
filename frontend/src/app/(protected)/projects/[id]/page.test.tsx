@@ -750,3 +750,90 @@ describe("Detail proyek — aksi status terpasang", () => {
     expect(screen.queryByRole("button", { name: "Buka Kembali" })).not.toBeInTheDocument();
   });
 });
+describe("Detail proyek — provisioning folder Drive", () => {
+  it("menampilkan kegagalan dan panduan perbaikan, lalu Lead_SA dapat mengulang secara manual", async () => {
+    let status: "failed" | "pending" = "failed";
+    let attempts = 1;
+    let requestCount = 0;
+    server.use(
+      http.get(api("/projects/:id"), () =>
+        HttpResponse.json(successEnvelope(makeProjectDetail({
+          gdrive_folder_id: null,
+          folder_provisioning_status: status,
+          folder_provisioning_operation: {
+            status,
+            started_at: "2026-11-16T09:00:00Z",
+            finished_at: status === "failed" ? "2026-11-16T09:01:00Z" : null,
+            outcome: status === "failed" ? "Google Drive menolak pembuatan folder." : null,
+            actionable_error: status === "failed"
+              ? "Periksa izin service account dan bersihkan folder yatim di Drive sebelum mencoba lagi."
+              : null,
+            attempts: [{
+              attempt: attempts,
+              status,
+              started_at: "2026-11-16T09:00:00Z",
+              finished_at: status === "failed" ? "2026-11-16T09:01:00Z" : null,
+              outcome: status === "failed" ? "Google Drive menolak pembuatan folder." : null,
+              actionable_error: null,
+            }],
+          },
+        }))),
+      ),
+      http.post(api(`/projects/${DETAIL_ID}/provision-folder`), () => {
+        requestCount += 1;
+        status = "pending";
+        attempts += 1;
+        return HttpResponse.json(successEnvelope({
+          id_project: DETAIL_ID,
+          folder_provisioning_status: "pending",
+          folder_provisioning_triggered: true,
+        }), { status: 202 });
+      }),
+    );
+    const { user } = renderWithProviders(<ProjectDetailPage />, { role: "Lead_SA" });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Provisioning folder gagal");
+    expect(screen.getByText("Google Drive menolak pembuatan folder.")).toBeInTheDocument();
+    expect(screen.getByText(/bersihkan folder yatim di Drive/)).toBeInTheDocument();
+    expect(screen.getByText(/Percobaan 1: failed/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Coba provisioning lagi" }));
+
+    await waitFor(() => expect(requestCount).toBe(1));
+    expect(await screen.findByRole("status")).toHaveTextContent("Provisioning folder sedang diproses");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(await screen.findByText("Percobaan 2: pending")).toBeInTheDocument();
+  });
+
+  it("tetap menampilkan kegagalan bagi pengguna lain tetapi menyembunyikan tindakan retry", async () => {
+    setup("Sales", {
+      folder_provisioning_status: "failed",
+      folder_provisioning_operation: {
+        status: "failed",
+        attempts: [],
+        outcome: "Google Drive menolak pembuatan folder.",
+        actionable_error: "Hubungi Lead SA untuk perbaikan.",
+      },
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Provisioning folder gagal");
+    expect(screen.getByText("Google Drive menolak pembuatan folder.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Coba provisioning lagi" })).not.toBeInTheDocument();
+  });
+
+  it("tidak menawarkan retry jika folder master sudah tersimpan", async () => {
+    setup("Lead_SA", {
+      gdrive_folder_id: "drive-master-existing",
+      folder_provisioning_status: "failed",
+      folder_provisioning_operation: {
+        status: "failed",
+        attempts: [],
+        outcome: "Pembuatan izin gagal.",
+        actionable_error: "Periksa izin folder di Drive.",
+      },
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Provisioning folder gagal");
+    expect(screen.getByText(/retry otomatis tidak tersedia/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Coba provisioning lagi" })).not.toBeInTheDocument();
+  });
+});

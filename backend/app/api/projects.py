@@ -9,7 +9,7 @@ import uuid
 import string
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import (
     APIRouter,
@@ -26,7 +26,7 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
-from sqlalchemy import asc, desc, func, or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import status as status_konst
@@ -46,18 +46,25 @@ from app.models.sla_tracking import SLATracking
 from app.models.source_document import DOC_TYPES, SourceDocument
 from app.models.user import User
 from app.schemas.dq_number import DQNumberInput
-from app.schemas.project import FileUploadResult, ProjectResponse
+from app.schemas.project import (
+    FileUploadResult,
+    ProjectDetailResponse,
+    ProjectListPageResponse,
+    ProjectResponse,
+)
 from app.schemas.qualification import parse_answers, validate_answers
-from app.schemas.response import error_response, success_response
+from app.schemas.response import ErrorResponse, SuccessResponse, error_response, success_response
 from app.services import bant_rubric
 from app.services.scoring_engine import scoring_engine
 from app.services.qualification_view import build_qualification_view
+from app.services.integration_operations import list_project_operations
 from app.services.requirement_generator import (
     generate_pending_requirement,
     resummarize_if_source_changed,
 )
 from app.services.source_document_extractor import extract_source_documents
 from app.services.dq_akses import hentikan_timer_bila_pertama, terapkan_dq
+from app.services.project_listing import build_project_list_page
 
 logger = logging.getLogger(__name__)
 
@@ -319,11 +326,12 @@ async def _tentukan_orang(
 @router.get(
     "",
     summary="Daftar proyek",
-    description=(
-        "Menampilkan daftar proyek berdasarkan role user yang login. "
-        "Sales hanya melihat proyeknya sendiri, SA melihat proyek yang ditugaskan, "
-        "Lead_SA melihat semua proyek aktif."
-    ),
+    description="Daftar proyek terfilter, terurut secara deterministik, dan dipaginasi.",
+    response_model=SuccessResponse[ProjectListPageResponse],
+    responses={
+        401: {"model": ErrorResponse[dict[str, Any]]},
+        422: {"model": ErrorResponse[list[dict[str, str]]]},
+    },
 )
 async def list_projects(
     involved: Optional[str] = Query(
@@ -332,88 +340,53 @@ async def list_projects(
     status_filter: Optional[str] = Query(
         None, alias="status", description="Filter berdasarkan status proyek"
     ),
+    search: Optional[str] = Query(
+        None, description="Cari nama proyek, customer, atau ID proyek"
+    ),
     sort: Optional[str] = Query(
         "-updated_at", description="Sort: field name, prefix '-' untuk desc"
+    ),
+    page: int = Query(1, ge=1, description="Nomor halaman (1-based)"),
+    page_size: int = Query(
+        25,
+        ge=1,
+        le=100,
+        description="Jumlah proyek per halaman (maksimal 100)",
     ),
     current_user: User = Depends(get_current_user),
     _: None = Depends(_tolak_param_lama),
     db: AsyncSession = Depends(get_db),
 ):
+    """Ambil halaman daftar proyek dengan filter berdasarkan keterlibatan, status, dan pencarian.
+
+    Sort tetap memakai nama field dan prefix `-` untuk descending. `id_project` menjadi
+    pemecah seri ascending agar setiap halaman memiliki urutan stabil.
     """
-    Ambil daftar proyek dengan filter berdasarkan role.
+    filters = []
 
-    Filter:
-    - involved=me → proyek yang melibatkan user saat ini (semua peran, ADR 0014)
-    - status=<value> → filter berdasarkan status
-
-    Sort:
-    - -updated_at (default): terbaru diupdate
-    - updated_at: terlama diupdate
-    - -created_at: terbaru dibuat
-    """
-    query = select(Project)
-
-    # Semua proyek dapat dilihat semua pengguna terautentikasi (keputusan 2026-11-10); hanya akses
-    # TULIS yang dibatasi. Query param `involved=me` hanyalah penyempit opsional (hanya
-    # mempersempit, tidak memperluas akses).
+    # Semua proyek dapat dilihat semua pengguna terautentikasi (ADR 0011); involved=me hanya
+    # mempersempit daftar, tidak memperluas akses.
     if involved == "me":
-        query = query.where(_terlibat(current_user.id))
+        filters.append(_terlibat(current_user.id))
 
-    # Filter status
     if status_filter:
-        query = query.where(Project.status == status_filter)
+        filters.append(Project.status == status_filter)
 
-    # Sorting
-    if sort:
-        if sort.startswith("-"):
-            field_name = sort[1:]
-            if hasattr(Project, field_name):
-                query = query.order_by(desc(getattr(Project, field_name)))
-            else:
-                query = query.order_by(desc(Project.updated_at))
-        else:
-            if hasattr(Project, sort):
-                query = query.order_by(asc(getattr(Project, sort)))
-            else:
-                query = query.order_by(desc(Project.updated_at))
-    else:
-        query = query.order_by(desc(Project.updated_at))
-
-    result = await db.execute(query)
-    projects = result.scalars().all()
-
-    # Format response
-    orang = await _muat_user(
-        db, {i for p in projects for i in (p.created_by, p.product_pic, p.sales_pic)}
-    )
-    projects_data = []
-    for p in projects:
-        projects_data.append(
-            {
-                "id_project": p.id_project,
-                "project_name": p.project_name,
-                "customer_name": p.customer_name,
-                "status": p.status,
-                "qualification_state": p.qualification_state,
-                "dq_number": p.dq_number,
-                "bant_score": p.bant_score,
-                "use_case_tags": p.use_case_tags or [],
-                "estimasi_nilai": str(p.estimasi_nilai) if p.estimasi_nilai is not None else None,
-                "target_submit": p.target_submit.isoformat() if p.target_submit else None,
-                "assigned_sa": str(p.assigned_sa) if p.assigned_sa else None,
-                "created_by": _ringkas_orang(orang.get(p.created_by), p.created_by),
-                "product_pic": _ringkas_orang(orang.get(p.product_pic), p.product_pic),
-                "sales_pic": _ringkas_orang(orang.get(p.sales_pic), p.sales_pic),
-                "gdrive_folder_id": p.gdrive_folder_id,
-                "folder_provisioning_status": p.folder_provisioning_status,
-                "created_at": p.created_at.isoformat() if p.created_at else None,
-                "updated_at": p.updated_at.isoformat() if p.updated_at else None,
-            }
+    search_term = (search or "").strip()
+    if search_term:
+        pattern = f"%{search_term}%"
+        filters.append(
+            or_(
+                Project.project_name.ilike(pattern),
+                Project.customer_name.ilike(pattern),
+                Project.id_project.ilike(pattern),
+            )
         )
 
+    data = await build_project_list_page(db, filters, sort, page, page_size)
     return success_response(
-        data=projects_data,
-        message=f"Ditemukan {len(projects_data)} proyek.",
+        data=data,
+        message=f"Ditemukan {data['total']} proyek.",
     )
 
 
@@ -455,6 +428,12 @@ async def get_status_summary(
     "/{project_id}",
     summary="Detail proyek",
     description="Mengambil detail satu proyek berdasarkan ID, termasuk info PIC Sales dan SA.",
+    response_model=SuccessResponse[ProjectDetailResponse],
+    responses={
+        401: {"model": ErrorResponse[dict[str, Any]]},
+        404: {"model": ErrorResponse[None]},
+        422: {"model": ErrorResponse[list[dict[str, str]]]},
+    },
 )
 async def get_project_detail(
     project_id: str,
@@ -541,6 +520,7 @@ async def get_project_detail(
         project.status == status_konst.INTAKE
         and project.qualification_state == status_konst.QS_SCORING
     )
+    integration_operations = await list_project_operations(db, project_id)
     data = {
         "id_project": project.id_project,
         "project_name": project.project_name,
@@ -579,9 +559,12 @@ async def get_project_detail(
         if project.assigned_sa
         else None,
         "collaborators": collab_list,
-        "source_documents": source_documents,
         "gdrive_folder_id": project.gdrive_folder_id,
+        "gdrive_solutions_folder_id": project.gdrive_solutions_folder_id,
+        "source_documents": source_documents,
         "folder_provisioning_status": project.folder_provisioning_status,
+        "folder_provisioning_operation": project.folder_provisioning_operation,
+        "integration_operations": integration_operations,
         "created_at": project.created_at.isoformat() if project.created_at else None,
         "updated_at": project.updated_at.isoformat() if project.updated_at else None,
     }

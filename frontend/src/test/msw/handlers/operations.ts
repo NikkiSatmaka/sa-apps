@@ -1,7 +1,6 @@
 /**
- * Handler MSW grup operasi: assignment/reassign, kolaborator, handover-config,
- * activity log (+story/polish), dan Calendar Sync (backend + Google Calendar API).
- * Timpa per test dengan `server.use(...)` untuk skenario error/kosong.
+ * Handler MSW grup operasi untuk assignment, kolaborator, handover,
+ * activity log, dan Calendar Sync.
  */
 import { http, HttpResponse } from "msw";
 import { successEnvelope } from "../../fixtures/envelope";
@@ -14,7 +13,6 @@ import {
 } from "../../fixtures/operations";
 import { api } from "../base";
 
-export const GCAL_EVENTS_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 
 export const operationsHandlers = [
   // Assignment
@@ -48,7 +46,9 @@ export const operationsHandlers = [
   http.get(api("/calendar/auth-url"), () =>
     HttpResponse.json(successEnvelope({ auth_url: "https://accounts.google.com/o/oauth2/auth?x=1" }))
   ),
+  http.post(api("/calendar/sync"), () =>
+    HttpResponse.json(successEnvelope({ events: [], total_events: 0, integration_operation: null }))
+  ),
   http.post(api("/calendar/map"), () => HttpResponse.json(successEnvelope({ id_log: "log-from-cal" }), { status: 201 })),
-  http.get(GCAL_EVENTS_URL, () => HttpResponse.json({ items: [] })),
 ];
 

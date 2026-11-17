@@ -57,15 +57,19 @@ async def test_data_test_tidak_terlihat_koneksi_lain(db_session, database_uji_ur
 
 
 async def test_patch_session_factory_menjangkau_modul_yang_membuka_sesi_sendiri(
-    api, db_session, session_factory
+    api, db_session, session_factory, monkeypatch
 ):
-    """AsyncSessionLocal di modul-modul pemakai diarahkan ke sesi test (bukan DB gagal-cepat)."""
+    """Service factories share one serialized wrapper around the test session factory."""
     import app.core.database as database
     import app.services.notification_service as notification_service
     import app.services.sla_timer as sla_timer
+    from tests.integration.conftest import patch_session_factory
 
-    for modul in (database, notification_service, sla_timer):
-        assert modul.AsyncSessionLocal is session_factory
+    first = database.AsyncSessionLocal
+    patch_session_factory(monkeypatch, session_factory)
+    assert database.AsyncSessionLocal is first
+    for modul in (notification_service, sla_timer):
+        assert modul.AsyncSessionLocal is first
 
     # Sesi dari AsyncSessionLocal melihat data uncommitted-ke-luar dari sesi test lain.
     db_session.add(

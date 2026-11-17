@@ -225,14 +225,18 @@ async def test_sweep_mengubah_hanya_pending_menjadi_failed_dan_idempoten(skenari
     assert await sweep_stale_pending_requirements() == 0
 
 
-async def test_startup_aplikasi_menjalankan_sweep(skenario):
-    from app.main import startup_register_adapters
+async def test_startup_aplikasi_menjalankan_sweep(skenario, monkeypatch):
+    from app.core.config import settings
+    from app.main import sla_scheduler, startup_register_adapters
 
     s = skenario
     pending = await _proyek_dengan_status(s, "pending")
 
+    # Exercise the sweep without launching the process-wide background scheduler
+    # against this test's transaction-bound connection.
+    monkeypatch.setattr(settings, "SLA_SCHEDULER_ENABLED", False)
     await startup_register_adapters()
-
+    assert not sla_scheduler.is_running
     assert (await s.proyek(pending)).requirement_generation_status == "failed"
 
 

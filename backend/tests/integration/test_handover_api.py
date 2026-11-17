@@ -6,10 +6,12 @@ Drive, dan hak akses per peran.
 Pasangan unit: `tests/test_dokumen_workflow_handover_unit.py`.
 """
 
+import asyncio
 import pytest
 from sqlalchemy import select
 
 from app.models import AuditLog, Document, Project
+from app.services.notification_service import notification_service
 from tests.integration.b6_support import (  # noqa: F401
     API,
     Dunia,
@@ -307,7 +309,7 @@ async def test_handover_sukses_mengirim_notifikasi_ke_pmo_dan_delivery_terdaftar
     resp = await _trigger(api, proyek.id_project, dunia.header["SA"])
 
     assert resp.status_code == 200, resp.text
-    notif = await notifikasi(db_session, event_type="handover")
+    notif = await notifikasi(db_session, event_type="handover", channel="in-app")
     assert {n.recipient_user_id for n in notif} == {pmo.id, delivery.id}
     assert len(notif) == 2
     for n in notif:
@@ -336,6 +338,7 @@ async def test_handover_sukses_mengirim_email_ke_penerima_terdaftar(
     pmo = bangun_user(role="SA", email=PMO, name="PMO")
     await simpan(db_session, pmo)
     proyek = await _proyek_siap(db_session, dunia)
+    api.drain_notifications = False
     fake_gmail.tahan_email()
 
     resp = await _trigger(api, proyek.id_project, dunia.header["Lead_SA"])
@@ -343,6 +346,7 @@ async def test_handover_sukses_mengirim_email_ke_penerima_terdaftar(
 
     assert resp.status_code == 200, resp.text
     await fake_gmail.tunggu_percobaan(2)
+    await asyncio.gather(*notification_service._background_tasks)
     surat = next(s for s in fake_gmail.terkirim if s.to == PMO)
     assert "Handover" in surat.subject
     assert surat.context["reference_id"] == proyek.id_project
@@ -397,6 +401,7 @@ async def test_handover_campuran_akun_dan_tanpa_akun(api, db_session, fake_drive
     pmo = bangun_user(role="SA", email=PMO, name="PMO")
     await simpan(db_session, pmo)
     proyek = await _proyek_siap(db_session, dunia)
+    api.drain_notifications = False
     fake_gmail.tahan_email()
 
     resp = await _trigger(api, proyek.id_project, dunia.header["Lead_SA"])
@@ -404,6 +409,7 @@ async def test_handover_campuran_akun_dan_tanpa_akun(api, db_session, fake_drive
 
     assert resp.status_code == 200, resp.text
     await fake_gmail.tunggu_percobaan(2)
+    await asyncio.gather(*notification_service._background_tasks)
     assert sorted(s.to for s in fake_gmail.terkirim) == [DELIVERY, PMO]
     assert {n.recipient_user_id for n in await notifikasi(db_session, event_type="handover")} == {
         pmo.id

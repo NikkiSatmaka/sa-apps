@@ -8,10 +8,13 @@ provisioning ditangkap lalu `_trigger_folder_provisioner` ASLI dijalankan setela
 `test_fake_boundary_contoh.py`).
 """
 
+import uuid
+from datetime import datetime, timezone
+
 import pytest
 from sqlalchemy import func, select
 
-from app.models import Subtask
+from app.models import IntegrationOperation, Subtask
 from app.services.folder_provisioner import folder_provisioner
 from app.services.sla_timer import sla_timer
 from tests.integration.conftest import patch_session_factory
@@ -40,6 +43,226 @@ def _sesi_service_terpatch(monkeypatch, session_factory):
 @pytest.fixture
 async def dunia(db_session):
     return await bangun_dunia(db_session)
+
+
+RETRY_OPERATION = "/api/v1/projects/{}/integration-operations/{}/retry"
+
+
+async def test_retry_sla_operation_rejects_missing_tracker(dunia, api):
+    project = await dunia.buat_proyek(
+        status="Assigned",
+        gdrive_solutions_folder_id="solutions-folder",
+    )
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type="sla",
+        action="solutions_lock",
+        status="failed",
+        retryable=True,
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        RETRY_OPERATION.format(project.id_project, operation.id),
+        headers=dunia.h["lead"],
+    )
+
+    persisted_operation = (
+        await dunia.db.execute(
+            select(IntegrationOperation)
+            .where(IntegrationOperation.id == operation.id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    assert response.status_code == 409
+    assert response.json()["message"] == "The project's SLA tracker is no longer available."
+    assert (persisted_operation.status, persisted_operation.attempts) == ("failed", [])
+
+
+async def test_retry_sla_lock_rejects_stale_dq_state(dunia, api):
+    project = await dunia.buat_proyek(
+        status="Assigned",
+        dq_number="DQ-TEST",
+        gdrive_solutions_folder_id="solutions-folder",
+    )
+    await sla_timer.start_timer(project.id_project, datetime.now(timezone.utc), dunia.db)
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type="sla",
+        action="solutions_lock",
+        status="failed",
+        retryable=True,
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        RETRY_OPERATION.format(project.id_project, operation.id),
+        headers=dunia.h["lead"],
+    )
+
+    persisted_operation = (
+        await dunia.db.execute(
+            select(IntegrationOperation)
+            .where(IntegrationOperation.id == operation.id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    assert response.status_code == 409
+    assert response.json()["message"] == (
+        "The DQ state changed; the recorded SLA permission action is no longer current."
+    )
+    assert (persisted_operation.status, persisted_operation.attempts) == ("failed", [])
+
+
+async def test_retry_sla_lock_rejects_missing_solutions_folder(dunia, api):
+    project = await dunia.buat_proyek(status="Assigned")
+    await sla_timer.start_timer(project.id_project, datetime.now(timezone.utc), dunia.db)
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type="sla",
+        action="solutions_lock",
+        status="failed",
+        retryable=True,
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        RETRY_OPERATION.format(project.id_project, operation.id),
+        headers=dunia.h["lead"],
+    )
+
+    persisted_operation = (
+        await dunia.db.execute(
+            select(IntegrationOperation)
+            .where(IntegrationOperation.id == operation.id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    assert response.status_code == 409
+    assert response.json()["message"] == (
+        "The project no longer has the required Solutions folder and Sales PIC."
+    )
+    assert (persisted_operation.status, persisted_operation.attempts) == ("failed", [])
+
+
+async def test_retry_document_review_unlock_rejects_missing_document(dunia, api):
+    project = await dunia.buat_proyek(
+        status="Assigned",
+        dq_number="DQ-TEST",
+        gdrive_solutions_folder_id="solutions-folder",
+    )
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type="drive_permission",
+        action="document_review_unlock",
+        status="failed",
+        retryable=True,
+        context={
+            "document_id": "DOC-MISSING",
+            "folder_id": "solutions-folder",
+            "sales_email": dunia.sales.email,
+        },
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        RETRY_OPERATION.format(project.id_project, operation.id),
+        headers=dunia.h["lead"],
+    )
+
+    persisted_operation = (
+        await dunia.db.execute(
+            select(IntegrationOperation)
+            .where(IntegrationOperation.id == operation.id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    assert response.status_code == 409
+    assert response.json()["message"] == (
+        "The project or reviewed document state changed; this Drive action is no longer current."
+    )
+    assert (persisted_operation.status, persisted_operation.attempts) == ("failed", [])
+
+
+async def test_retry_integration_operation_requires_existing_project(dunia, api):
+    response = await api.client.post(
+        RETRY_OPERATION.format("PRJ-MISSING", uuid.uuid4()),
+        headers=dunia.h["lead"],
+    )
+
+    assert response.status_code == 404
+    assert response.json()["message"] == "Project not found."
+
+
+async def test_retry_integration_operation_requires_existing_operation(dunia, api):
+    project = await dunia.buat_proyek()
+
+    response = await api.client.post(
+        RETRY_OPERATION.format(project.id_project, uuid.uuid4()),
+        headers=dunia.h["lead"],
+    )
+
+    assert response.status_code == 404
+    assert response.json()["message"] == "Integration operation not found."
+
+
+async def test_retry_integration_operation_rejects_pending_operation(dunia, api):
+    project = await dunia.buat_proyek()
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type="drive_permission",
+        action="reassign_sa_access",
+        status="pending",
+        retryable=True,
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        RETRY_OPERATION.format(project.id_project, operation.id),
+        headers=dunia.h["lead"],
+    )
+
+    assert response.status_code == 409
+    assert response.json()["message"] == "This operation cannot be retried safely."
+    assert operation.status == "pending"
+
+
+async def test_retry_reassignment_rejects_changed_assignment(dunia, api):
+    project = await dunia.buat_proyek(
+        status="Assigned",
+        assigned_sa=dunia.sa.id,
+        gdrive_folder_id="drive-folder-current",
+    )
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type="drive_permission",
+        action="reassign_sa_access",
+        status="failed",
+        retryable=True,
+        context={
+            "master_folder_id": "drive-folder-current",
+            "old_sa_email": "old-sa@example.com",
+            "new_sa_email": "different-sa@example.com",
+        },
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        RETRY_OPERATION.format(project.id_project, operation.id),
+        headers=dunia.h["lead"],
+    )
+
+    assert response.status_code == 409
+    assert response.json()["message"] == (
+        "The project assignment changed; reconcile permissions from the current assignment."
+    )
+    assert operation.status == "failed"
 
 
 # ----------------------------------------------------------------------------- assign: alur penuh
@@ -122,6 +345,23 @@ async def test_assign_provisioning_gagal_status_failed_lalu_provision_ulang_berh
     assert (await ambil_sla(dunia.db, pid)) is not None
     assert len(await daftar_subtask(dunia.db, pid)) == 4
 
+    detail = await api.client.get(f"/api/v1/projects/{pid}", headers=dunia.h["lead"])
+    assert detail.status_code == 200, detail.text
+    operation = detail.json()["data"]["folder_provisioning_operation"]
+    assert operation["status"] == "failed"
+    assert len(operation["attempts"]) == 1
+    attempt = operation["attempts"][0]
+    assert attempt["attempt"] == 1
+    assert attempt["status"] == "failed"
+    assert attempt["started_at"] is not None and attempt["finished_at"] is not None
+    assert attempt["outcome"] == operation["outcome"] == "Drive provisioning failed"
+    assert attempt["actionable_error"] == operation["actionable_error"]
+    assert "manual provision" in operation["actionable_error"]
+    assert operation["started_at"] is not None
+    assert operation["finished_at"] is not None
+    assert operation["outcome"] == "Drive provisioning failed"
+    assert operation["actionable_error"]
+
     # Provision ulang (Lead_SA): menandai pending lalu menjadwalkan task yang sama.
     resp = await api.client.post(REPROVISION.format(pid), headers=dunia.h["lead"])
 
@@ -131,6 +371,14 @@ async def test_assign_provisioning_gagal_status_failed_lalu_provision_ulang_berh
     await jalankan_provisioning(dunia.db, tugas[1])
     p = await ambil_proyek(dunia.db, pid)
     assert p.folder_provisioning_status == "provisioned" and p.gdrive_folder_id is not None
+    detail = await api.client.get(f"/api/v1/projects/{pid}", headers=dunia.h["lead"])
+    operation = detail.json()["data"]["folder_provisioning_operation"]
+    assert operation["status"] == "succeeded"
+    assert len(operation["attempts"]) == 2
+    assert [entry["status"] for entry in operation["attempts"]] == ["failed", "succeeded"]
+    assert all(entry["started_at"] and entry["finished_at"] for entry in operation["attempts"])
+    assert operation["outcome"] == "Project Drive folders provisioned"
+    assert operation["actionable_error"] is None
 
     # Guard idempotensi (ADR 0006): sudah ada folder → 409 dan Drive tidak disentuh lagi.
     panggilan_sebelum = len(fake_drive.panggilan)
@@ -140,7 +388,7 @@ async def test_assign_provisioning_gagal_status_failed_lalu_provision_ulang_berh
     assert len(tugas) == 2
 
 
-async def test_provisioning_error_tak_terduga_tidak_meledak_dan_status_tetap_pending(
+async def test_provisioning_error_tak_terduga_dipersisten_dan_tetap_non_blocking(
     dunia, api, fake_drive, monkeypatch
 ):
     proyek = await dunia.buat_proyek()
@@ -159,7 +407,14 @@ async def test_provisioning_error_tak_terduga_tidak_meledak_dan_status_tetap_pen
     await jalankan_provisioning(dunia.db, tugas[0])  # tidak boleh raise
 
     p = await ambil_proyek(dunia.db, proyek.id_project)
-    assert p.folder_provisioning_status == "pending" and p.gdrive_folder_id is None
+    assert p.folder_provisioning_status == "failed" and p.gdrive_folder_id is None
+    detail = await api.client.get(
+        f"/api/v1/projects/{proyek.id_project}", headers=dunia.h["lead"]
+    )
+    operation = detail.json()["data"]["folder_provisioning_operation"]
+    assert operation["status"] == "failed"
+    assert operation["attempts"][0]["finished_at"] is not None
+    assert operation["actionable_error"]
 
 
 async def test_provisioning_proyek_hilang_dilewati_tanpa_menyentuh_drive(dunia, fake_drive):

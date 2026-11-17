@@ -458,7 +458,9 @@ async def test_reviewed_dengan_dq_kirim_doc_ready_dan_buka_akses_solutions_sales
     resp = await _ubah(api, dokumen, "Reviewed", dunia.header["SA"])
 
     assert resp.status_code == 200, resp.text
-    notif = await notifikasi(db_session, event_type="doc_ready", recipient_user_id=sales.id)
+    notif = await notifikasi(
+        db_session, event_type="doc_ready", recipient_user_id=sales.id, channel="in-app"
+    )
     assert len(notif) == 1
     assert notif[0].reference_id == proyek.id_project
     assert notif[0].notification_metadata["doc_id"] == dokumen.id_doc
@@ -536,7 +538,7 @@ async def test_proyek_tanpa_folder_solutions_notifikasi_tetap_terkirim_akses_dil
     resp = await _ubah(api, dokumen, "Reviewed", dunia.header["SA"])
 
     assert resp.status_code == 200
-    assert len(await notifikasi(db_session, event_type="doc_ready")) == 1
+    assert len(await notifikasi(db_session, event_type="doc_ready", channel="in-app")) == 1
     assert fake_drive.panggilan == []
 
 
@@ -552,7 +554,7 @@ async def test_kegagalan_drive_tidak_menggagalkan_transisi_dokumen(api, db_sessi
     assert (await muat(db_session, Document, id_doc=dokumen.id_doc)).status == "Reviewed"
     assert [p.berhasil for p in fake_drive.panggilan_operasi("unlock_solutions_folder")] == [False]
     assert fake_drive.peran("folder-solutions", dunia.user["Sales"].email) is None
-    assert len(await notifikasi(db_session, event_type="doc_ready")) == 1
+    assert len(await notifikasi(db_session, event_type="doc_ready", channel="in-app")) == 1
 
 
 async def test_kegagalan_notifikasi_tidak_menggagalkan_transisi_akses_solutions_tetap_dibuka(

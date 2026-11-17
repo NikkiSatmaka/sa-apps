@@ -26,7 +26,7 @@ from tests.integration.model_helpers import bangun_project, bangun_sla, bangun_s
 
 async def _ids(resp) -> set[str]:
     assert resp.status_code == 200, resp.text
-    return {p["id_project"] for p in resp.json()["data"]}
+    return {p["id_project"] for p in resp.json()["data"]["items"]}
 
 
 @pytest.fixture
@@ -60,6 +60,9 @@ async def dunia(api, db_session):
             sa2=sa2,
             lead=lead,
             admin=admin,
+            a1=a1,
+            b1=b1,
+            b2=b2,
             h=lambda self, u: bearer(u),
         ),
     )()
@@ -103,8 +106,8 @@ async def test_filter_status_dan_urutan_serta_bidang_respons(dunia):
     c, h = dunia.api.client, bearer(dunia.lead)
     assert await _ids(await c.get(URL, params={"status": "Assigned"}, headers=h)) == {"PRJ-B1"}
 
-    naik = (await c.get(URL, params={"sort": "bant_score"}, headers=h)).json()["data"]
-    turun = (await c.get(URL, params={"sort": "-bant_score"}, headers=h)).json()["data"]
+    naik = (await c.get(URL, params={"sort": "bant_score"}, headers=h)).json()["data"]["items"]
+    turun = (await c.get(URL, params={"sort": "-bant_score"}, headers=h)).json()["data"]["items"]
     assert [p["bant_score"] for p in naik] == [20, 70, 80]
     assert [p["bant_score"] for p in turun] == [80, 70, 20]
     ngawur = await c.get(URL, params={"sort": "kolom_ngawur"}, headers=h)
@@ -116,6 +119,65 @@ async def test_filter_status_dan_urutan_serta_bidang_respons(dunia):
     assert b1["assigned_sa"] == str(dunia.sa1.id)
     assert b1["use_case_tags"] == [] and b1["estimasi_nilai"] is None
     assert b1["created_at"] and b1["updated_at"]
+
+
+
+async def test_pagination_batas_dan_pengurutan_tiebreak(dunia):
+    # Nilai sama membuktikan bahwa urutan ID tetap deterministik lintas halaman.
+    updated_at = dunia.a1.updated_at
+    for project in (dunia.a1, dunia.b1, dunia.b2):
+        project.updated_at = updated_at
+    await dunia.db.commit()
+
+    c, h = dunia.api.client, bearer(dunia.lead)
+    page_1 = await c.get(URL, params={"page": 1, "page_size": 2}, headers=h)
+    page_2 = await c.get(URL, params={"page": 2, "page_size": 2}, headers=h)
+    past_end = await c.get(URL, params={"page": 3, "page_size": 2}, headers=h)
+
+    assert page_1.status_code == page_2.status_code == past_end.status_code == 200
+    first = page_1.json()["data"]
+    second = page_2.json()["data"]
+    assert [p["id_project"] for p in first["items"]] == ["PRJ-A1", "PRJ-B1"]
+    assert [p["id_project"] for p in second["items"]] == ["PRJ-B2"]
+    assert {
+        "total": first["total"],
+        "page": first["page"],
+        "page_size": first["page_size"],
+        "total_pages": first["total_pages"],
+    } == {"total": 3, "page": 1, "page_size": 2, "total_pages": 2}
+    assert second["page"] == 2 and second["total_pages"] == 2
+    assert past_end.json()["data"]["items"] == []
+
+    default = await c.get(URL, headers=h)
+    maximum = await c.get(URL, params={"page": 1, "page_size": 100}, headers=h)
+    too_large = await c.get(URL, params={"page": 1, "page_size": 101}, headers=h)
+    too_small = await c.get(URL, params={"page": 1, "page_size": 0}, headers=h)
+    invalid_page = await c.get(URL, params={"page": 0}, headers=h)
+    assert default.json()["data"]["page_size"] == 25
+    assert maximum.json()["data"]["page_size"] == 100
+    assert too_large.status_code == too_small.status_code == invalid_page.status_code == 422
+
+async def test_filter_search_sort_dipertahankan_lintas_halaman(dunia):
+    c, h = dunia.api.client, bearer(dunia.sales_b)
+    common = {
+        "involved": "me",
+        "search": "Cust",
+        "sort": "-bant_score",
+        "page_size": 1,
+    }
+    page_1 = await c.get(URL, params={**common, "page": 1}, headers=h)
+    page_2 = await c.get(URL, params={**common, "page": 2}, headers=h)
+    by_status = await c.get(
+        URL,
+        params={**common, "status": "Assigned", "page": 1},
+        headers=h,
+    )
+
+    assert [p["id_project"] for p in page_1.json()["data"]["items"]] == ["PRJ-B1"]
+    assert [p["id_project"] for p in page_2.json()["data"]["items"]] == ["PRJ-B2"]
+    assert page_2.json()["data"]["total"] == 2
+    assert [p["id_project"] for p in by_status.json()["data"]["items"]] == ["PRJ-B1"]
+    assert by_status.json()["data"]["total"] == 1
 
 
 async def test_status_summary_semua_peran_melihat_semua_proyek_dan_penyempit(dunia):

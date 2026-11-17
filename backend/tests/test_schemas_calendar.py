@@ -21,7 +21,6 @@ from app.schemas.calendar import (
     CalendarEventResponse,
     CalendarMapRequest,
     CalendarMapResponse,
-    CalendarSyncRequest,
     CalendarSyncResponse,
 )
 
@@ -55,12 +54,6 @@ def _ditolak(**data) -> str:
         CalendarMapRequest(**data)
     return str(exc.value)
 
-
-class TestCalendarSyncRequest:
-    def test_access_token_wajib(self):
-        assert CalendarSyncRequest(access_token="tok").access_token == "tok"
-        with pytest.raises(ValidationError):
-            CalendarSyncRequest()
 
 
 class TestCalendarMapRequestValid:

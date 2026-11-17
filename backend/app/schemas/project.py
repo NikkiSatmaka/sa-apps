@@ -5,10 +5,12 @@ Validasi input form request pre-sales sesuai requirement 2.1.
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
+
+from app.schemas.integration_operation import IntegrationOperationResponse
 
 
 class ProjectCreate(BaseModel):
@@ -83,6 +85,80 @@ class OrangProyek(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
 
+
+
+class ProjectListPersonResponse(BaseModel):
+    """Ringkasan orang yang disertakan dalam item daftar proyek."""
+
+    id: str
+    name: Optional[str] = None
+    email: Optional[str] = None
+
+
+class ProjectListItemResponse(BaseModel):
+    """Satu item daftar proyek yang telah dipaginasi."""
+
+    id_project: str
+    project_name: str
+    customer_name: str
+    status: str
+    qualification_state: Optional[str] = None
+    dq_number: Optional[str] = None
+    bant_score: Optional[int] = None
+    use_case_tags: list[str]
+    estimasi_nilai: Optional[str] = None
+    target_submit: Optional[str] = None
+    assigned_sa: Optional[str] = None
+    created_by: Optional[ProjectListPersonResponse] = None
+    product_pic: Optional[ProjectListPersonResponse] = None
+    sales_pic: Optional[ProjectListPersonResponse] = None
+    gdrive_folder_id: Optional[str] = None
+    folder_provisioning_status: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ProjectListPageResponse(BaseModel):
+    """Paginated page returned by GET /projects."""
+
+    items: list[ProjectListItemResponse]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class ProjectDetailResponse(BaseModel):
+    """Detail payload returned by GET /projects/{project_id}."""
+
+    id_project: str
+    project_name: str
+    customer_name: str
+    status: str
+    qualification_state: Optional[str] = None
+    previous_status: Optional[str] = None
+    lost_reason: Optional[str] = None
+    dq_number: Optional[str] = None
+    bant_score: Optional[int] = None
+    bant_detail: Optional[dict[str, Any]] = None
+    qualification: Optional[dict[str, Any]] = None
+    use_case_tags: list[str] = Field(default_factory=list)
+    estimasi_nilai: Optional[str] = None
+    target_submit: Optional[str] = None
+    created_by: Optional[ProjectListPersonResponse] = None
+    product_pic: Optional[ProjectListPersonResponse] = None
+    sales_pic: Optional[ProjectListPersonResponse] = None
+    lead_sa: Optional[ProjectListPersonResponse] = None
+    assigned_sa: Optional[ProjectListPersonResponse] = None
+    collaborators: list[dict[str, Any]] = Field(default_factory=list)
+    gdrive_folder_id: Optional[str] = None
+    gdrive_solutions_folder_id: Optional[str] = None
+    source_documents: list[dict[str, Any]] = Field(default_factory=list)
+    folder_provisioning_status: Optional[str] = None
+    folder_provisioning_operation: Optional[dict[str, Any]] = None
+    integration_operations: list[IntegrationOperationResponse] = Field(default_factory=list)
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 class ProjectResponse(BaseModel):
     """

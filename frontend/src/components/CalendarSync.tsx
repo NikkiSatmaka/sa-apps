@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
-import { fetcher, apiRequest } from "@/lib/fetcher";
+import { useState, useCallback, useMemo } from "react";
+import type { CalendarEvent, MapFormState } from "./useCalendarIntegration";
+import { useCalendarIntegration } from "./useCalendarIntegration";
 
 /**
  * Komponen Calendar Sync — tampilan kalender bulanan Google Calendar
  *
  * Alur:
- * 1. Sync Calendar → fetch events (7 hari lalu + 7 hari depan) via OAuth token
+ * 1. Sync Calendar → fetch events (7 hari lalu + 7 hari depan) dengan sesi OAuth server
  * 2. Event ditandai sebagai titik pada grid kalender bulanan
  * 3. Klik tanggal → panel detail menampilkan event pada hari itu
  * 4. Klik "Map ke Subtask" pada event → modal pilih proyek + subtask + durasi
@@ -59,42 +60,6 @@ const MONTH_LABELS = [
   "Juli", "Agustus", "September", "Oktober", "November", "Desember",
 ];
 
-// Konstanta Google Calendar API — fetch langsung dari browser.
-// Dilakukan di sisi klien (bukan via backend /calendar/sync) untuk menghindari
-// WAF Cloudflare yang memblokir POST ke origin dengan payload token.
-// Token Google (OAuth) dikirim langsung browser -> Google via HTTPS.
-const GCAL_EVENTS_ENDPOINT =
-  "https://www.googleapis.com/calendar/v3/calendars/primary/events";
-const GCAL_RANGE_DAYS = 7;
-const GCAL_MAX_RESULTS = 200;
-
-/** Bentuk mentah item event dari Google Calendar API */
-interface GCalRawEvent {
-  id?: string;
-  summary?: string;
-  description?: string;
-  start?: { date?: string; dateTime?: string };
-  end?: { date?: string; dateTime?: string };
-}
-
-/**
- * Parse satu item event Google menjadi CalendarEvent.
- * Mereplikasi logika backend: deteksi all-day via 'date' vs 'dateTime'.
- */
-function parseGCalEvent(item: GCalRawEvent): CalendarEvent | null {
-  if (!item.id) return null;
-  const startRaw = item.start || {};
-  const endRaw = item.end || {};
-  const isAllDay = !!startRaw.date && !startRaw.dateTime;
-  return {
-    gcal_event_id: item.id,
-    title: item.summary || "(No Title)",
-    description: item.description,
-    start: isAllDay ? startRaw.date! : startRaw.dateTime || "",
-    end: isAllDay ? endRaw.date || "" : endRaw.dateTime || "",
-    is_all_day: isAllDay,
-  };
-}
 
 interface Project {
   id: string;
@@ -102,30 +67,13 @@ interface Project {
   status?: string;
 }
 
-interface CalendarEvent {
-  // Backend mengirim gcal_event_id (bukan id), lihat CalendarEventResponse
-  gcal_event_id: string;
-  title: string;
-  description?: string;
-  start: string;
-  end: string;
-  is_all_day: boolean;
-  is_mapped?: boolean;
-}
+
 
 interface CalendarSyncProps {
   /** Daftar proyek untuk mapping */
   projects: Project[];
 }
 
-interface MapFormState {
-  work_type: WorkType;
-  project_id: string;
-  project_phase: ProjectPhase;
-  subtask_category: string;
-  duration_hours: string;
-  raw_notes: string;
-}
 
 /** Kunci tanggal lokal (YYYY-MM-DD) dari string ISO atau tanggal all-day */
 function dateKey(iso: string): string {
@@ -148,156 +96,31 @@ function keyFromDate(d: Date): string {
 }
 
 export function CalendarSync({ projects }: CalendarSyncProps) {
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [hasSynced, setHasSynced] = useState(false);
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [mappedIds, setMappedIds] = useState<Set<string>>(new Set());
+  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const showToast = useCallback((type: "success" | "error", message: string) => {
+    setToast({ type, message });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+  const {
+    events,
+    hasSynced,
+    handleMap,
+    handleSync,
+    isMapping,
+    isSyncing,
+    mapForm,
+    mappedIds,
+    mappingEventId,
+    openMappingModal,
+    setMapForm,
+    setMappingEventId,
+  } = useCalendarIntegration(showToast);
 
   // Navigasi kalender
   const today = useMemo(() => new Date(), []);
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth()); // 0-11
   const [selectedKey, setSelectedKey] = useState<string>(keyFromDate(today));
-
-  // Mapping modal
-  const [mappingEventId, setMappingEventId] = useState<string | null>(null);
-  const [mapForm, setMapForm] = useState<MapFormState>({
-    work_type: "Project",
-    project_id: "",
-    project_phase: "Pre-Implementation",
-    subtask_category: "",
-    duration_hours: "1",
-    raw_notes: "",
-  });
-  const [isMapping, setIsMapping] = useState(false);
-  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
-
-  const showToast = useCallback((type: "success" | "error", message: string) => {
-    setToast({ type, message });
-    setTimeout(() => setToast(null), 3000);
-  }, []);
-
-  /**
-   * Tukar kode sekali pakai hasil redirect OAuth Calendar; Google token tidak pernah ada di Location.
-   */
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const hash = window.location.hash;
-    if (!hash) return;
-
-    const params = new URLSearchParams(hash.slice(1));
-    const code = params.get("gcal_code");
-    const error = params.get("gcal_error");
-    const legacyToken = params.has("gcal_token");
-    if (!code && !error && !legacyToken) return;
-
-    window.history.replaceState(null, "", window.location.pathname + window.location.search);
-    if (legacyToken && !code && !error) {
-      localStorage.removeItem("google_calendar_token");
-      showToast("error", "Otorisasi Google Calendar perlu diulang.");
-      return;
-    }
-    if (error) {
-      localStorage.removeItem("google_calendar_token");
-      showToast("error", "Otorisasi Google Calendar gagal. Silakan coba lagi.");
-      return;
-    }
-
-    void fetch(`${process.env.NEXT_PUBLIC_API_URL || "/api/v1"}/auth/calendar/exchange`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code }),
-    }).then(async (response) => {
-      if (!response.ok) throw new Error("Kode kalender tidak valid");
-      const result = await response.json();
-      localStorage.setItem("google_calendar_token", result.access_token);
-      showToast("success", "Google Calendar terhubung. Klik Sync Calendar untuk memuat event.");
-    }).catch(() => {
-      localStorage.removeItem("google_calendar_token");
-      showToast("error", "Otorisasi Google Calendar gagal. Silakan coba lagi.");
-    });
-  }, [showToast]);
-
-  /**
-   * Redirect ke Google OAuth untuk mendapatkan Calendar access token.
-   */
-  const redirectToGoogleAuth = useCallback(async () => {
-    try {
-      const result = await fetcher<{ auth_url: string }>("/calendar/auth-url");
-      window.location.href = result.auth_url;
-    } catch {
-      showToast("error", "Gagal memulai otorisasi Google Calendar");
-    }
-  }, [showToast]);
-
-  /**
-   * Sync calendar — fetch events LANGSUNG dari Google Calendar API di browser.
-   * Tidak lagi via backend /calendar/sync agar tidak kena WAF Cloudflare.
-   * Jika token belum ada, redirect ke Google OAuth dulu.
-   */
-  const handleSync = useCallback(async () => {
-    const gcalToken = localStorage.getItem("google_calendar_token");
-
-    if (!gcalToken) {
-      showToast("success", "Mengarahkan ke Google untuk otorisasi Calendar...");
-      await redirectToGoogleAuth();
-      return;
-    }
-
-    setIsSyncing(true);
-    try {
-      // Rentang: 7 hari lalu sampai 7 hari depan
-      const now = new Date();
-      const timeMin = new Date(now.getTime() - GCAL_RANGE_DAYS * 86400000).toISOString();
-      const timeMax = new Date(now.getTime() + GCAL_RANGE_DAYS * 86400000).toISOString();
-      const query = new URLSearchParams({
-        timeMin,
-        timeMax,
-        maxResults: String(GCAL_MAX_RESULTS),
-        singleEvents: "true",
-        orderBy: "startTime",
-      });
-
-      const resp = await fetch(`${GCAL_EVENTS_ENDPOINT}?${query.toString()}`, {
-        headers: {
-          Authorization: `Bearer ${gcalToken}`,
-          Accept: "application/json",
-        },
-      });
-
-      // Token kedaluwarsa / tidak sah → minta re-auth
-      if (resp.status === 401 || resp.status === 403) {
-        localStorage.removeItem("google_calendar_token");
-        showToast("error", "Token Google Calendar kedaluwarsa. Silakan sync ulang untuk otorisasi.");
-        return;
-      }
-      if (!resp.ok) {
-        showToast("error", `Gagal sync calendar (Google ${resp.status}).`);
-        return;
-      }
-
-      const data = await resp.json();
-      const items: GCalRawEvent[] = Array.isArray(data?.items) ? data.items : [];
-      const fetched = items
-        .map(parseGCalEvent)
-        .filter((e): e is CalendarEvent => e !== null);
-
-      setEvents(fetched);
-      setHasSynced(true);
-      showToast(
-        "success",
-        fetched.length > 0
-          ? `Calendar tersinkronisasi — ${fetched.length} event ditemukan`
-          : "Calendar tersinkronisasi, tidak ada event pada rentang 7 hari ini"
-      );
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Gagal sync calendar";
-      showToast("error", message);
-    } finally {
-      setIsSyncing(false);
-    }
-  }, [showToast, redirectToGoogleAuth]);
 
   /** Kelompokkan event per tanggal (key YYYY-MM-DD) */
   const eventsByDate = useMemo(() => {
@@ -368,76 +191,6 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
 
   const todayKey = keyFromDate(today);
 
-  /** Buka modal mapping untuk event tertentu */
-  const openMappingModal = (eventId: string) => {
-    const event = events.find((e) => e.gcal_event_id === eventId);
-    setMappingEventId(eventId);
-    setMapForm({
-      work_type: "Project",
-      project_id: "",
-      project_phase: "Pre-Implementation",
-      subtask_category: "",
-      duration_hours: event ? calculateDuration(event.start, event.end, event.is_all_day) : "1",
-      raw_notes: event?.description || "",
-    });
-  };
-
-  /** Hitung durasi (jam) dari start-end, kelipatan 0.25 */
-  const calculateDuration = (start: string, end: string, isAllDay: boolean): string => {
-    if (isAllDay) return "8";
-    const diff = (new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60);
-    return diff > 0 ? Math.round(diff * 4) / 4 + "" : "1";
-  };
-
-  /** Submit mapping — POST /calendar/map */
-  const handleMap = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      const isProject = mapForm.work_type === "Project";
-      if (!mappingEventId || !mapForm.subtask_category || (isProject && !mapForm.project_id)) {
-        showToast("error", isProject ? "Proyek dan subtask wajib dipilih" : "Subtask wajib dipilih");
-        return;
-      }
-
-      const event = events.find((ev) => ev.gcal_event_id === mappingEventId);
-      if (!event) return;
-
-      setIsMapping(true);
-      try {
-        const body: Record<string, unknown> = {
-          gcal_event_id: mappingEventId,
-          work_type: mapForm.work_type,
-          subtask_category: mapForm.subtask_category,
-          duration_hours: parseFloat(mapForm.duration_hours) || undefined,
-          raw_notes: mapForm.raw_notes.trim() || undefined,
-          event_title: event.title,
-          event_description: event.description || undefined,
-          is_all_day: event.is_all_day,
-          event_start: event.start,
-          event_end: event.end,
-        };
-        if (isProject) {
-          body.project_id = mapForm.project_id;
-          body.project_phase = mapForm.project_phase;
-        }
-
-        await apiRequest("/calendar/map", {
-          method: "POST",
-          body,
-        });
-
-        setMappedIds((prev) => new Set(prev).add(mappingEventId));
-        setMappingEventId(null);
-        showToast("success", "Event berhasil di-mapping ke subtask proyek");
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "Gagal mapping event";
-        showToast("error", message);
-      } finally {
-        setIsMapping(false);
-      }
-    },
-    [mappingEventId, mapForm, events, showToast]
-  );
 
   /** Format jam event (HH:mm) atau "Seharian" */
   const formatEventTime = (event: CalendarEvent): string => {
@@ -540,7 +293,7 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
           {/* Label hari */}
           <div className="grid grid-cols-7 gap-1 mb-1">
             {WEEKDAY_LABELS.map((w) => (
-              <div key={w} className="text-center text-[11px] font-medium text-neutral-400 py-1">
+              <div key={w} className="text-center text-[11px] font-medium text-neutral-600 py-1">
                 {w}
               </div>
             ))}
@@ -590,7 +343,7 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
           </div>
 
           {!hasSynced && (
-            <p className="mt-4 text-center text-xs text-neutral-400">
+            <p className="mt-4 text-center text-xs text-neutral-600">
               Klik &quot;Sync Calendar&quot; untuk memuat event dari Google Calendar
               (rentang 7 hari lalu sampai 7 hari depan).
             </p>
@@ -599,7 +352,7 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
 
         {/* Panel detail harian */}
         <div className="rounded-xl border border-neutral-200 p-4">
-          <p className="text-[11px] font-medium text-neutral-400 uppercase tracking-wide">
+          <p className="text-[11px] font-medium text-neutral-600 uppercase tracking-wide">
             Detail untuk
           </p>
           <h4 className="text-sm font-semibold text-neutral-800 mb-3">
@@ -607,7 +360,7 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
           </h4>
 
           {selectedEvents.length === 0 ? (
-            <div className="py-8 text-center text-sm text-neutral-400">
+            <div className="py-8 text-center text-sm text-neutral-600">
               {hasSynced
                 ? "Tidak ada event pada tanggal ini"
                 : "Belum ada event. Sinkronkan calendar terlebih dahulu."}
@@ -615,7 +368,7 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
           ) : (
             <div className="space-y-2">
               {selectedEvents.map((event) => {
-                const isMapped = mappedIds.has(event.gcal_event_id) || event.is_mapped;
+                const isMapped = mappedIds.has(event.gcal_event_id);
                 return (
                   <div
                     key={event.gcal_event_id}
@@ -635,7 +388,7 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
                     </div>
                     <p className="text-xs text-neutral-500">{formatEventTime(event)}</p>
                     {event.description && (
-                      <p className="text-xs text-neutral-400 mt-1 line-clamp-2">
+                      <p className="text-xs text-neutral-600 mt-1 line-clamp-2">
                         {event.description}
                       </p>
                     )}

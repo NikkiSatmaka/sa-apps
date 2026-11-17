@@ -214,6 +214,9 @@ async def trigger_handover(
             db=db,
         )
     except HandoverError as e:
+        # Handover failure notifications use service-owned sessions. Commit the request's
+        # savepoint before returning the error so those notifications survive this response.
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),

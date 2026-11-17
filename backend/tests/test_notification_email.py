@@ -4,23 +4,17 @@ Unit tests untuk pengiriman email via Gmail API di NotificationService.
 Menguji:
 - Jalur sukses: email terkirim via Gmail API (service di-mock, tanpa jaringan nyata).
 - Graceful fallback: tanpa kredensial Gmail, email di-skip tanpa crash.
-- Retry: _send_email_with_retry mencoba 3x dengan interval 30s saat send gagal.
+- Email delivery is attempted once; persisted outcome coverage lives in PostgreSQL integration tests.
 
 Semua panggilan Gmail API di-mock — tidak ada panggilan jaringan nyata.
 """
 
 import base64
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.services.notification_service import (
-    EMAIL_MAX_RETRIES,
-    EMAIL_RETRY_INTERVAL,
-    NotificationEvent,
-    NotificationEventType,
-    NotificationService,
-)
+from app.services.notification_service import NotificationService
 
 # =============================================================================
 # Fixtures & Helpers
@@ -197,82 +191,3 @@ class TestSendEmailSuccess:
         assert result is False
 
 
-# =============================================================================
-# Test: _send_email_with_retry — retry 3x interval 30s
-# =============================================================================
-
-
-class TestSendEmailRetry:
-    """Kontrak retry: 3x percobaan dengan jeda 30 detik."""
-
-    def test_konstanta_retry(self):
-        """Konstanta retry sesuai kontrak spec (3x, 30s)."""
-        assert EMAIL_MAX_RETRIES == 3
-        assert EMAIL_RETRY_INTERVAL == 30
-
-    @pytest.mark.asyncio
-    async def test_retry_3x_lalu_failed(self, service):
-        """Semua percobaan gagal → 3x send + 2x sleep 30s + status 'failed'."""
-        event = NotificationEvent(
-            event_type=NotificationEventType.ASSIGNMENT,
-            recipient_user_id=__import__("uuid").uuid4(),
-            recipient_email="user@company.com",
-            reference_id="PRJ-001",
-        )
-
-        mock_db = AsyncMock()
-        mock_db.add = MagicMock()
-        mock_db.commit = AsyncMock()
-        mock_db.execute = AsyncMock()
-
-        with patch(
-            "app.services.notification_service.AsyncSessionLocal",
-            return_value=AsyncMock(
-                __aenter__=AsyncMock(return_value=mock_db),
-                __aexit__=AsyncMock(return_value=False),
-            ),
-        ), patch.object(
-            service, "send_email", new_callable=AsyncMock, return_value=False
-        ) as mock_send, patch(
-            "app.services.notification_service.asyncio.sleep",
-            new_callable=AsyncMock,
-        ) as mock_sleep:
-            await service._send_email_with_retry(event)
-
-        # send_email dipanggil tepat EMAIL_MAX_RETRIES kali
-        assert mock_send.call_count == EMAIL_MAX_RETRIES
-        # sleep dipanggil (EMAIL_MAX_RETRIES - 1) kali dengan interval 30s
-        assert mock_sleep.call_count == EMAIL_MAX_RETRIES - 1
-        mock_sleep.assert_called_with(EMAIL_RETRY_INTERVAL)
-
-    @pytest.mark.asyncio
-    async def test_berhenti_saat_sukses(self, service):
-        """Sukses di percobaan pertama → tidak ada retry, tidak ada sleep."""
-        event = NotificationEvent(
-            event_type=NotificationEventType.ASSIGNMENT,
-            recipient_user_id=__import__("uuid").uuid4(),
-            recipient_email="user@company.com",
-            reference_id="PRJ-001",
-        )
-
-        mock_db = AsyncMock()
-        mock_db.add = MagicMock()
-        mock_db.commit = AsyncMock()
-        mock_db.execute = AsyncMock()
-
-        with patch(
-            "app.services.notification_service.AsyncSessionLocal",
-            return_value=AsyncMock(
-                __aenter__=AsyncMock(return_value=mock_db),
-                __aexit__=AsyncMock(return_value=False),
-            ),
-        ), patch.object(
-            service, "send_email", new_callable=AsyncMock, return_value=True
-        ) as mock_send, patch(
-            "app.services.notification_service.asyncio.sleep",
-            new_callable=AsyncMock,
-        ) as mock_sleep:
-            await service._send_email_with_retry(event)
-
-        assert mock_send.call_count == 1
-        mock_sleep.assert_not_called()

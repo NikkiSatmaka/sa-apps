@@ -16,7 +16,6 @@ from tests.integration.conftest import jalankan_alembic
 from tests.integration.test_migration import _head, _revisi_lama_ke_baru, _sql, _versi
 from tests.integration.test_migration_020_status import _proyek, _user
 
-REVISI_BARU = "024"
 REVISI_KOMENTAR = "023"
 REVISI_LAMA = "022"
 SEKARANG = datetime(2030, 1, 1, tzinfo=timezone.utc)
@@ -64,13 +63,12 @@ def _siapkan_head(url: str) -> tuple[str, str]:
     return _proyek(url, user, "PRJ-CMT", "Assigned"), user
 
 
-def test_revisi_023_adalah_head_dan_menyambung_ke_022(database_kosong_url):
+def test_revisi_023_menyambung_ke_022(database_kosong_url):
     jalankan_alembic(database_kosong_url, "upgrade", "head")
 
     urutan = _revisi_lama_ke_baru()
-    assert urutan[-1] == REVISI_BARU
     assert urutan[urutan.index(REVISI_KOMENTAR) - 1] == REVISI_LAMA
-    assert _versi(database_kosong_url) == _head() == REVISI_BARU
+    assert _versi(database_kosong_url) == _head()
 
 
 def test_upgrade_membuat_tabel_dan_constraint(database_kosong_url):
@@ -114,7 +112,7 @@ def test_upgrade_ulang_setelah_downgrade(database_kosong_url):
 
     jalankan_alembic(url, "upgrade", "head")
 
-    assert _versi(url) == REVISI_BARU
+    assert _versi(url) == _head()
     assert _ada_tabel(url)
 
 

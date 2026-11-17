@@ -483,17 +483,22 @@ class FolderProvisioner:
         Raises:
             FolderProvisioningError: Jika gagal setelah 3x retry
         """
-        logger.info(f"Unlocking folder Solutions ({solutions_folder_id}) untuk {sales_email}")
-
-        await self._execute_with_retry(
-            "restore_sales_permission",
-            self._set_permission_sync,
+        permission_id = await self._execute_with_retry(
+            "find_sales_permission",
+            self._find_permission_sync,
             solutions_folder_id,
             sales_email,
-            "reader",
         )
 
-        logger.info(f"Akses Viewer Sales dikembalikan ke folder Solutions")
+        if not permission_id:
+            await self._execute_with_retry(
+                "restore_sales_permission",
+                self._set_permission_sync,
+                solutions_folder_id,
+                sales_email,
+                "reader",
+            )
+        logger.info(f"Akses Viewer Sales tersedia di folder Solutions")
 
     async def provision_handover(
         self,

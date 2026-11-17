@@ -148,6 +148,8 @@ async def test_balapan_lintas_proses_unique_index_menyisakan_satu_baris_dan_stat
         yield
 
     monkeypatch.setattr(rg, "_project_lock", tanpa_lock)
+    # This test intentionally needs two independent sessions to reach the barrier concurrently.
+    monkeypatch.setattr("app.core.database.AsyncSessionLocal", nyata.factory)
     pagar = asyncio.Barrier(2)
     asli = rg._summarize
 

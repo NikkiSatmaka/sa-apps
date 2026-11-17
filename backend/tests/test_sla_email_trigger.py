@@ -31,25 +31,26 @@ def _session_returning(user):
     )
 
 
-class TestDispatchEmailForUser:
-    @pytest.mark.asyncio
-    async def test_noop_tanpa_gmail(self):
+    async def test_tanpa_gmail_tetap_mencoba_agar_hasil_gagal_dicatat(self):
         service = NotificationService()
-        service._send_email_with_retry = AsyncMock()
+        service._send_email_once = AsyncMock()
+        user = MagicMock(id=uuid.uuid4(), email="sales@company.com")
         with (
             patch.object(service, "_is_gmail_configured", return_value=False),
-            patch("app.services.notification_service.AsyncSessionLocal") as session_cls,
+            patch(
+                "app.services.notification_service.AsyncSessionLocal",
+                return_value=_session_returning(user),
+            ),
         ):
             await service.dispatch_email_for_user(
-                NotificationEventType.SLA_REMINDER, uuid.uuid4(), "PRJ-1", {"a": 1}
+                NotificationEventType.SLA_REMINDER, user.id, "PRJ-1", {"a": 1}
             )
-        session_cls.assert_not_called()
-        service._send_email_with_retry.assert_not_called()
-
+            await asyncio.gather(*service._background_tasks)
+        service._send_email_once.assert_awaited_once()
     @pytest.mark.asyncio
     async def test_kirim_email_bila_gmail_aktif(self):
         service = NotificationService()
-        service._send_email_with_retry = AsyncMock()
+        service._send_email_once = AsyncMock()
         user = MagicMock(id=uuid.uuid4(), email="sales@company.com")
         with (
             patch.object(service, "_is_gmail_configured", return_value=True),
@@ -63,8 +64,8 @@ class TestDispatchEmailForUser:
             )
             await asyncio.gather(*service._background_tasks)
 
-        service._send_email_with_retry.assert_awaited_once()
-        event = service._send_email_with_retry.call_args[0][0]
+        service._send_email_once.assert_awaited_once()
+        event = service._send_email_once.call_args[0][0]
         assert event.event_type == NotificationEventType.SLA_ESCALATION
         assert event.recipient_email == "sales@company.com"
         assert event.reference_id == "PRJ-1"

@@ -4,7 +4,25 @@ import { http, HttpResponse, api, gagalLaluBerhasil, renderWithProviders, router
 import { makeSalesProject } from "@/test/fixtures/shell";
 import SalesDashboard from "./page";
 
-const projects = (data: unknown) => server.use(http.get(api("/projects"), () => HttpResponse.json(successEnvelope(data))));
+function projectPage(data: unknown, page: number, pageSize: number) {
+  const all = Array.isArray(data) ? data : [];
+  return {
+    items: all.slice((page - 1) * pageSize, page * pageSize),
+    total: all.length,
+    page,
+    page_size: pageSize,
+    total_pages: Math.ceil(all.length / pageSize),
+  };
+}
+
+const projects = (data: unknown, urls?: URL[]) =>
+  server.use(http.get(api("/projects"), ({ request }) => {
+    const url = new URL(request.url);
+    urls?.push(url);
+    const page = Number(url.searchParams.get("page") ?? "1");
+    const pageSize = Number(url.searchParams.get("page_size") ?? "20");
+    return HttpResponse.json(successEnvelope(projectPage(data, page, pageSize)));
+  }));
 const summary = (data: unknown) =>
   server.use(http.get(api("/projects/status-summary"), () => HttpResponse.json(successEnvelope(data))));
 
@@ -42,8 +60,11 @@ describe("Dashboard requester (Sales dan Product)", () => {
     const urls: string[] = [];
     server.use(
       http.get(api("/projects"), ({ request }) => {
-        urls.push(new URL(request.url).search);
-        return HttpResponse.json(successEnvelope([]));
+        const url = new URL(request.url);
+        urls.push(url.search);
+        const page = Number(url.searchParams.get("page") ?? "1");
+        const pageSize = Number(url.searchParams.get("page_size") ?? "20");
+        return HttpResponse.json(successEnvelope(projectPage([], page, pageSize)));
       }),
       http.get(api("/projects/status-summary"), ({ request }) => {
         urls.push(new URL(request.url).search);
@@ -52,9 +73,26 @@ describe("Dashboard requester (Sales dan Product)", () => {
     );
     renderWithProviders(<SalesDashboard />, { role });
     await screen.findByText("Belum ada proyek");
-    expect(urls).toContain("?involved=me&sort=-updated_at");
+    expect(urls).toContain("?involved=me&sort=-updated_at&page=1&page_size=20");
     expect(urls).toContain("?involved=me");
-    expect(urls.some((u) => u.includes("sales_pic"))).toBe(false);
+    expect(urls.some((url) => url.includes("sales_pic"))).toBe(false);
+  });
+  it("membatasi kartu dashboard ke halaman yang diminta", async () => {
+    const urls: URL[] = [];
+    const items = Array.from({ length: 21 }, (_, index) =>
+      makeSalesProject({
+        id_project: `project-${index + 1}`,
+        project_name: `Project ${String(index + 1).padStart(2, "0")}`,
+      }),
+    );
+    projects(items, urls);
+    const { user } = renderWithProviders(<SalesDashboard />, { role: "Sales" });
+
+    expect(await screen.findByRole("button", { name: "Proyek Project 01 - PT Contoh" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Proyek Project 21 - PT Contoh" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Halaman berikutnya" }));
+    expect(await screen.findByRole("button", { name: "Proyek Project 21 - PT Contoh" })).toBeInTheDocument();
+    expect(urls.at(-1)?.search).toBe("?involved=me&sort=-updated_at&page=2&page_size=20");
   });
 
   it("kosong: empty state dan ringkasan kosong, CTA membuka form request baru", async () => {
@@ -96,7 +134,11 @@ describe("Dashboard requester (Sales dan Product)", () => {
   });
 
   it("error memuat proyek: pesan error (bukan empty state) dan coba lagi memuat ulang daftar", async () => {
-    server.use(gagalLaluBerhasil("/projects", [makeSalesProject({ project_name: "Pulih", customer_name: "PT P" })]));
+    server.use(gagalLaluBerhasil("/projects", projectPage(
+      [makeSalesProject({ project_name: "Pulih", customer_name: "PT P" })],
+      1,
+      20,
+    )));
     const { user } = renderWithProviders(<SalesDashboard />, { role: "Sales" });
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Gagal memuat daftar proyek.");

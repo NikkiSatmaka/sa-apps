@@ -298,7 +298,9 @@ async def test_won_mengirim_satu_notifikasi_wajib_hld_ke_sa(api, db_session):
     resp = await _ubah(api, proyek.id_project, "Won", dunia.header["Lead_SA"])
 
     assert resp.status_code == 200, resp.text
-    notif = await notifikasi(db_session, reference_id=proyek.id_project)
+    notif = await notifikasi(
+        db_session, channel="in-app", reference_id=proyek.id_project
+    )
     assert len(notif) == 1
     assert notif[0].event_type == "status_change"
     assert notif[0].recipient_user_id == dunia.user["SA"].id
@@ -327,7 +329,9 @@ async def test_won_mengirim_notifikasi_hld_ke_sa_utama_dan_semua_sa_tambahan(api
     resp = await _ubah(api, proyek.id_project, "Won", dunia.header["Lead_SA"])
 
     assert resp.status_code == 200, resp.text
-    notif = await notifikasi(db_session, reference_id=proyek.id_project)
+    notif = await notifikasi(
+        db_session, channel="in-app", reference_id=proyek.id_project
+    )
     assert {n.recipient_user_id for n in notif} == {
         dunia.user["SA"].id,
         tambahan_1.id,
@@ -346,7 +350,9 @@ async def test_won_tidak_mengirim_notifikasi_hld_ke_sales_product_atau_lead_sa_l
 
     await _ubah(api, proyek.id_project, "Won", dunia.header["Sales"])
 
-    notif = await notifikasi(db_session, reference_id=proyek.id_project)
+    notif = await notifikasi(
+        db_session, channel="in-app", reference_id=proyek.id_project
+    )
     assert [n.recipient_user_id for n in notif] == [dunia.user["SA"].id]
 
 
@@ -364,7 +370,9 @@ async def test_won_hanya_sa_tambahan_tanpa_sa_utama_tetap_mendapat_notifikasi(ap
     resp = await _ubah(api, proyek.id_project, "Won", dunia.header["Lead_SA"])
 
     assert resp.status_code == 200, resp.text
-    notif = await notifikasi(db_session, reference_id=proyek.id_project)
+    notif = await notifikasi(
+        db_session, channel="in-app", reference_id=proyek.id_project
+    )
     assert [n.recipient_user_id for n in notif] == [tambahan.id]
 
 
@@ -378,7 +386,9 @@ async def test_notifikasi_hld_tidak_terkirim_lagi_pada_transisi_berikutnya_yang_
     ulang = await _ubah(api, proyek.id_project, "Won", dunia.header["Lead_SA"])
 
     assert ulang.status_code == 400
-    assert len(await notifikasi(db_session, reference_id=proyek.id_project)) == 1
+    assert len(
+        await notifikasi(db_session, channel="in-app", reference_id=proyek.id_project)
+    ) == 1
 
 
 @pytest.mark.parametrize(
@@ -392,7 +402,7 @@ async def test_transisi_selain_won_tidak_mengirim_notifikasi_hld(
 
     await _ubah(api, proyek.id_project, akhir, dunia.header["Lead_SA"])
 
-    assert await notifikasi(db_session, reference_id=proyek.id_project) == []
+    assert await notifikasi(db_session, channel="in-app", reference_id=proyek.id_project) == []
 
 
 async def test_won_tanpa_sa_ditugaskan_melewati_notifikasi_transisi_tetap_berhasil(
@@ -405,7 +415,7 @@ async def test_won_tanpa_sa_ditugaskan_melewati_notifikasi_transisi_tetap_berhas
 
     assert resp.status_code == 200, resp.text
     assert await _status(db_session, proyek.id_project) == "Won"
-    assert await notifikasi(db_session, reference_id=proyek.id_project) == []
+    assert await notifikasi(db_session, channel="in-app", reference_id=proyek.id_project) == []
 
 
 async def test_kegagalan_notifikasi_hld_tidak_menggagalkan_transisi(api, db_session, monkeypatch):

@@ -67,7 +67,9 @@ async def _proyek(dunia, **o):
 
 async def _penerima(db, id_project) -> list:
     q = select(NotificationLog).where(
-        NotificationLog.event_type == "komentar", NotificationLog.reference_id == id_project
+        NotificationLog.event_type == "komentar",
+        NotificationLog.reference_id == id_project,
+        NotificationLog.channel == "in-app",
     )
     return list((await db.execute(q.execution_options(populate_existing=True))).scalars().all())
 

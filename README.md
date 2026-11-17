@@ -69,8 +69,8 @@ sa-apps/                        # Root repository (= root di VM)
 │   ├── Dockerfile             # Multi-stage build
 │   └── package.json
 ├── .kiro/specs/sa-portal-mvp/ # Spec documents (requirements, design, tasks)
-├── compose.yaml                # Orchestration (3 services)
-├── deploy.sh                   # Script deployment otomatis
+├── compose.yaml                # Production images and fail-closed migrations
+├── deploy.sh                   # Safe image-based deployment helper
 ├── .env.example                # Template environment variables
 └── README.md
 ```
@@ -84,195 +84,36 @@ sa-apps/                        # Root repository (= root di VM)
 git clone git@github.com:apeuta/sa-apps.git
 cd sa-apps
 
-# 2. Konfigurasi environment
+# 2. Configure environment
 cp .env.example .env
-# Edit .env — isi minimal: POSTGRES_PASSWORD, JWT_SECRET_KEY, GOOGLE_CLIENT_ID/SECRET, GEMINI_API_KEY
-
-# 3. Build dan jalankan
-docker compose up -d --build
-
-# 4. Verifikasi
-curl http://localhost:8000/health
-# Output: {"status":"success","data":{"api":"healthy","database":"healthy"}}
+# Edit .env with the required local values.
 ```
 
-Akses:
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:8000
-- **Swagger Docs**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
+3. Build and run the opt-in local Compose configuration:
+
+```bash
+docker compose -f compose.yaml -f compose.local.yaml up -d --build
+```
+
+4. Verify the backend:
+
+```bash
+curl http://localhost:8555/health
+```
+
+Access:
+- **Frontend**: http://localhost:3535
+- **Backend API**: http://localhost:8555
+- **Swagger Docs**: http://localhost:8555/docs
+- **ReDoc**: http://localhost:8555/redoc
 
 ---
 
-## Deployment di Ubuntu VM
+## Deployment
 
-### Prasyarat
-- Ubuntu 22.04+, minimal 2 vCPU / 4GB RAM / 30GB disk
-- Domain atau IP publik (untuk akses dari luar)
-- Port 80 dan 443 terbuka di firewall/security group
+`compose.yaml` is the production image-based configuration; it does not build application images from source. For current service ports, image publishing, migration ordering, backup/restore, rollback and smoke-check procedures, follow the authoritative [deployment and recovery guide](deployment.md).
 
-### Step-by-step
-
-```bash
-# 1. Install Docker
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin git
-
-# 2. Buat user deployment
-sudo adduser sa-portal --gecos ""
-sudo usermod -aG docker sa-portal
-sudo su - sa-portal
-
-# 3. Clone dan konfigurasi
-git clone git@github.com:apeuta/sa-apps.git ~/sa-portal
-cd ~/sa-portal
-cp .env.example .env
-nano .env  # Isi semua credentials
-
-# 4. Jalankan aplikasi
-docker compose up -d --build
-
-# 5. Setup Nginx reverse proxy (agar bisa diakses via port 80/443)
-# Lihat section "Setup Nginx" di bawah
-```
-
-### Setup Nginx (Akses dari Luar VM)
-
-```bash
-# Install Nginx
-sudo apt-get install -y nginx
-
-# Buat konfigurasi
-sudo nano /etc/nginx/sites-available/sa-portal
-```
-
-Isi file konfigurasi:
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;  # Ganti dengan domain atau IP publik VM
-
-    # Frontend (Next.js)
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    # Backend API
-    location /api/ {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        client_max_body_size 100M;  # Untuk file upload max 20MB x 5 files
-    }
-
-    # Swagger / ReDoc
-    location /docs {
-        proxy_pass http://127.0.0.1:8000/docs;
-        proxy_set_header Host $host;
-    }
-    location /redoc {
-        proxy_pass http://127.0.0.1:8000/redoc;
-        proxy_set_header Host $host;
-    }
-    location /openapi.json {
-        proxy_pass http://127.0.0.1:8000/openapi.json;
-        proxy_set_header Host $host;
-    }
-
-    # Health check
-    location /health {
-        proxy_pass http://127.0.0.1:8000/health;
-    }
-}
-```
-
-Aktifkan konfigurasi:
-
-```bash
-sudo ln -s /etc/nginx/sites-available/sa-portal /etc/nginx/sites-enabled/
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t
-sudo systemctl restart nginx
-sudo systemctl enable nginx
-```
-
-### Setup SSL dengan Let's Encrypt (HTTPS)
-
-```bash
-# Install Certbot
-sudo apt-get install -y certbot python3-certbot-nginx
-
-# Generate SSL certificate (ganti dengan domain Anda)
-sudo certbot --nginx -d your-domain.com
-
-# Auto-renewal sudah diatur otomatis oleh certbot
-sudo certbot renew --dry-run  # Test renewal
-```
-
-### Buka Firewall
-
-```bash
-# UFW (Ubuntu default firewall)
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw allow 22/tcp  # SSH
-sudo ufw enable
-sudo ufw status
-
-# Jika pakai AWS Security Group:
-# - Buka Inbound Rule port 80 (HTTP) dan 443 (HTTPS) dari 0.0.0.0/0
-# - Port 22 (SSH) dari IP Anda saja
-```
-
-### Update .env untuk Produksi
-
-Setelah Nginx dan SSL aktif, update `.env`:
-
-```env
-# Ganti localhost dengan domain/IP publik
-GOOGLE_REDIRECT_URI=https://your-domain.com/api/v1/auth/callback
-NEXT_PUBLIC_API_URL=https://your-domain.com/api/v1
-FRONTEND_URL=https://your-domain.com
-```
-
-Restart aplikasi:
-```bash
-docker compose down
-docker compose up -d --build
-```
-
----
-
-## Update Deployment
-
-```bash
-ssh sa-portal@your-vm-ip
-cd ~/sa-portal
-git pull origin main
-docker compose down
-docker compose up -d --build
-docker compose logs -f --tail=50  # Monitor startup
-```
-
-Atau gunakan script otomatis:
-```bash
-./deploy.sh
-```
+For local development, use the explicit opt-in `compose.local.yaml` override documented in `CONTRIBUTING.md`. Do not use `docker compose down -v` or prune volumes to troubleshoot a database; those operations can delete persistent data. `./deploy.sh` now backs up and validates the database dump before pulling configured application images, then relies on Compose's fail-closed `backend-init` migration dependency.
 
 ---
 

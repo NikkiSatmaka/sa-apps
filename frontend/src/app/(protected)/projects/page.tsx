@@ -1,76 +1,51 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/fetcher";
 import { LoadError } from "@/components/LoadError";
+import { ProjectPagination } from "@/components/ProjectPagination";
 import { useAuthStore } from "@/store/auth";
 import { ProjectCard } from "@/components/ProjectCard";
 import { STATUS_PROYEK } from "@/lib/status";
 import { bisaMembuatProyek } from "@/lib/roles";
+import {
+  PROJECT_LIST_PAGE_SIZE,
+  projectListUrl,
+  type ProjectListPage,
+} from "@/lib/api/projects";
 
 /**
  * Halaman /projects — Daftar proyek dengan search dan filter status
  */
 
-interface ProjectItem {
-  id_project: string;
-  project_name: string;
-  customer_name: string;
-  status: string;
-  qualification_state?: string | null;
-  dq_number: string | null;
-  bant_score: number | null;
-  use_case_tags: string[];
-  target_submit: string | null;
-  updated_at: string | null;
-}
-
-
 export default function ProjectsPage() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
 
-  // State untuk search dan filter
+  // State untuk search, filter, dan halaman.
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-
-  // Sakelar "Hanya proyek saya": default mati (daftar penuh, ADR 0011); aktif memakai
-  // `involved=me` untuk semua peran (ADR 0014).
   const [hanyaSaya, setHanyaSaya] = useState(false);
+  const [page, setPage] = useState(1);
+
   const endpoint = user
-    ? `/projects?${hanyaSaya ? "involved=me&" : ""}sort=-updated_at`
+    ? projectListUrl({
+      page,
+      pageSize: PROJECT_LIST_PAGE_SIZE,
+      involved: hanyaSaya ? "me" : undefined,
+      status: statusFilter,
+      search: searchQuery,
+      sort: "-updated_at",
+    })
     : null;
 
-  const { data: projects, isLoading, error, mutate } = useSWR<ProjectItem[]>(
+  const { data: projects, isLoading, error, mutate } = useSWR<ProjectListPage>(
     endpoint,
-    fetcher
+    fetcher,
   );
-
-  // Filter client-side berdasarkan search dan status
-  const filteredProjects = useMemo(() => {
-    if (!projects) return [];
-    let result = projects;
-
-    // Filter berdasarkan status
-    if (statusFilter) {
-      result = result.filter((p) => p.status === statusFilter);
-    }
-
-    // Filter berdasarkan search (nama proyek atau customer)
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (p) =>
-          p.project_name.toLowerCase().includes(q) ||
-          p.customer_name.toLowerCase().includes(q) ||
-          (p.id_project && p.id_project.toLowerCase().includes(q))
-      );
-    }
-
-    return result;
-  }, [projects, searchQuery, statusFilter]);
+  const items = projects?.items ?? [];
 
   return (
     <div className="space-y-6">
@@ -99,7 +74,10 @@ export default function ProjectsPage() {
         <input
           type="checkbox"
           checked={hanyaSaya}
-          onChange={(e) => setHanyaSaya(e.target.checked)}
+          onChange={(e) => {
+            setHanyaSaya(e.target.checked);
+            setPage(1);
+          }}
           className="h-[18px] w-[18px] min-h-[18px] min-w-[18px] shrink-0 rounded border-neutral-300 accent-primary-600"
         />
         Hanya proyek saya
@@ -121,7 +99,10 @@ export default function ProjectsPage() {
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
               placeholder="Cari nama proyek atau customer..."
               className="w-full pl-10 pr-4 py-2.5 border border-neutral-300 rounded-lg text-sm
                 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500
@@ -133,7 +114,10 @@ export default function ProjectsPage() {
         {/* Filter status dropdown */}
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => {
+            setStatusFilter(e.target.value);
+            setPage(1);
+          }}
           className="px-3 py-2.5 border border-neutral-300 rounded-lg text-sm min-w-[180px]
             focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
         >
@@ -144,10 +128,9 @@ export default function ProjectsPage() {
         </select>
       </div>
 
-      {/* Jumlah hasil */}
       {!isLoading && projects && (
         <p className="text-xs text-neutral-500">
-          Menampilkan {filteredProjects.length} dari {projects.length} proyek
+          Menampilkan {items.length} dari {projects.total} proyek
         </p>
       )}
 
@@ -174,7 +157,7 @@ export default function ProjectsPage() {
       {/* Konten */}
       {!isLoading && projects && (
         <>
-          {filteredProjects.length === 0 ? (
+          {items.length === 0 ? (
             <div className="rounded-lg border border-neutral-200 bg-white p-12 text-center">
               <div className="mx-auto w-16 h-16 rounded-full bg-neutral-100 flex items-center justify-center mb-4">
                 <svg className="w-8 h-8 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -199,7 +182,11 @@ export default function ProjectsPage() {
               </p>
               {(searchQuery || statusFilter) && (
                 <button
-                  onClick={() => { setSearchQuery(""); setStatusFilter(""); }}
+                  onClick={() => {
+                    setSearchQuery("");
+                    setStatusFilter("");
+                    setPage(1);
+                  }}
                   className="px-4 py-2 text-sm font-medium text-primary-600 border border-primary-200
                              rounded-lg hover:bg-primary-50 transition-colors min-h-[44px]"
                 >
@@ -208,22 +195,31 @@ export default function ProjectsPage() {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredProjects.map((project) => (
-                <ProjectCard
-                  key={project.id_project}
-                  id={project.id_project}
-                  projectName={project.project_name}
-                  customerName={project.customer_name}
-                  status={project.status}
-                  qualificationState={project.qualification_state}
-                  dqNumber={project.dq_number}
-                  lastUpdated={project.updated_at || ""}
-                  bantScore={project.bant_score}
-                  onClick={() => router.push(`/projects/${project.id_project}`)}
-                />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {items.map((project) => (
+                  <ProjectCard
+                    key={project.id_project}
+                    id={project.id_project}
+                    projectName={project.project_name}
+                    customerName={project.customer_name}
+                    status={project.status}
+                    qualificationState={project.qualification_state}
+                    dqNumber={project.dq_number}
+                    lastUpdated={project.updated_at || ""}
+                    bantScore={project.bant_score}
+                    onClick={() => router.push(`/projects/${project.id_project}`)}
+                  />
+                ))}
+              </div>
+              <ProjectPagination
+                page={projects.page}
+                pageSize={projects.page_size}
+                total={projects.total}
+                totalPages={projects.total_pages}
+                onPageChange={setPage}
+              />
+            </>
           )}
         </>
       )}

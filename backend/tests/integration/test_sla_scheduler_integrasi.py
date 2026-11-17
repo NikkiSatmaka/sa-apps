@@ -14,6 +14,7 @@ import pytest
 from app.services import sla_scheduler as modul_scheduler
 from app.services.sla_scheduler import SLAScheduler
 from app.services.sla_timer import sla_timer
+from app.services.notification_service import notification_service
 from tests.integration.conftest import patch_session_factory
 from tests.integration.support_assignment import (
     T0,
@@ -33,6 +34,12 @@ def _sesi_service_terpatch(monkeypatch, session_factory):
 @pytest.fixture
 async def dunia(db_session):
     return await bangun_dunia(db_session)
+
+
+async def _tunggu_email():
+    pending = tuple(notification_service._background_tasks)
+    if pending:
+        await asyncio.gather(*pending)
 
 
 class GerbangTidur:
@@ -71,6 +78,7 @@ async def test_scheduler_memproses_tracker_di_database_lalu_berhenti_rapi(dunia,
 
     scheduler.start()
     await gerbang.tunggu_siklus()
+    await _tunggu_email()
 
     assert scheduler.is_running
     assert gerbang.interval == [3600]
@@ -107,6 +115,7 @@ async def test_scheduler_tahan_error_database_dan_lanjut_siklus_berikutnya(dunia
 
     scheduler.start()  # mulai ulang → siklus berikutnya berhasil memproses
     await gerbang.tunggu_siklus()
+    await _tunggu_email()
     assert len(await daftar_notif(dunia.db, proyek.id_project, "sla_reminder")) == 1
     await scheduler.stop()
     assert len(percobaan) == 2

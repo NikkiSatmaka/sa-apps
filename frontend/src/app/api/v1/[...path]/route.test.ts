@@ -5,7 +5,7 @@ import { http, HttpResponse, server } from "@/test";
 import { DELETE, GET, PATCH, POST, PUT } from "./route";
 
 const BACKEND = "http://backend:8000/api/v1";
-const FRONTEND = "http://localhost:3000";
+const FRONTEND = process.env.FRONTEND_URL || "http://localhost:3000";
 
 const ctx = (...path: string[]) => ({ params: Promise.resolve({ path }) });
 const req = (url: string, init?: ConstructorParameters<typeof NextRequest>[1]) =>
@@ -151,19 +151,19 @@ describe("proxy — auth/callback", () => {
     server.use(
       http.get(
         `${BACKEND}/auth/callback`,
-          () => new HttpResponse(null, { status: 302, headers: { Location: "http://localhost:3000/#gcal_code=once" } }),
+          () => new HttpResponse(null, { status: 302, headers: { Location: `${FRONTEND}/#gcal_code=once` } }),
       ),
     );
     const res = await callback();
     expect(res.status).toBe(307);
-    expect(res.headers.get("location")).toBe("http://localhost:3000/#gcal_code=once");
+    expect(res.headers.get("location")).toBe(`${FRONTEND}/#gcal_code=once`);
   });
 
   it("callback menolak Location yang memuat Google access token mentah", async () => {
     server.use(
       http.get(`${BACKEND}/auth/callback`, () => new HttpResponse(null, {
         status: 302,
-        headers: { Location: "http://localhost:3000/activity-logs/calendar#gcal_token=SECRET" },
+        headers: { Location: `${FRONTEND}/activity-logs/calendar#gcal_token=SECRET` },
       })),
     );
     const res = await callback();
@@ -237,7 +237,7 @@ describe("proxy — tidak membocorkan rahasia ke log server (#80)", () => {
         () =>
           new HttpResponse(null, {
             status: 302,
-            headers: { Location: "http://localhost:3000/#gcal_code=KODE-TERBATAS" },
+            headers: { Location: `${FRONTEND}/#gcal_code=KODE-TERBATAS` },
           }),
       ),
     );

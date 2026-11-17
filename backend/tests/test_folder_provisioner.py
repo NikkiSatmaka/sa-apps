@@ -342,17 +342,20 @@ class TestLockSolutionsFolder:
 class TestUnlockSolutionsFolder:
     """Test unlock (kembalikan akses Viewer Sales) ke folder Solutions."""
 
-    @pytest.mark.asyncio
     async def test_unlock_sukses(self, provisioner_with_service, mock_drive_service):
-        """Unlock berhasil menambahkan kembali permission Viewer untuk Sales."""
+        """Unlock membuat izin reader bila Sales belum punya izin."""
+        perm_list_mock = MagicMock()
+        perm_list_mock.execute.return_value = {"permissions": []}
+        mock_drive_service.permissions.return_value.list.return_value = perm_list_mock
+
         await provisioner_with_service.unlock_solutions_folder(
             solutions_folder_id="sol_folder_001",
             sales_email="sales@company.com",
         )
 
-        # Verifikasi permissions().create dipanggil dengan role reader
-        mock_drive_service.permissions.return_value.create.assert_called()
-
+        mock_drive_service.permissions.return_value.list.assert_called_once()
+        call = mock_drive_service.permissions.return_value.create.call_args
+        assert call.kwargs["body"]["role"] == "reader"
 
 # =============================================================================
 # Test: reassign_sa_access (#77)

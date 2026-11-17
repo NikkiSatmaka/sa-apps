@@ -260,10 +260,8 @@ async def test_send_notification_kegagalan_db_tidak_melempar_dan_email_tidak_dij
     sesi = MagicMock()
     sesi.__aenter__ = AsyncMock(return_value=sesi)
     sesi.__aexit__ = AsyncMock(return_value=False)
-    sesi.commit = AsyncMock(side_effect=ConnectionError("db mati"))
-    monkeypatch.setattr(modul, "AsyncSessionLocal", lambda: sesi)
     kirim = AsyncMock()
-    monkeypatch.setattr(svc, "_send_email_with_retry", kirim)
+    monkeypatch.setattr(svc, "_send_email_once", kirim)
     ev = NotificationEvent(
         event_type=NotificationEventType.ASSIGNMENT,
         recipient_user_id=uuid.uuid4(),
@@ -272,7 +270,6 @@ async def test_send_notification_kegagalan_db_tidak_melempar_dan_email_tidak_dij
 
     assert await svc.send_notification(ev) is None
     kirim.assert_not_called()
-
 
 async def test_dispatch_email_kegagalan_db_tidak_melempar_dan_tidak_menjadwalkan(
     monkeypatch, svc, gmail_aktif

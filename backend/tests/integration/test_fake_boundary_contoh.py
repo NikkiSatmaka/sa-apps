@@ -3,12 +3,14 @@ Contoh pemakaian fake boundary (tiket B3) lewat API nyata + Postgres sementara: 
 sukses dan satu gagal per fake. Test lain dapat menyalin pola ini.
 """
 
+import asyncio
 import json
 from datetime import date, timedelta
 
 from sqlalchemy import select
 
 from app.models import Project, User
+from app.services.notification_service import notification_service
 from tests.integration.fakes.calendar import event_berjadwal
 from tests.integration.kualifikasi_support import id_product_demo
 from tests.test_projects_questionnaire_api import jawaban_kuat
@@ -155,6 +157,7 @@ async def _won(api, db_session, lead: dict) -> tuple[str, User]:
 
 async def test_gmail_fake_email_hld_terekam(api, db_session, fake_gmail):
     lead = await api.login_demo("Lead_SA")
+    api.drain_notifications = False
     fake_gmail.tahan_email()
 
     id_project, sa = await _won(api, db_session, lead)
@@ -167,32 +170,54 @@ async def test_gmail_fake_email_hld_terekam(api, db_session, fake_gmail):
     assert surat.context["reference_id"] == id_project
 
 
-async def test_gmail_fake_gagal_dicoba_ulang_sampai_pulih(api, db_session, fake_gmail):
+async def test_gmail_fake_failure_does_not_retry_and_is_visible(api, db_session, fake_gmail):
     fake_gmail.fail_next(times=2)
     lead = await api.login_demo("Lead_SA")
+    api.drain_notifications = False
     fake_gmail.tahan_email()
 
-    await _won(api, db_session, lead)
+    id_project, _ = await _won(api, db_session, lead)
     fake_gmail.lepaskan_email()
 
-    await fake_gmail.tunggu_percobaan(3)
-    assert [s.berhasil for s in fake_gmail.percobaan] == [False, False, True]
+    await fake_gmail.tunggu_percobaan(1)
+    await asyncio.gather(*notification_service._background_tasks)
+    assert [attempt.berhasil for attempt in fake_gmail.percobaan] == [False]
 
+    detail = await api.client.get(f"{PROYEK}/{id_project}", headers=lead)
+    assert detail.status_code == 200, detail.text
+    operation = next(
+        item
+        for item in detail.json()["data"]["integration_operations"]
+        if item["operation_type"] == "email_delivery"
+        and item["status"] == "failed"
+    )
+    assert len(operation["attempts"]) == 1
+    assert operation["retryable"] is False
+    assert operation["actionable_error"]
 
 # ----------------------------------------------------------------------------- Calendar
 
 
-async def test_calendar_fake_sync_mengembalikan_event_terprogram(api, fake_calendar):
+async def test_calendar_fake_sync_mengembalikan_event_terprogram(api, db_session, fake_calendar):
     fake_calendar.set_events(
         event_berjadwal(
             "g1", "Demo ke pelanggan", "2025-01-06T09:00:00+07:00", "2025-01-06T11:00:00+07:00"
         )
     )
-    sa = await api.login_demo("SA")
+    from app.api.auth import CALENDAR_SESSION_COOKIE
+    from app.services.auth_service import auth_service
 
-    resp = await api.client.post(
-        "/api/v1/calendar/sync", json={"access_token": "tok-sa"}, headers=sa
+    sa = await api.login_demo("SA")
+    user = await db_session.scalar(select(User).where(User.email == "demo-sa@portal-sa.local"))
+    session_cookie = await auth_service.create_calendar_session(
+        db_session,
+        user_id=user.id,
+        access_token="tok-sa",
     )
+    await db_session.commit()
+    api.client.cookies.set(CALENDAR_SESSION_COOKIE, session_cookie)
+
+    resp = await api.client.post("/api/v1/calendar/sync", headers=sa)
 
     assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
@@ -202,10 +227,21 @@ async def test_calendar_fake_sync_mengembalikan_event_terprogram(api, fake_calen
     assert fake_calendar.access_token_diterima == ["tok-sa"]
 
 
-async def test_calendar_fake_timeout_dipetakan_ke_504(api, fake_calendar):
+async def test_calendar_fake_timeout_dipetakan_ke_504(api, db_session, fake_calendar):
+    from app.api.auth import CALENDAR_SESSION_COOKIE
+    from app.services.auth_service import auth_service
+
     fake_calendar.fail_next("timeout")
     sa = await api.login_demo("SA")
+    user = await db_session.scalar(select(User).where(User.email == "demo-sa@portal-sa.local"))
+    session_cookie = await auth_service.create_calendar_session(
+        db_session,
+        user_id=user.id,
+        access_token="t",
+    )
+    await db_session.commit()
+    api.client.cookies.set(CALENDAR_SESSION_COOKIE, session_cookie)
 
-    resp = await api.client.post("/api/v1/calendar/sync", json={"access_token": "t"}, headers=sa)
+    resp = await api.client.post("/api/v1/calendar/sync", headers=sa)
 
     assert resp.status_code == 504

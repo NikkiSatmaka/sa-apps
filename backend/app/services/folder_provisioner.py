@@ -37,7 +37,7 @@ class FolderProvisioningError(Exception):
 
 
 class FolderConflictError(FolderProvisioningError):
-    """A named Drive folder exists but cannot be safely associated with this operation."""
+    """Una carpeta de Drive con nombre existe, pero no puede asociarse de forma segura a esta operación."""
 
 
 @dataclass
@@ -70,13 +70,13 @@ class FolderProvisioner:
     """
 
     def __init__(self) -> None:
-        """Inisialisasi Google Drive service menggunakan service account credentials."""
+        """Inicializa el servicio de Google Drive con credenciales de cuenta de servicio."""
         self._drive_service = None
 
     def _get_drive_service(self):
         """
-        Lazy initialization Google Drive service.
-        Menggunakan service account key dari settings.
+        Inicialización diferida del servicio de Google Drive.
+        Usa la clave de cuenta de servicio configurada en settings.
         """
         if self._drive_service is not None:
             return self._drive_service
@@ -205,7 +205,7 @@ class FolderProvisioner:
 
 
     def _get_folder_metadata_sync(self, folder_id: str) -> dict[str, Any]:
-        """Read existing Drive metadata without changing the file or its permissions."""
+        """Lee metadatos existentes de Drive sin modificar el archivo ni sus permisos."""
         service = self._get_drive_service()
         return (
             service.files()
@@ -218,12 +218,12 @@ class FolderProvisioner:
         )
 
     async def get_folder_metadata(self, folder_id: str) -> dict[str, Any]:
-        """Read metadata for a Drive file; callers must validate folder and trash state."""
+        """Lee metadatos de un archivo de Drive; los llamadores deben validar la carpeta y su estado de eliminación."""
         return await self._execute_with_retry(
             "get_folder_metadata", self._get_folder_metadata_sync, folder_id
         )
     def _list_folder_children_sync(self, parent_id: str) -> list[dict[str, Any]]:
-        """List all immediate child folders for a Shared Drive folder."""
+        """Lista todas las carpetas secundarias directas de una carpeta de unidad compartida."""
         service = self._get_drive_service()
         children: list[dict[str, str]] = []
         page_token = None
@@ -250,7 +250,7 @@ class FolderProvisioner:
                 return children
 
     async def list_folder_children(self, parent_folder_id: str) -> list[dict[str, Any]]:
-        """List immediate child folders from Google Drive."""
+        """Lista las carpetas secundarias directas de Google Drive."""
         return await self._execute_with_retry(
             "list_folder_children", self._list_folder_children_sync, parent_folder_id
         )
@@ -312,7 +312,7 @@ class FolderProvisioner:
     async def ensure_customer_folder(
         self, customer_name: str, existing_folder_id: Optional[str] = None
     ) -> str:
-        """Reuse a stored Customer folder ID, or resolve/create one under the configured parent."""
+        """Reutiliza un ID de carpeta Customer guardado o busca/crea una en la carpeta principal configurada."""
         if existing_folder_id:
             return existing_folder_id
 
@@ -439,7 +439,7 @@ class FolderProvisioner:
         dq_number: Optional[str] = None,
         persist_master_folder_id: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> ProvisionedFolders:
-        """Create or resume a numbered Customer project folder and its subfolders."""
+        """Crea o reanuda una carpeta numerada de proyecto Customer y sus subcarpetas."""
         customer = getattr(project, "customer", None)
         customer_folder_id = getattr(customer, "gdrive_folder_id", None)
         master_id = project.gdrive_folder_id
@@ -528,15 +528,15 @@ class FolderProvisioner:
         old_sa_email: Optional[str],
         new_sa_email: str,
     ) -> None:
-        """Grant Editor access to the newly assigned SA without revoking team access.
+        """Concede acceso de Editor al SA recién asignado sin revocar el acceso del equipo.
 
         Args:
-            master_folder_id: ID folder master proyek (`gdrive_folder_id`)
-            old_sa_email: Email SA sebelumnya (dipertahankan sebagai anggota tim)
-            new_sa_email: Email SA baru yang ditugaskan
+            master_folder_id: ID de la carpeta maestra del proyecto (`gdrive_folder_id`)
+            old_sa_email: correo electrónico del SA anterior (se conserva como miembro del equipo)
+            new_sa_email: correo electrónico del nuevo SA asignado
 
         Raises:
-            FolderProvisioningError: Jika gagal setelah 3x retry
+            FolderProvisioningError: si falla después de 3 reintentos
         """
         if old_sa_email and old_sa_email.lower() == new_sa_email.lower():
             return
@@ -565,7 +565,7 @@ class FolderProvisioner:
     async def lock_solutions_folder(
         self, solutions_folder_id: str, sales_email: str, product_email: Optional[str] = None
     ) -> None:
-        """Remove assigned Sales and Product Viewer permissions from Solutions."""
+        """Retira de Solutions los permisos de Viewer de Sales y Product asignados."""
         for email in dict.fromkeys(filter(None, (sales_email, product_email))):
             permission_id = await self._execute_with_retry(
                 "find_requester_permission",
@@ -584,7 +584,7 @@ class FolderProvisioner:
     async def unlock_solutions_folder(
         self, solutions_folder_id: str, sales_email: str, product_email: Optional[str] = None
     ) -> None:
-        """Restore assigned Sales and Product Viewer permissions on Solutions."""
+        """Restaura en Solutions los permisos de Viewer de Sales y Product asignados."""
         for email in dict.fromkeys(filter(None, (sales_email, product_email))):
             permission_id = await self._execute_with_retry(
                 "find_requester_permission",

@@ -130,7 +130,7 @@ def _require_lead_sa(current_user: User) -> None:
 
 
 async def _reserve_project_folder(db: AsyncSession, project: Project) -> None:
-    """Persist the Customer Drive identity and a unique number before project-folder creation."""
+    """Guarda la identidad Customer y un número único antes de crear la carpeta del proyecto."""
     if project.customer_id is None:
         raise FolderProvisioningError(
             f"Project '{project.id_project}' has no Customer identity. Link it to a Customer "

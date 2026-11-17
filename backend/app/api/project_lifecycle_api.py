@@ -81,6 +81,12 @@ async def repair_project_customer_link(
     project = result.scalar_one_or_none()
     if project is None:
         raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
+    if current_user.role != "Lead_SA" and current_user.is_admin is not True:
+        raise HTTPException(
+            status_code=403,
+            detail="Hanya Lead SA atau Admin yang dapat memperbaiki tautan Customer.",
+        )
+    await ensure_project_access(db, project, current_user, TingkatAkses.KELOLA)
     customer = await db.get(Customer, body.customer_id)
     if customer is None:
         raise HTTPException(status_code=404, detail="Customer tidak ditemukan.")
@@ -229,7 +235,8 @@ async def preview_project_folder_registration(
     _require_folder_registration_operator(current_user)
     if not body.reason.strip():
         raise HTTPException(status_code=422, detail="Alasan pendaftaran wajib diisi.")
-    _, preview = await _read_project_folder_registration(project_id, body.folder_id, db)
+    project, preview = await _read_project_folder_registration(project_id, body.folder_id, db)
+    await ensure_project_access(db, project, current_user, TingkatAkses.KELOLA)
     return success_response(
         data={**preview, "reason": body.reason.strip()},
         message="Folder Drive berhasil diverifikasi.",
@@ -249,10 +256,10 @@ async def register_project_folder(
     reason = body.reason.strip()
     if not reason:
         raise HTTPException(status_code=422, detail="Alasan pendaftaran wajib diisi.")
-
     project, detected = await _read_project_folder_registration(
         project_id, body.folder_id, db
     )
+    await ensure_project_access(db, project, current_user, TingkatAkses.KELOLA)
     if body.preview is None or body.preview != {**detected, "reason": reason}:
         raise HTTPException(status_code=409, detail="Preview folder sudah berubah. Tinjau ulang sebelum mendaftar.")
     old_value = {

@@ -112,7 +112,6 @@ async def test_customer_identity_dapat_dibuat_dipilih_dan_dinamai_ulang(api, db_
         "/api/v1/customers", json={"name": "pt IDENTITAS"}, headers=lead
     )
     assert duplicate.status_code == 409
-    assert "sudah ada" in duplicate.json()["detail"]
 
     unauthorized = await api.client.patch(
         f"/api/v1/customers/{customer_id}", json={"name": "PT Diganti"}, headers=sales

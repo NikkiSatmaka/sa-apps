@@ -135,8 +135,11 @@ async def test_pagination_batas_dan_pengurutan_tiebreak(dunia):
     past_end = await c.get(URL, params={"page": 3, "page_size": 2}, headers=h)
 
     assert page_1.status_code == page_2.status_code == past_end.status_code == 200
-    first = page_1.json()["data"]
+    first_response = page_1.json()
+    assert first_response["status"] == "success"
+    first = first_response["data"]
     second = page_2.json()["data"]
+    assert set(first) == {"items", "total", "page", "page_size", "total_pages"}
     assert [p["id_project"] for p in first["items"]] == ["PRJ-A1", "PRJ-B1"]
     assert [p["id_project"] for p in second["items"]] == ["PRJ-B2"]
     assert {

@@ -582,7 +582,7 @@ async def test_file_melebihi_batas_ukuran_ditolak_per_file_proyek_tetap_dibuat(
     api, db_session, fake_llm, monkeypatch
 ):
     sales = await _sales_dan_lead(api)
-    monkeypatch.setattr("app.api.projects.MAX_FILE_SIZE_BYTES", 10)
+    monkeypatch.setattr("app.api.project_intake_api.MAX_FILE_SIZE_BYTES", 10)
 
     resp = await buat_proyek(
         api, sales, jawaban_kuat(), files=berkas("besar.pdf"), file_types=["MoM"]

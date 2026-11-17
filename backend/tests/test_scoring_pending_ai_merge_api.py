@@ -52,7 +52,7 @@ def _pdf():
 
 # --------------------------------------------------------------------------- create dengan file
 def test_create_dengan_file_qualification_state_scoring_dan_skor_rubrik_tersimpan():
-    with patch("app.api.projects._trigger_scoring_engine", new=AsyncMock()) as trigger:
+    with patch("app.api.project_intake_api._trigger_scoring_engine", new=AsyncMock()) as trigger:
         with _api() as (client, session):
             resp = client.post(URL, data=_form(jawaban_lemah(), file_types=["MoM"]), files=[_pdf()])
     assert resp.status_code == 201

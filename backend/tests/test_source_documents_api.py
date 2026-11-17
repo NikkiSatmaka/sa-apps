@@ -82,7 +82,7 @@ def _jalankan(files, data, provider_response=None, provider_exc=None, user=None)
         async def __aexit__(self, *exc):
             return False
 
-    with patch("app.api.projects._trigger_scoring_engine", new=AsyncMock()) as scoring, patch(
+    with patch("app.api.project_intake_api._trigger_scoring_engine", new=AsyncMock()) as scoring, patch(
         "app.core.database.AsyncSessionLocal", new=lambda: _Ctx()
     ), patch(
         "app.services.source_document_extractor.llm_factory.get_provider",
@@ -198,7 +198,7 @@ def test_kegagalan_total_ekstraksi_tidak_mempengaruhi_create_dan_scoring():
         raise RuntimeError("DB background tidak tersedia")
 
     with patch("app.core.database.AsyncSessionLocal", new=_sesi_rusak), patch(
-        "app.api.projects._trigger_scoring_engine", new=AsyncMock()
+        "app.api.project_intake_api._trigger_scoring_engine", new=AsyncMock()
     ) as scoring:
         with _api() as (client, session):
             resp = client.post(URL, data=_form_tipe("MoM"), files=[_pdf()])
@@ -214,8 +214,8 @@ def test_ekstraksi_dijadwalkan_background_setelah_commit_bukan_inline():
     async def _spy(project_id, items):
         seen["items"] = items
 
-    with patch("app.api.projects.extract_source_documents", new=_spy), patch(
-        "app.api.projects._trigger_scoring_engine", new=AsyncMock()
+    with patch("app.api.project_intake_api.extract_source_documents", new=_spy), patch(
+        "app.api.project_intake_api._trigger_scoring_engine", new=AsyncMock()
     ):
         with _api() as (client, session):
             resp = client.post(URL, data=_form_tipe("MoM"), files=[_pdf()])

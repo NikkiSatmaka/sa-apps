@@ -132,6 +132,32 @@ describe("NewProjectPage — langkah 1", () => {
     await user.click(screen.getByRole("button", { name: "Simpan Customer" }));
     expect(await screen.findByRole("combobox", { name: "Customer" })).toHaveValue(CUSTOMER_ID);
   });
+  it("shows a visible error when saving a blank Customer", async () => {
+    const user = setup();
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Customer" }), "new");
+    await user.click(screen.getByRole("button", { name: "Simpan Customer" }));
+    expect(await screen.findByText("Nama customer wajib diisi")).toBeInTheDocument();
+  });
+
+  it("shows the API error when creating a Customer fails", async () => {
+    const user = setup();
+    server.use(http.post(api("/customers"), () => HttpResponse.json(errorEnvelope("Customer gagal disimpan"), { status: 500 })));
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Customer" }), "new");
+    await user.type(screen.getByLabelText(/^Nama Customer/), "PT Error");
+    await user.click(screen.getByRole("button", { name: "Simpan Customer" }));
+    expect(await screen.findByText("Customer gagal disimpan")).toBeInTheDocument();
+  });
+
+  it("shows the API error when renaming a Customer fails", async () => {
+    const user = setup({ role: "Lead_SA" });
+    server.use(http.patch(api(`/customers/${CUSTOMER_ID}`), () => HttpResponse.json(errorEnvelope("Customer tidak dapat diganti"), { status: 500 })));
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Customer" }), CUSTOMER_ID);
+    const name = screen.getByLabelText("Nama Customer baru");
+    await user.clear(name);
+    await user.type(name, "PT Error");
+    await user.click(screen.getByRole("button", { name: "Ganti nama Customer" }));
+    expect(await screen.findByText("Customer tidak dapat diganti")).toBeInTheDocument();
+  });
   it.each(["Sales", "Product"] as Role[])("%s cannot rename a Customer", async (role) => {
     const user = setup({ role });
     await user.selectOptions(await screen.findByRole("combobox", { name: "Customer" }), CUSTOMER_ID);

@@ -210,10 +210,11 @@ async def test_doc_ready_user_sales_tidak_ditemukan_dilewati(monkeypatch):
         customer_name="C",
         dq_number="DQ-12345",
         sales_pic=uuid.uuid4(),
+        product_pic=None,
         gdrive_solutions_folder_id="sol",
     )
 
-    await documents._handle_doc_ready(_dokumen(), _db(proyek, None))
+    await documents._handle_doc_ready(_dokumen(), _db(proyek, None, None))
 
     kirim.assert_not_awaited()
     buka.assert_not_awaited()

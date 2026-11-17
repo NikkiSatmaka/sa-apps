@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import func, select
 
-from app.models import Customer, IntegrationOperation, Subtask
+from app.models import Customer, Document, IntegrationOperation, Subtask
 from app.services.folder_provisioner import folder_provisioner
 from app.services.sla_timer import sla_timer
 from tests.integration.conftest import patch_session_factory
@@ -187,6 +187,87 @@ async def test_retry_document_review_unlock_rejects_missing_document(dunia, api)
         "The project or reviewed document state changed; this Drive action is no longer current."
     )
     assert (persisted_operation.status, persisted_operation.attempts) == ("failed", [])
+
+
+async def test_retry_document_review_unlock_restores_sales_and_product_access(
+    dunia, api, fake_drive
+):
+    project = await dunia.buat_proyek(
+        status="Assigned",
+        dq_number="DQ-TEST",
+        gdrive_solutions_folder_id="solutions-folder",
+        product_pic=dunia.produk.id,
+    )
+    document = Document(
+        id_doc="DOC-REVIEWED-RETRY",
+        id_project=project.id_project,
+        doc_type="BOQ",
+        status="Reviewed",
+        gdrive_link="https://drive.google.com/file/d/retry",
+        folder_type="Solutions",
+        created_by=dunia.sa.id,
+    )
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type="drive_permission",
+        action="document_review_unlock",
+        status="failed",
+        retryable=True,
+        context={
+            "document_id": document.id_doc,
+            "folder_id": "solutions-folder",
+            "sales_email": dunia.sales.email,
+        },
+    )
+    dunia.db.add_all([document, operation])
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        RETRY_OPERATION.format(project.id_project, operation.id),
+        headers=dunia.h["lead"],
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["status"] == "succeeded"
+    await dunia.db.refresh(operation)
+    assert operation.status == "succeeded"
+    assert fake_drive.peran("solutions-folder", dunia.sales.email) == "reader"
+    assert fake_drive.peran("solutions-folder", dunia.produk.email) == "reader"
+    [call] = fake_drive.panggilan_operasi("unlock_solutions_folder")
+    assert call.argumen["product_email"] == dunia.produk.email
+
+
+async def test_retry_sla_unlock_restores_product_access(dunia, api, fake_drive):
+    project = await dunia.buat_proyek(
+        status="Assigned",
+        dq_number="DQ-TEST",
+        gdrive_solutions_folder_id="solutions-folder",
+        product_pic=dunia.produk.id,
+    )
+    await sla_timer.start_timer(project.id_project, datetime.now(timezone.utc), dunia.db)
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type="sla",
+        action="solutions_unlock",
+        status="failed",
+        retryable=True,
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        RETRY_OPERATION.format(project.id_project, operation.id),
+        headers=dunia.h["lead"],
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["status"] == "succeeded"
+    await dunia.db.refresh(operation)
+    assert operation.status == "succeeded"
+    assert fake_drive.peran("solutions-folder", dunia.sales.email) == "reader"
+    assert fake_drive.peran("solutions-folder", dunia.produk.email) == "reader"
+    [call] = fake_drive.panggilan_operasi("unlock_solutions_folder")
+    assert call.argumen["product_email"] == dunia.produk.email
 
 
 async def test_retry_integration_operation_requires_existing_project(dunia, api):

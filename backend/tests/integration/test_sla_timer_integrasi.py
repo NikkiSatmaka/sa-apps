@@ -141,7 +141,7 @@ async def test_reminder_memicu_email_ke_sales_lewat_gmail_palsu(dunia, jam, fake
 
 
 async def test_h5_eskalasi_ke_manager_dan_sales_serta_lock_solutions(dunia, jam, fake_drive):
-    proyek = await proyek_aktif_sla(dunia, fake_drive)
+    proyek = await proyek_aktif_sla(dunia, fake_drive, product_pic=dunia.produk.id)
     solutions = proyek.gdrive_solutions_folder_id
     assert fake_drive.peran(solutions, dunia.sales.email) == "reader"
 
@@ -159,6 +159,7 @@ async def test_h5_eskalasi_ke_manager_dan_sales_serta_lock_solutions(dunia, jam,
     assert panggilan[0].argumen == {
         "solutions_folder_id": solutions,
         "sales_email": dunia.sales.email,
+        "product_email": dunia.produk.email,
     }
     # Eskalasi: setiap Lead_SA/Admin + satu pemberitahuan lock ke Sales.
     penerima = {

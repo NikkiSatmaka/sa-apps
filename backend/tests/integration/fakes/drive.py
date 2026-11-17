@@ -235,21 +235,31 @@ class FakeDrive:
             solutions=solutions,
         )
 
-    async def lock_solutions_folder(self, solutions_folder_id: str, sales_email: str) -> None:
+    async def lock_solutions_folder(
+        self, solutions_folder_id: str, sales_email: str, product_email: str | None = None
+    ) -> None:
         self._mulai(
             "lock_solutions_folder",
             solutions_folder_id=solutions_folder_id,
             sales_email=sales_email,
+            product_email=product_email,
         )
-        self.izin.get(solutions_folder_id, {}).pop(sales_email, None)
+        for email in (sales_email, product_email):
+            if email:
+                self.izin.get(solutions_folder_id, {}).pop(email, None)
 
-    async def unlock_solutions_folder(self, solutions_folder_id: str, sales_email: str) -> None:
+    async def unlock_solutions_folder(
+        self, solutions_folder_id: str, sales_email: str, product_email: str | None = None
+    ) -> None:
         self._mulai(
             "unlock_solutions_folder",
             solutions_folder_id=solutions_folder_id,
             sales_email=sales_email,
+            product_email=product_email,
         )
-        self.izin.setdefault(solutions_folder_id, {})[sales_email] = "reader"
+        for email in (sales_email, product_email):
+            if email:
+                self.izin.setdefault(solutions_folder_id, {})[email] = "reader"
 
     async def provision_handover(
         self, solutions_folder_id: str, pmo_email: str, delivery_email: str

@@ -13,10 +13,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+
 from app.api import project_lifecycle_api
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.main import app
+from app.models.customer import Customer
 from app.models.notification_log import NotificationLog
 from app.models.project import Project
 
@@ -43,20 +45,26 @@ def _result(items=None, one=None):
 
 
 class FakeSession:
-    """Sesi DB palsu: menyimpan yang di-add; execute selalu mengembalikan hasil yang dikonfigurasi."""
+    """Sesi DB palsu: menyimpan yang di-add dan menyediakan hasil query yang dikonfigurasi."""
 
     def __init__(self, execute_result=None):
         self.added = []
         self.commit = AsyncMock()
         self.refresh = AsyncMock()
+        self.flush = AsyncMock(side_effect=self._flush)
+        self.scalar = AsyncMock(return_value=None)
         self.execute = AsyncMock(return_value=execute_result or _result())
+
+    async def _flush(self):
+        for customer in self.of_type(Customer):
+            if customer.id is None:
+                customer.id = uuid.uuid4()
 
     def add(self, obj):
         self.added.append(obj)
 
     def of_type(self, cls):
         return [o for o in self.added if isinstance(o, cls)]
-
 
 @contextmanager
 def _api(user=None, execute_result=None):

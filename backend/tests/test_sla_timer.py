@@ -279,32 +279,32 @@ class TestStopTimer:
         sla_record.locked_at = datetime.now(timezone.utc) - timedelta(days=1)
         sla_record.days_elapsed = 6
 
-        # Mock project dan user data
+        # Mock project and Sales/Product user data
         mock_project = MagicMock()
         mock_project.id_project = "PRJ-001"
         mock_project.gdrive_folder_id = "gdrive_master_123"
         mock_project.gdrive_solutions_folder_id = "gdrive_solutions_123"
         mock_project.sales_pic = uuid.uuid4()
+        mock_project.product_pic = uuid.uuid4()
 
         mock_sales = MagicMock()
         mock_sales.email = "sales@company.com"
+        mock_product = MagicMock()
+        mock_product.email = "product@company.com"
 
         mock_db = AsyncMock()
 
-        # Responses untuk execute calls:
-        # 1. SLATracking lookup
-        # 2. Project lookup (dari _unlock_solutions_with_retry)
-        # 3. User lookup (dari _unlock_solutions_with_retry)
+        # Responses: tracker, project, Sales user, Product user.
         sla_result = MagicMock()
         sla_result.scalar_one_or_none.return_value = sla_record
-
         project_result = MagicMock()
         project_result.scalar_one_or_none.return_value = mock_project
+        sales_result = MagicMock()
+        sales_result.scalar_one_or_none.return_value = mock_sales
+        product_result = MagicMock()
+        product_result.scalar_one_or_none.return_value = mock_product
 
-        user_result = MagicMock()
-        user_result.scalar_one_or_none.return_value = mock_sales
-
-        mock_db.execute.side_effect = [sla_result, project_result, user_result]
+        mock_db.execute.side_effect = [sla_result, project_result, sales_result, product_result]
         mock_db.commit = AsyncMock()
         mock_db.refresh = AsyncMock()
         mock_db.add = MagicMock()
@@ -316,10 +316,10 @@ class TestStopTimer:
         ) as mock_unlock:
             result = await sla_timer.stop_timer("PRJ-001", mock_db)
 
-        # Verifikasi unlock dipanggil dengan id folder Solutions (ADR 0005)
         mock_unlock.assert_called_once_with(
             solutions_folder_id="gdrive_solutions_123",
             sales_email="sales@company.com",
+            product_email="product@company.com",
         )
 
         # Verifikasi SLA record di-update
@@ -440,12 +440,16 @@ class TestProcessSLAActions:
         mock_project.project_name = "Urgent Project"
         mock_project.customer_name = "Customer B"
         mock_project.sales_pic = uuid.uuid4()
+        mock_project.product_pic = uuid.uuid4()
         mock_project.gdrive_folder_id = "folder_123"
         mock_project.gdrive_solutions_folder_id = "solutions_123"
 
         mock_sales = MagicMock()
         mock_sales.email = "sales@company.com"
         mock_sales.id = mock_project.sales_pic
+        mock_product = MagicMock()
+        mock_product.email = "product@company.com"
+        mock_product.id = mock_project.product_pic
 
         mock_manager = MagicMock()
         mock_manager.id = uuid.uuid4()
@@ -464,12 +468,15 @@ class TestProcessSLAActions:
 
         sales_result = MagicMock()
         sales_result.scalar_one_or_none.return_value = mock_sales
+        product_result = MagicMock()
+        product_result.scalar_one_or_none.return_value = mock_product
 
         mock_session.execute.side_effect = [
             sla_list_result,  # Query active SLAs
             project_result,  # Query project
             manager_result,  # Query managers (eskalasi)
-            sales_result,  # Query sales user (lock)
+            sales_result,  # Query Sales user (lock)
+            product_result,  # Query Product user (lock)
             _tanpa_unlock_tertunda(),  # Query tracker berhenti yang masih terkunci
         ]
         mock_session.commit = AsyncMock()
@@ -493,7 +500,11 @@ class TestProcessSLAActions:
         assert stats["total_checked"] == 1
         assert stats["escalations_sent"] == 1
         assert stats["locks_performed"] == 1
-        mock_lock.assert_called_once()
+        mock_lock.assert_called_once_with(
+            solutions_folder_id="solutions_123",
+            sales_email="sales@company.com",
+            product_email="product@company.com",
+        )
 
     @pytest.mark.asyncio
     async def test_proses_tanpa_proyek_aktif(self, sla_timer):

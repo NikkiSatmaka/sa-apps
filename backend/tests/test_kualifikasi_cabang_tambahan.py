@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.api import projects as api_projects
+from app.api import project_intake_api
 from app.schemas.scoring import BANTSubScores
 from app.services.scoring_engine import ScoringEngine
 
@@ -40,35 +40,35 @@ class _Upload:
     ],
 )
 def test_validasi_ekstensi_file(nama, valid):
-    assert api_projects._validate_file_extension(nama) is valid
+    assert project_intake_api._validate_file_extension(nama) is valid
 
 
 async def test_upload_gagal_dibaca_dilaporkan_per_file_tanpa_konten():
-    hasil, konten = await api_projects._process_file_upload(_Upload("a.pdf", gagal=True))
+    hasil, konten = await project_intake_api._process_file_upload(_Upload("a.pdf", gagal=True))
 
     assert hasil.success is False and konten is None
     assert "Gagal membaca file" in hasil.error
 
 
 async def test_upload_melebihi_batas_ditolak_dengan_ukuran(monkeypatch):
-    monkeypatch.setattr(api_projects, "MAX_FILE_SIZE_BYTES", 4)
+    monkeypatch.setattr(project_intake_api, "MAX_FILE_SIZE_BYTES", 4)
 
-    hasil, konten = await api_projects._process_file_upload(_Upload("a.pdf", b"12345"))
+    hasil, konten = await project_intake_api._process_file_upload(_Upload("a.pdf", b"12345"))
 
     assert (hasil.success, konten, hasil.size_bytes) == (False, None, 5)
     assert "melebihi batas 20MB" in hasil.error
 
 
 async def test_upload_kosong_ditolak_dan_nama_hilang_dianggap_unknown():
-    kosong, _ = await api_projects._process_file_upload(_Upload("a.pdf", b""))
-    tanpa_nama, _ = await api_projects._process_file_upload(_Upload(None))
+    kosong, _ = await project_intake_api._process_file_upload(_Upload("a.pdf", b""))
+    tanpa_nama, _ = await project_intake_api._process_file_upload(_Upload(None))
 
     assert kosong.error == "File kosong (0 bytes)." and kosong.size_bytes == 0
     assert tanpa_nama.filename == "unknown" and tanpa_nama.success is False
 
 
 async def test_upload_ekstensi_valid_dengan_mime_asing_tetap_diterima():
-    hasil, konten = await api_projects._process_file_upload(
+    hasil, konten = await project_intake_api._process_file_upload(
         _Upload("a.pdf", b"abc", content_type="application/octet-stream")
     )
 
@@ -76,7 +76,7 @@ async def test_upload_ekstensi_valid_dengan_mime_asing_tetap_diterima():
 
 
 def test_id_proyek_berformat_dan_acak():
-    a, b = api_projects._generate_project_id(), api_projects._generate_project_id()
+    a, b = project_intake_api._generate_project_id(), project_intake_api._generate_project_id()
 
     assert a.startswith("PRJ-") and len(a) == len("PRJ-20250101-A3X9K2")
     assert a != b

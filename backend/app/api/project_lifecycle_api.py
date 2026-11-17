@@ -33,10 +33,7 @@ from app.services import bant_rubric
 from app.services.dq_akses import hentikan_timer_bila_pertama, terapkan_dq
 from app.services.integration_operations import list_project_operations
 from app.services.qualification_view import build_qualification_view
-from app.services.requirement_generator import (
-    generate_pending_requirement,
-    resummarize_if_source_changed,
-)
+from app.services.scoring_engine import scoring_engine
 from app.api.project_api_helpers import _ringkas_orang
 
 logger = logging.getLogger(__name__)

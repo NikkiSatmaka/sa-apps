@@ -185,6 +185,7 @@ export function useCalendarIntegration(showToast: CalendarToast) {
     const event = events.find((item) => item.gcal_event_id === mappingEventId);
     if (!event) return;
 
+    setIsMapping(true);
     setIntegrationOperation(null);
     try {
       const body: Record<string, unknown> = {

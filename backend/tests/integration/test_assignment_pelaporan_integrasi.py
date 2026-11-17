@@ -302,12 +302,12 @@ async def test_utilisasi_proyek_terhapus_tidak_tampil_di_tabel_proyek_tetapi_jam
 async def test_utilisasi_sa_error_tak_terduga_menjadi_500_tanpa_mengubah_data(
     dunia, api, monkeypatch
 ):
-    from app.api import assignment
+    from app.api import utilization
 
     def _meledak(*a, **k):
         raise RuntimeError("query meledak")
 
-    monkeypatch.setattr(assignment, "select", _meledak)
+    monkeypatch.setattr(utilization, "select", _meledak)
 
     resp = await api.client.get(UTIL_SA, headers=dunia.h["lead"])
 

@@ -292,21 +292,292 @@ export function ProjectDetailContent({
   );
 }
 
-function InfoRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) { const missing = value.startsWith("Belum"); return <div><span className="text-neutral-500">{label}:</span><span className={`ml-2 font-medium ${missing ? "text-red-600 font-bold" : mono ? "font-mono text-sm text-neutral-800" : "text-neutral-800"}`}>{value}</span></div>; }
+function InfoRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  const missing = value.startsWith("Belum");
 
-function ProjectActivitySection({ projectId }: { projectId: string }) {
-  const [summary, setSummary] = useState<string | null>(null); const [isSummarizing, setIsSummarizing] = useState(false);
-  const { data, isLoading, error, mutate } = useSWR<{ items: { id_log: string; subtask_category: string; duration_hours: number; raw_notes: string; ai_polished_notes?: { discussion_points: string[]; action_items: { description: string; pic?: string | null }[] } | null; created_at: string }[]; total: number }>(`/projects/${projectId}/story?page=1&page_size=5`, fetcher);
-  const handleSummarize = async () => { if (!data || data.items.length === 0) return; setIsSummarizing(true); setSummary(null); try { const result = await apiRequest<{ summary: string }>(`/projects/${projectId}/summarize`, { method: "POST" }); setSummary(result.summary); } catch (err) { console.error("Summarize failed:", err); setSummary("Gagal menghasilkan ringkasan. Silakan coba lagi."); } finally { setIsSummarizing(false); } };
-  if (isLoading) return <div className="bg-white border border-neutral-200 rounded-lg p-5"><div className="h-5 bg-neutral-200 rounded w-1/4 mb-4 animate-pulse" /><div className="space-y-3 animate-pulse"><div className="h-10 bg-neutral-100 rounded" /><div className="h-10 bg-neutral-100 rounded" /></div></div>;
-  return <div className="bg-white border border-neutral-200 rounded-lg p-5"><div className="flex items-center justify-between mb-4"><div><h2 className="text-sm font-semibold text-neutral-700">Project Story</h2>{data && data.total > 0 && <p className="text-xs text-neutral-400 mt-0.5">{data.total} aktivitas — menampilkan 5 terbaru</p>}</div><div className="flex gap-2">{data && data.total > 0 && <button onClick={handleSummarize} disabled={isSummarizing} className="px-3 py-1.5 text-xs font-medium text-primary-600 border border-primary-200 rounded-lg hover:bg-primary-50 transition-colors min-h-[36px] disabled:opacity-50 disabled:cursor-not-allowed">{isSummarizing ? "Generating..." : "Summarize"}</button>}{data && data.total > 5 && <a href={`/projects/${projectId}/activity-logs`} className="px-3 py-1.5 text-xs font-medium text-neutral-600 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors min-h-[36px] flex items-center">Lihat Semua ({data.total})</a>}</div></div>{summary && <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg"><p className="text-xs font-medium text-blue-700 mb-1">Ringkasan Proyek</p><p className="text-sm text-blue-800">{summary}</p></div>}{error && !data ? <LoadError message="Gagal memuat activity log proyek." onRetry={() => mutate()} /> : !data || data.items.length === 0 ? <p className="text-sm text-neutral-500 text-center py-4">Belum ada activity log untuk proyek ini.</p> : <div className="space-y-2">{data.items.map(log => <div key={log.id_log} className="flex items-start gap-3 p-3 bg-neutral-50 rounded-lg"><div className="flex-1 min-w-0"><div className="flex items-center gap-2 mb-0.5"><span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">{log.subtask_category}</span><span className="text-xs text-neutral-400">{log.duration_hours}h</span><span className="text-xs text-neutral-300">{new Date(log.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}</span></div><p className="text-sm text-neutral-700 line-clamp-2">{log.raw_notes}</p>{log.ai_polished_notes?.action_items && log.ai_polished_notes.action_items.length > 0 && <div className="mt-1.5 flex flex-wrap gap-1">{log.ai_polished_notes.action_items.map((item, idx) => <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800" title={item.description}>▸ {item.description} {item.pic && <span className="text-amber-600">(PIC: {item.pic})</span>}</span>)}</div>}</div></div>)}</div>}</div>;
+  return (
+    <div>
+      <span className="text-neutral-500">{label}:</span>
+      <span
+        className={`ml-2 font-medium ${
+          missing
+            ? "font-bold text-red-600"
+            : mono
+              ? "font-mono text-sm text-neutral-800"
+              : "text-neutral-800"
+        }`}
+      >
+        {value}
+      </span>
+    </div>
+  );
 }
 
-interface FolderProvisioningSectionProps { status: ProjectDetail["folder_provisioning_status"]; operation?: FolderProvisioningOperation | null; hasMasterFolder: boolean; canRetry: boolean; isRetrying: boolean; retryError: string | null; onRetry: () => void; }
-function FolderProvisioningSection({ status, operation, hasMasterFolder, canRetry, isRetrying, retryError, onRetry }: FolderProvisioningSectionProps) {
-  const failed = status === "failed" || operation?.status === "failed"; const pending = !failed && (status === "pending" || operation?.status === "pending"); const provisioned = !failed && !pending && (status === "provisioned" || operation?.status === "succeeded");
+function ProjectActivitySection({ projectId }: { projectId: string }) {
+  const [summary, setSummary] = useState<string | null>(null);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const { data, isLoading, error, mutate } = useSWR<{
+    items: {
+      id_log: string;
+      subtask_category: string;
+      duration_hours: number;
+      raw_notes: string;
+      ai_polished_notes?: {
+        discussion_points: string[];
+        action_items: { description: string; pic?: string | null }[];
+      } | null;
+      created_at: string;
+    }[];
+    total: number;
+  }>(`/projects/${projectId}/story?page=1&page_size=5`, fetcher);
+
+  const handleSummarize = async () => {
+    if (!data || data.items.length === 0) return;
+
+    setIsSummarizing(true);
+    setSummary(null);
+    try {
+      const result = await apiRequest<{ summary: string }>(
+        `/projects/${projectId}/summarize`,
+        { method: "POST" },
+      );
+      setSummary(result.summary);
+    } catch (err) {
+      console.error("Summarize failed:", err);
+      setSummary("Gagal menghasilkan ringkasan. Silakan coba lagi.");
+    } finally {
+      setIsSummarizing(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="rounded-lg border border-neutral-200 bg-white p-5">
+        <div className="mb-4 h-5 w-1/4 animate-pulse rounded bg-neutral-200" />
+        <div className="space-y-3 animate-pulse">
+          <div className="h-10 rounded bg-neutral-100" />
+          <div className="h-10 rounded bg-neutral-100" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-neutral-200 bg-white p-5">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-neutral-700">Project Story</h2>
+          {data && data.total > 0 && (
+            <p className="mt-0.5 text-xs text-neutral-400">
+              {data.total} aktivitas — menampilkan 5 terbaru
+            </p>
+          )}
+        </div>
+        <div className="flex gap-2">
+          {data && data.total > 0 && (
+            <button
+              onClick={handleSummarize}
+              disabled={isSummarizing}
+              className="min-h-[36px] rounded-lg border border-primary-200 px-3 py-1.5 text-xs font-medium text-primary-600 transition-colors hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSummarizing ? "Generating..." : "Summarize"}
+            </button>
+          )}
+          {data && data.total > 5 && (
+            <a
+              href={`/projects/${projectId}/activity-logs`}
+              className="flex min-h-[36px] items-center rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-50"
+            >
+              Lihat Semua ({data.total})
+            </a>
+          )}
+        </div>
+      </div>
+      {summary && (
+        <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3">
+          <p className="mb-1 text-xs font-medium text-blue-700">Ringkasan Proyek</p>
+          <p className="text-sm text-blue-800">{summary}</p>
+        </div>
+      )}
+      {error && !data ? (
+        <LoadError
+          message="Gagal memuat activity log proyek."
+          onRetry={() => mutate()}
+        />
+      ) : !data || data.items.length === 0 ? (
+        <p className="py-4 text-center text-sm text-neutral-500">
+          Belum ada activity log untuk proyek ini.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {data.items.map((log) => (
+            <div
+              key={log.id_log}
+              className="flex items-start gap-3 rounded-lg bg-neutral-50 p-3"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="mb-0.5 flex items-center gap-2">
+                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                    {log.subtask_category}
+                  </span>
+                  <span className="text-xs text-neutral-400">
+                    {log.duration_hours}h
+                  </span>
+                  <span className="text-xs text-neutral-300">
+                    {new Date(log.created_at).toLocaleDateString("id-ID", {
+                      day: "numeric",
+                      month: "short",
+                    })}
+                  </span>
+                </div>
+                <p className="line-clamp-2 text-sm text-neutral-700">{log.raw_notes}</p>
+                {log.ai_polished_notes?.action_items &&
+                  log.ai_polished_notes.action_items.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {log.ai_polished_notes.action_items.map((item, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center gap-1 rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-800"
+                          title={item.description}
+                        >
+                          ▸ {item.description}{" "}
+                          {item.pic && (
+                            <span className="text-amber-600">(PIC: {item.pic})</span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+interface FolderProvisioningSectionProps {
+  status: ProjectDetail["folder_provisioning_status"];
+  operation?: FolderProvisioningOperation | null;
+  hasMasterFolder: boolean;
+  canRetry: boolean;
+  isRetrying: boolean;
+  retryError: string | null;
+  onRetry: () => void;
+}
+
+function FolderProvisioningSection({
+  status,
+  operation,
+  hasMasterFolder,
+  canRetry,
+  isRetrying,
+  retryError,
+  onRetry,
+}: FolderProvisioningSectionProps) {
+  const failed = status === "failed" || operation?.status === "failed";
+  const pending =
+    !failed && (status === "pending" || operation?.status === "pending");
+  const provisioned =
+    !failed && !pending && (status === "provisioned" || operation?.status === "succeeded");
+
   if (!failed && !pending && !provisioned) return null;
-  const outcome = operation?.outcome ?? operation?.attempts.at(-1)?.outcome; const actionableError = operation?.actionable_error ?? operation?.attempts.at(-1)?.actionable_error;
-  return <section aria-labelledby="folder-provisioning-heading" aria-live="polite" className={`rounded-lg border p-5 ${failed ? "border-red-200 bg-red-50" : pending ? "border-amber-200 bg-amber-50" : "border-green-200 bg-green-50"}`}><h2 id="folder-provisioning-heading" className="text-sm font-semibold text-neutral-800">Provisioning folder Google Drive</h2>{failed ? <p role="alert" className="mt-2 text-sm font-medium text-red-700">Provisioning folder gagal</p> : pending ? <p role="status" className="mt-2 text-sm font-medium text-amber-800">Provisioning folder sedang diproses</p> : <p role="status" className="mt-2 text-sm font-medium text-green-700">Folder Google Drive berhasil dibuat</p>}{outcome && <p className="mt-2 text-sm text-neutral-700">Hasil terakhir: <span>{outcome}</span></p>}{actionableError && <p className="mt-2 text-sm text-neutral-700">{actionableError}</p>}{operation?.attempts && operation.attempts.length > 0 && <ol className="mt-3 space-y-1 text-xs text-neutral-600\" aria-label=\"Riwayat percobaan provisioning\">{operation.attempts.map(attempt => <li key={`${attempt.attempt}-${attempt.started_at}`}>Percobaan {attempt.attempt}: {attempt.status}{attempt.finished_at && ` — selesai ${new Date(attempt.finished_at).toLocaleString(\"id-ID\")}`}</li>)}</ol>}{failed && canRetry && !hasMasterFolder && <div className=\"mt-4\"><p className=\"mb-3 text-sm text-neutral-700\">Pastikan izin service account benar dan hapus folder yatim di Drive sebelum mencoba lagi.</p><button type=\"button\" onClick={onRetry} disabled={isRetrying} className=\"rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50\">{isRetrying ? \"Memulai provisioning...\" : \"Coba provisioning lagi\"}</button></div>}{failed && hasMasterFolder && <p className=\"mt-3 text-sm text-neutral-700\">Folder Drive sudah tersimpan; retry otomatis tidak tersedia. Periksa folder yang ada dan perbaiki izinnya secara manual.</p>}{retryError && <p role=\"alert\" className=\"mt-3 text-sm text-red-700\">{retryError}</p>}</section>;
+
+  const latestAttempt = operation?.attempts.at(-1);
+  const outcome = operation?.outcome ?? latestAttempt?.outcome;
+  const actionableError =
+    operation?.actionable_error ?? latestAttempt?.actionable_error;
+
+  return (
+    <section
+      aria-labelledby="folder-provisioning-heading"
+      aria-live="polite"
+      className={`rounded-lg border p-5 ${
+        failed
+          ? "border-red-200 bg-red-50"
+          : pending
+            ? "border-amber-200 bg-amber-50"
+            : "border-green-200 bg-green-50"
+      }`}
+    >
+      <h2
+        id="folder-provisioning-heading"
+        className="text-sm font-semibold text-neutral-800"
+      >
+        Provisioning folder Google Drive
+      </h2>
+      {failed ? (
+        <p role="alert" className="mt-2 text-sm font-medium text-red-700">
+          Provisioning folder gagal
+        </p>
+      ) : pending ? (
+        <p role="status" className="mt-2 text-sm font-medium text-amber-800">
+          Provisioning folder sedang diproses
+        </p>
+      ) : (
+        <p role="status" className="mt-2 text-sm font-medium text-green-700">
+          Folder Google Drive berhasil dibuat
+        </p>
+      )}
+      {outcome && (
+        <p className="mt-2 text-sm text-neutral-700">
+          Hasil terakhir: <span>{outcome}</span>
+        </p>
+      )}
+      {actionableError && (
+        <p className="mt-2 text-sm text-neutral-700">{actionableError}</p>
+      )}
+      {operation?.attempts && operation.attempts.length > 0 && (
+        <ol
+          className="mt-3 space-y-1 text-xs text-neutral-600"
+          aria-label="Riwayat percobaan provisioning"
+        >
+          {operation.attempts.map((attempt) => (
+            <li key={`${attempt.attempt}-${attempt.started_at}`}>
+              Percobaan {attempt.attempt}: {attempt.status}
+              {attempt.finished_at &&
+                ` — selesai ${new Date(attempt.finished_at).toLocaleString("id-ID")}`}
+            </li>
+          ))}
+        </ol>
+      )}
+      {failed && canRetry && !hasMasterFolder && (
+        <div className="mt-4">
+          <p className="mb-3 text-sm text-neutral-700">
+            Pastikan izin service account benar dan hapus folder yatim di Drive
+            sebelum mencoba lagi.
+          </p>
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={isRetrying}
+            className="rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isRetrying ? "Memulai provisioning..." : "Coba provisioning lagi"}
+          </button>
+        </div>
+      )}
+      {failed && hasMasterFolder && (
+        <p className="mt-3 text-sm text-neutral-700">
+          Folder Drive sudah tersimpan; retry otomatis tidak tersedia. Periksa
+          folder yang ada dan perbaiki izinnya secara manual.
+        </p>
+      )}
+      {retryError && (
+        <p role="alert" className="mt-3 text-sm text-red-700">
+          {retryError}
+        </p>
+      )}
+    </section>
+  );
 }
 

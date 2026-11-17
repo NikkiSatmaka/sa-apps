@@ -406,6 +406,7 @@ class TestProjectRecordCreation:
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         mock_session.add.assert_not_called()
+        mock_session.commit.assert_not_awaited()
 
     def test_project_id_format_prj(self, mock_auth_and_db):
         """ID proyek mengikuti format PRJ-{date}-{random}."""
@@ -552,6 +553,7 @@ class TestEstimasiNilaiPersist:
         assert added_project.customer_id == added_customer.id
         assert added_customer.name == "PT Estimasi"
         assert added_project.estimasi_nilai == Decimal("750000000.50")
+        mock_session.commit.assert_awaited_once()
 
         # Nilai juga tercermin di response
         body = response.json()

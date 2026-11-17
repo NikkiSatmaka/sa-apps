@@ -122,30 +122,14 @@ describe("NewProjectPage — langkah 1", () => {
     expect(screen.getByRole("button", { name: "Lanjut ke Kuesioner" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Kembali" })).not.toBeInTheDocument();
   });
-  it.each(["Sales", "Product", "Lead_SA"] as Role[])("%s can choose or create a Customer", async (role) => {
+  it.each(["Sales", "Product", "Lead_SA"] as Role[])("%s can select an existing or enter a new Customer", async (role) => {
     const user = setup({ role });
     const selector = await screen.findByRole("combobox", { name: "Customer" });
     await user.selectOptions(selector, CUSTOMER_ID);
     expect(selector).toHaveValue(CUSTOMER_ID);
     await user.selectOptions(selector, "new");
     await user.type(screen.getByLabelText(/^Nama Customer/), "PT Created");
-    await user.click(screen.getByRole("button", { name: "Simpan Customer" }));
-    expect(await screen.findByRole("combobox", { name: "Customer" })).toHaveValue(CUSTOMER_ID);
-  });
-  it("shows a visible error when saving a blank Customer", async () => {
-    const user = setup();
-    await user.selectOptions(await screen.findByRole("combobox", { name: "Customer" }), "new");
-    await user.click(screen.getByRole("button", { name: "Simpan Customer" }));
-    expect(await screen.findByText("Nama customer wajib diisi")).toBeInTheDocument();
-  });
-
-  it("shows the API error when creating a Customer fails", async () => {
-    const user = setup();
-    server.use(http.post(api("/customers"), () => HttpResponse.json(errorEnvelope("Customer gagal disimpan"), { status: 500 })));
-    await user.selectOptions(await screen.findByRole("combobox", { name: "Customer" }), "new");
-    await user.type(screen.getByLabelText(/^Nama Customer/), "PT Error");
-    await user.click(screen.getByRole("button", { name: "Simpan Customer" }));
-    expect(await screen.findByText("Customer gagal disimpan")).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Nama Customer/)).toHaveValue("PT Created");
   });
 
   it("shows the API error when renaming a Customer fails", async () => {
@@ -173,6 +157,13 @@ describe("NewProjectPage — langkah 1", () => {
     await waitFor(() => expect(document.getElementById("customerName")).toHaveValue("PT Renamed"));
   });
 
+  it("filters searchable existing Customers without creating them", async () => {
+    const user = setup();
+    await user.type(await screen.findByLabelText("Cari Customer"), "Existing");
+    const selector = screen.getByRole("combobox", { name: "Customer" });
+    expect(within(selector).getByRole("option", { name: "PT Existing" })).toBeInTheDocument();
+    expect(within(selector).queryByRole("option", { name: "PT Created" })).not.toBeInTheDocument();
+  });
   it("menampilkan error wajib diisi untuk semua field wajib dan tetap di langkah 1", async () => {
     const user = setup();
     await lanjut(user);
@@ -427,6 +418,25 @@ describe("NewProjectPage — pengiriman", () => {
     expect(new Headers(captured.headers).get("Authorization")).toBe("Bearer access-Sales");
     // multipart: Content-Type tidak boleh diset manual agar browser menambahkan boundary
     expect(new Headers(captured.headers).has("Content-Type")).toBe(false);
+  });
+  it("submits a new Customer name with one Project request and no Customer-create request", async () => {
+    useSchema();
+    let customerCreateRequests = 0;
+    server.use(http.post(api("/customers"), () => {
+      customerCreateRequests++;
+      return HttpResponse.json(successEnvelope({ id: CUSTOMER_ID, name: "PT Contoh" }), { status: 201 });
+    }));
+    const captured = capturePost(() => created());
+    const user = setup();
+    await isiLangkah1(user);
+    await lanjut(user);
+    await isiKuesioner(user);
+    await user.click(screen.getByRole("button", { name: "Submit Request" }));
+
+    await screen.findByText("Hasil Scoring BANT");
+    expect(captured.form?.get("customer_name")).toBe("PT Contoh");
+    expect(captured.form?.has("customer_id")).toBe(false);
+    expect(customerCreateRequests).toBe(0);
   });
 
   it("tanpa DQ Number dan tanpa file: field opsional tidak dikirim", async () => {

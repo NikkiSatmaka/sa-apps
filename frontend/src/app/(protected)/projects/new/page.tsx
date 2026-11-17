@@ -10,7 +10,6 @@ import { FileUpload, FileItem } from "@/components/FileUpload";
 import { QualificationForm } from "@/components/QualificationForm";
 import {
   createProject,
-  createCustomer,
   extractFieldErrors,
   CreateProjectResponse,
   renameCustomer,
@@ -106,6 +105,7 @@ export default function NewProjectPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [customerError, setCustomerError] = useState<string | null>(null);
   const [customerRename, setCustomerRename] = useState("");
+  const [customerSearch, setCustomerSearch] = useState("");
 
   // Post-submit state
   const [createdProject, setCreatedProject] = useState<CreateProjectResponse | null>(null);
@@ -147,21 +147,6 @@ export default function NewProjectPage() {
     [errors]
   );
 
-  const saveCustomer = useCallback(async () => {
-    const name = form.customerName.trim();
-    if (!name) {
-      setCustomerError("Nama customer wajib diisi");
-      return;
-    }
-    try {
-      const customer = await createCustomer(name);
-      setForm((previous) => ({ ...previous, customerId: customer.id, customerName: customer.name }));
-      setCustomerError(null);
-      await mutate("/customers");
-    } catch (error) {
-      setCustomerError(error instanceof Error ? error.message : "Gagal menyimpan Customer");
-    }
-  }, [form.customerName, mutate]);
 
   const saveCustomerRename = useCallback(async () => {
     if (!form.customerId || !customerRename.trim()) return;
@@ -378,9 +363,18 @@ export default function NewProjectPage() {
 
           {/* Select an existing identity or create one inline. */}
           <div>
-            <label htmlFor="customerSelect" className="block text-sm font-medium text-neutral-700 mb-1">
-              Customer <span className="text-red-500">*</span>
+            <label htmlFor="customerSearch" className="block text-sm font-medium text-neutral-700 mb-1">
+              Cari Customer
             </label>
+            <input
+              id="customerSearch"
+              type="search"
+              value={customerSearch}
+              onChange={(event) => setCustomerSearch(event.target.value)}
+              placeholder="Cari Customer yang sudah ada"
+              disabled={isSubmitting}
+              className="w-full px-3 py-2.5 border border-neutral-300 rounded-lg text-sm"
+            />
             <select
               id="customerSelect"
               aria-label="Customer"
@@ -394,12 +388,14 @@ export default function NewProjectPage() {
                 setCustomerError(null);
               }}
               disabled={isSubmitting}
-              className="w-full px-3 py-2.5 border border-neutral-300 rounded-lg text-sm"
+              className="mt-2 w-full px-3 py-2.5 border border-neutral-300 rounded-lg text-sm"
             >
               <option value="new">Buat Customer baru</option>
-              {customers.map((customer) => (
-                <option key={customer.id} value={customer.id}>{customer.name}</option>
-              ))}
+              {customers
+                .filter((customer) => customer.name.toLocaleLowerCase().includes(customerSearch.trim().toLocaleLowerCase()))
+                .map((customer) => (
+                  <option key={customer.id} value={customer.id}>{customer.name}</option>
+                ))}
             </select>
             {bolehRenameCustomer && form.customerId && (
               <div className="mt-2">
@@ -435,11 +431,6 @@ export default function NewProjectPage() {
               aria-invalid={!!errors.customerName}
               aria-describedby={errors.customerName ? "customerName-error" : undefined}
             />
-            {!form.customerId && (
-              <button type="button" onClick={() => void saveCustomer()} disabled={isSubmitting} className="mt-2 text-sm text-primary-700 underline">
-                Simpan Customer
-              </button>
-            )}
             {customerError && <p className="text-xs text-red-600 mt-1" role="alert">{customerError}</p>}
             {errors.customerName && (
               <p id="customerName-error" className="text-xs text-red-600 mt-1" role="alert">{errors.customerName}</p>

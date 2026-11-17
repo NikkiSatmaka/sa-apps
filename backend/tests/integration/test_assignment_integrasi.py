@@ -1178,8 +1178,9 @@ async def test_endpoint_utilisasi_mendukung_kontrak_dasarnya(dunia, api, path, e
             str(dunia.sa.id),
             str(dunia.sa2.id),
             str(dunia.lead.id),
+            str(dunia.admin.id),
         }
-        assert data["summary"]["sa_count"] == 3
+        assert data["summary"]["sa_count"] == 4
     elif path.endswith("/projects"):
         assert data == expected_data
     else:

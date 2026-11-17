@@ -337,6 +337,7 @@ def patch_session_factory(
 @dataclass
 class KlienApi:
     client: httpx.AsyncClient
+    generate_requirement: AsyncMock
     generate_requirement_real: Callable[..., Any]
     session_factory: async_sessionmaker[AsyncSession]
     login_headers: dict[str, dict[str, str]] = field(default_factory=dict)
@@ -437,6 +438,7 @@ async def api(
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             api_client = KlienApi(
                 client=client,
+                generate_requirement=gen_requirement,
                 generate_requirement_real=generate_requirement_real,
                 session_factory=session_factory,
             )

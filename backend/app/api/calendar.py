@@ -396,16 +396,16 @@ async def map_event_to_project(
         created_at=now,
     )
 
-    db.add(activity_log)
-    # Log Project pertama memindahkan `Assigned` → `In Progress` (satu transaksi dengan log).
-    if project is not None:
-        majukan_ke_in_progress(db, project, current_user.id, "kalender")
-
     try:
+        async with db.begin_nested():
+            db.add(activity_log)
+            # Log Project pertama memindahkan `Assigned` → `In Progress` (satu transaksi dengan log).
+            if project is not None:
+                majukan_ke_in_progress(db, project, current_user.id, "kalender")
+            await db.flush()
         await db.commit()
         await db.refresh(activity_log)
     except IntegrityError as e:
-        await db.rollback()
 
         error_str = str(e.orig) if e.orig else str(e)
         duplicate = "idx_unique_gcal_mapping" in error_str or "gcal_event_id" in error_str

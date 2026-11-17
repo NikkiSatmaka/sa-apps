@@ -994,3 +994,94 @@ describe("Detail proyek — pendaftaran folder Drive manual", () => {
     expect(previewBody).toEqual({ folder_id: "manual-master", reason: "Alasan berubah" });
   });
 });
+describe("Detail proyek — Customer dan pendaftaran folder error states", () => {
+  it("menampilkan fallback data Customer/Drive, daftar Customer kosong, dan tombol batal", async () => {
+    server.use(
+      http.get(api("/customers"), () => HttpResponse.json(successEnvelope([]))),
+    );
+    const { user } = setup("Lead_SA", {
+      customer_id: null,
+      gdrive_folder_id: null,
+      gdrive_solutions_folder_id: null,
+      gdrive_folder_number: null,
+      folder_provisioning_status: null,
+    });
+    await user.click(await screen.findByRole("button", { name: "Perbaiki tautan Customer" }));
+    const dialog = await screen.findByRole("dialog", { name: "Perbaiki tautan Customer proyek" });
+    expect(dialog).toHaveTextContent("belum ditautkan");
+    expect(dialog).toHaveTextContent("Folder proyek: belum terdaftar");
+    expect(dialog).toHaveTextContent("Folder Solutions: belum terdaftar");
+    expect(dialog).toHaveTextContent("Nomor folder: belum ditetapkan · Status: belum ada");
+    expect(await screen.findByText("Belum ada Customer tersedia.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Batal" }));
+    expect(screen.queryByRole("dialog", { name: "Perbaiki tautan Customer proyek" })).toBeNull();
+  });
+
+  it("menampilkan kegagalan saat memperbaiki tautan Customer", async () => {
+    server.use(
+      http.get(api("/customers"), () =>
+        HttpResponse.json(successEnvelope([{ id: "customer-2", name: "PT Baru" }])),
+      ),
+      http.post(api(`/projects/${DETAIL_ID}/customer-repair`), () =>
+        HttpResponse.json(errorEnvelope("Repair failed"), { status: 409 }),
+      ),
+    );
+    const { user } = setup("Lead_SA", { customer_id: null });
+    await user.click(await screen.findByRole("button", { name: "Perbaiki tautan Customer" }));
+    await user.selectOptions(await screen.findByLabelText("Customer tujuan"), "customer-2");
+    await user.type(screen.getByLabelText("Alasan perbaikan"), "Reviewed");
+    await user.click(screen.getByLabelText(/Saya sudah meninjau folder Drive dan permission/));
+    await user.click(screen.getByRole("button", { name: "Simpan tautan Customer" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Repair failed");
+  });
+
+  it("menampilkan kegagalan preview folder dan membatalkan formulir", async () => {
+    server.use(
+      http.post(api(`/projects/${DETAIL_ID}/register-folder/preview`), () =>
+        HttpResponse.json(errorEnvelope("Preview failed"), { status: 422 }),
+      ),
+    );
+    const { user } = setup("Lead_SA", { customer_id: "customer-id" });
+    await user.click(await screen.findByRole("button", { name: "Daftarkan folder yang sudah ada" }));
+    await user.type(screen.getByLabelText("ID folder Google Drive"), "manual-master");
+    await user.type(screen.getByLabelText("Alasan pendaftaran"), "Reviewed");
+    await user.click(screen.getByRole("button", { name: "Periksa dan tinjau" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Preview failed");
+    await user.click(screen.getByRole("button", { name: "Batal" }));
+    expect(screen.queryByLabelText("ID folder Google Drive")).toBeNull();
+  });
+
+  it("menampilkan nilai fallback preview dan kegagalan pendaftaran folder", async () => {
+    server.use(
+      http.post(api(`/projects/${DETAIL_ID}/register-folder/preview`), () =>
+        HttpResponse.json(successEnvelope({
+          folder_id: "manual-master",
+          name: "Legacy folder",
+          parent_id: null,
+          parents: [],
+          detected_project_number: null,
+          inventory_folder_id: "inventory-id",
+          diagram_folder_id: "diagram-id",
+          solutions_folder_id: "solutions-id",
+          parent_mismatch: false,
+          expected_customer_folder_id: null,
+          reason: "Reviewed",
+        })),
+      ),
+      http.post(api(`/projects/${DETAIL_ID}/register-folder`), () =>
+        HttpResponse.json(errorEnvelope("Registration failed"), { status: 409 }),
+      ),
+    );
+    const { user } = setup("Lead_SA", { customer_id: "customer-id" });
+    await user.click(await screen.findByRole("button", { name: "Daftarkan folder yang sudah ada" }));
+    await user.type(screen.getByLabelText("ID folder Google Drive"), "manual-master");
+    await user.type(screen.getByLabelText("Alasan pendaftaran"), "Reviewed");
+    await user.click(screen.getByRole("button", { name: "Periksa dan tinjau" }));
+    const preview = await screen.findByLabelText("Pratinjau folder Drive");
+    expect(preview).toHaveTextContent("Parent Drive: Tidak ada");
+    expect(preview).toHaveTextContent("Nomor proyek terdeteksi: Tidak terdeteksi");
+    await user.click(screen.getByLabelText(/Saya telah meninjau dan mengonfirmasi/));
+    await user.click(screen.getByRole("button", { name: "Konfirmasi pendaftaran" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Registration failed");
+  });
+});

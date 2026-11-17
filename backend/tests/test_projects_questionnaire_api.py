@@ -443,3 +443,17 @@ def test_edit_kuesioner_need_clarification_memanggil_scoring_engine(monkeypatch)
         field: jawaban_lemah().get(field) for field in QUESTIONNAIRE_FIELDS
     }
     rescore.assert_awaited_once_with(session, proyek, normalized_answers)
+
+
+def test_project_create_reraises_integrity_error_when_customer_race_has_no_winner():
+    from sqlalchemy.exc import IntegrityError
+
+    error = IntegrityError("insert", {}, Exception("unique"))
+    with _api() as (client, session):
+        session.flush.side_effect = error
+        session.scalar.side_effect = [None, None]
+        with pytest.raises(IntegrityError) as raised:
+            client.post(URL, data=_form(jawaban_kuat()))
+
+    assert raised.value is error
+    session.begin_nested.return_value.rollback.assert_awaited_once()

@@ -109,6 +109,23 @@ def test_create_customer_returns_conflict_after_concurrent_duplicate_insert():
     assert response.status_code == 409
     session.rollback.assert_awaited_once()
 
+
+def test_create_customer_reraises_integrity_error_when_conflict_cannot_be_found():
+    from sqlalchemy.exc import IntegrityError
+
+    error = IntegrityError("insert", {}, Exception("unique"))
+    session = FakeSession()
+    session.commit.side_effect = error
+    session.scalar.side_effect = [None, None]
+
+    with api_as(user("Lead_SA"), session) as client:
+        with pytest.raises(IntegrityError) as raised:
+            client.post("/api/v1/customers", json={"name": "PT Acme"})
+
+    assert raised.value is error
+    session.rollback.assert_awaited_once()
+
+
 @pytest.mark.parametrize("role,is_admin", [("Sales", False), ("Product", False), ("SA", False), ("Admin", False)])
 def test_create_customer_rejects_unprivileged_role(role, is_admin):
     with api_as(user(role, is_admin=is_admin), FakeSession()) as client:
@@ -336,3 +353,153 @@ def test_project_customer_repair_attaches_customer_to_unlinked_project():
     assert (project.customer_id, project.customer_name) == (customer.id, customer.name)
     audit = next(entry for entry in session.added if isinstance(entry, AuditLog))
     assert audit.old_value["customer"] == {"id": None, "name": "Legacy Organization"}
+
+
+def _folder_registration_session(project):
+    session = FakeSession()
+    project_result = MagicMock()
+    project_result.scalar_one_or_none.return_value = project
+    linked_result = MagicMock()
+    linked_result.scalar_one_or_none.return_value = None
+    session.execute.side_effect = [project_result, linked_result]
+    return session
+
+
+def test_project_customer_repair_rejects_missing_project():
+    session = FakeSession()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    session.execute.return_value = result
+    with api_as(user("Lead_SA"), session) as client:
+        response = client.post(
+            "/api/v1/projects/P-missing/customer-repair",
+            json={"customer_id": str(uuid.uuid4()), "reason": "Verified source record"},
+        )
+    assert response.status_code == 404
+    session.get.assert_not_awaited()
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "project_kind,status",
+    [("missing", 404), ("unlinked", 409), ("already_registered", 409)],
+)
+def test_folder_preview_rejects_project_without_registration_eligibility(project_kind, status):
+    if project_kind == "missing":
+        project = None
+    elif project_kind == "unlinked":
+        project = MagicMock(customer_id=None, gdrive_folder_id=None)
+    else:
+        project = MagicMock(customer_id=uuid.uuid4(), gdrive_folder_id="existing-folder")
+    session = FakeSession()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = project
+    session.execute.return_value = result
+    with api_as(user("Lead_SA"), session) as client:
+        response = client.post(
+            "/api/v1/projects/P-1/register-folder/preview",
+            json={"folder_id": "drive-folder", "reason": "Reviewed Drive"},
+        )
+    assert response.status_code == status
+
+
+def test_folder_preview_rejects_blank_folder_id_and_reason():
+    session = FakeSession()
+    with api_as(user("Lead_SA"), session) as client:
+        blank_folder = client.post(
+            "/api/v1/projects/P-1/register-folder/preview",
+            json={"folder_id": " ", "reason": "Reviewed Drive"},
+        )
+        blank_reason = client.post(
+            "/api/v1/projects/P-1/register-folder/preview",
+            json={"folder_id": "drive-folder", "reason": " "},
+        )
+    assert blank_folder.status_code == 422
+    assert blank_reason.status_code == 422
+    session.execute.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"id": "another-folder", "mimeType": "application/vnd.google-apps.folder"},
+        {"id": "drive-folder", "mimeType": "text/plain"},
+        {
+            "id": "drive-folder",
+            "mimeType": "application/vnd.google-apps.folder",
+            "trashed": True,
+        },
+    ],
+)
+def test_folder_preview_rejects_mismatched_or_inactive_drive_metadata(metadata, monkeypatch):
+    from app.api import project_lifecycle_api
+
+    project = MagicMock(customer_id=uuid.uuid4(), gdrive_folder_id=None)
+    session = _folder_registration_session(project)
+    monkeypatch.setattr(
+        project_lifecycle_api.folder_provisioner,
+        "get_folder_metadata",
+        AsyncMock(return_value=metadata),
+    )
+    with api_as(user("Lead_SA"), session) as client:
+        response = client.post(
+            "/api/v1/projects/P-1/register-folder/preview",
+            json={"folder_id": "drive-folder", "reason": "Reviewed Drive"},
+        )
+    assert response.status_code == 422
+
+
+def test_folder_preview_translates_drive_read_errors(monkeypatch):
+    from app.api import project_lifecycle_api
+    from app.services.folder_provisioner import FolderProvisioningError
+
+    project = MagicMock(customer_id=uuid.uuid4(), gdrive_folder_id=None)
+    session = _folder_registration_session(project)
+    monkeypatch.setattr(
+        project_lifecycle_api.folder_provisioner,
+        "get_folder_metadata",
+        AsyncMock(side_effect=ValueError("inaccessible")),
+    )
+    with api_as(user("Lead_SA"), session) as client:
+        metadata_error = client.post(
+            "/api/v1/projects/P-1/register-folder/preview",
+            json={"folder_id": "drive-folder", "reason": "Reviewed Drive"},
+        )
+    assert metadata_error.status_code == 422
+
+    session = _folder_registration_session(project)
+    monkeypatch.setattr(
+        project_lifecycle_api.folder_provisioner,
+        "get_folder_metadata",
+        AsyncMock(
+            return_value={
+                "id": "drive-folder",
+                "mimeType": "application/vnd.google-apps.folder",
+                "name": "12- Project",
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        project_lifecycle_api.folder_provisioner,
+        "list_folder_children",
+        AsyncMock(side_effect=FolderProvisioningError("unreadable")),
+    )
+    with api_as(user("Lead_SA"), session) as client:
+        children_error = client.post(
+            "/api/v1/projects/P-1/register-folder/preview",
+            json={"folder_id": "drive-folder", "reason": "Reviewed Drive"},
+        )
+    assert children_error.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"folder_id": "drive-folder", "reason": "Reviewed Drive"},
+        {"folder_id": "drive-folder", "reason": " ", "confirm": True},
+    ],
+)
+def test_folder_registration_requires_confirmation_and_reason(body):
+    with api_as(user("Lead_SA"), FakeSession()) as client:
+        response = client.post("/api/v1/projects/P-1/register-folder", json=body)
+    assert response.status_code == 422

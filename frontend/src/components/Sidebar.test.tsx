@@ -39,6 +39,7 @@ describe("Sidebar — menu per peran", () => {
   it("Lead_SA melihat menu Customer tetapi bukan menu Admin", () => {
     renderWithProviders(<Sidebar />, { role: "Lead_SA" });
     expect(navLinks()).toEqual(["Dashboard", "Proyek", "Activity Log", "Notifikasi", "Customer"]);
+    expect(screen.getByRole("link", { name: "Customer" })).toHaveAttribute("href", "/customers");
     expect(screen.queryByText("Admin")).not.toBeInTheDocument();
   });
 

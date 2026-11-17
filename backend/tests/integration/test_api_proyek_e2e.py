@@ -107,12 +107,12 @@ async def test_customer_identity_dapat_dibuat_dipilih_dan_dinamai_ulang(api, db_
     customer_id = customer["id"]
     assert customer["name"] == "PT Identitas"
 
-    # Nama setara setelah trim + case-fold menunjuk ke identitas yang sama.
+    # Nama setara setelah trim + case-fold ditolak sebagai duplikat.
     duplicate = await api.client.post(
         "/api/v1/customers", json={"name": "pt IDENTITAS"}, headers=lead
     )
-    assert duplicate.status_code == 201
-    assert duplicate.json()["id"] == customer_id
+    assert duplicate.status_code == 409
+    assert "sudah ada" in duplicate.json()["detail"]
 
     unauthorized = await api.client.patch(
         f"/api/v1/customers/{customer_id}", json={"name": "PT Diganti"}, headers=sales

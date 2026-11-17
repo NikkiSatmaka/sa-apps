@@ -42,4 +42,45 @@ describe("Customer management", () => {
     fireEvent.click(screen.getByRole("button", { name: "Simpan" }));
     await waitFor(() => expect(screen.getByText("Gamma Corp")).toBeTruthy());
   });
+  it("shows create and rename failures and lets the user cancel editing", async () => {
+    server.use(
+      http.get("*/customers", () => HttpResponse.json(successEnvelope([{ id: "c1", name: "Acme" }]))),
+      http.post("*/customers", () => HttpResponse.json({ detail: "Create failed" }, { status: 409 })),
+      http.patch("*/customers/:id", () => HttpResponse.json({ detail: "Rename failed" }, { status: 409 })),
+    );
+    renderWithProviders(<CustomersPage />, { role: "Lead_SA" });
+    const row = (await screen.findByText("Acme")).closest("li")!;
+
+    fireEvent.click(within(row).getByRole("button", { name: "Ganti nama" }));
+    fireEvent.click(screen.getByRole("button", { name: "Batal" }));
+    expect(screen.queryByRole("textbox", { name: "Nama Customer Acme" })).toBeNull();
+
+    fireEvent.click(within(row).getByRole("button", { name: "Ganti nama" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Nama Customer Acme" }), {
+      target: { value: "Acme Renamed" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Simpan" }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Nama Customer baru" }), {
+      target: { value: "Gamma" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Buat Customer" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).not.toBe(""));
+  });
+
+  it("shows load errors and the empty Customer state", async () => {
+    server.use(
+      http.get("*/customers", () => HttpResponse.json({ detail: "Unavailable" }, { status: 500 })),
+    );
+    const first = renderWithProviders(<CustomersPage />, { role: "Lead_SA" });
+    expect(await screen.findByText("Gagal memuat Customer.")).toBeTruthy();
+    first.unmount();
+
+    server.use(
+      http.get("*/customers", () => HttpResponse.json(successEnvelope([]))),
+    );
+    renderWithProviders(<CustomersPage />, { role: "Lead_SA" });
+    expect(await screen.findByText("Tidak ada Customer.")).toBeTruthy();
+  });
 });

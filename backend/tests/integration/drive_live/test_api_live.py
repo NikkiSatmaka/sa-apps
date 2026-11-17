@@ -23,7 +23,7 @@ from datetime import timedelta
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import User
+from app.models import Customer, User
 from app.services.sla_timer import sla_timer
 from tests.integration.conftest import patch_session_factory
 from tests.integration.drive_live.konfigurasi import KonfigurasiLive
@@ -104,11 +104,19 @@ async def _assign_dan_provision(
     dunia: DuniaLive, api, monkeypatch, provisioner, pembersih, awalan
 ) -> str:
     """Proyek Awaiting Assignment → assign (endpoint nyata) → provisioning ASLI. Return id proyek."""
+    customer_name = f"{awalan}PT Uji"
+    customer = Customer(
+        name=customer_name,
+        normalized_name=customer_name.strip().casefold(),
+    )
+    dunia.db.add(customer)
+    await dunia.db.flush()
     proyek = bangun_project(
         dunia.sales.id,
         status="Awaiting Assignment",
-        customer_name=f"{awalan}PT Uji",
+        customer_name=customer_name,
         project_name="Proyek Live",
+        customer_id=customer.id,
     )
     dunia.db.add(proyek)
     await dunia.db.commit()
@@ -147,7 +155,7 @@ async def test_assign_membuat_tree_asli_dan_menyimpan_id(
     assert p.status == "Assigned" and p.assigned_sa == dunia.sa.id
     assert p.gdrive_folder_id and p.gdrive_solutions_folder_id
     # Dibaca ulang dari Drive, bukan dari nilai kembalian provisioner.
-    assert verifikator.ambil(p.gdrive_folder_id)["name"] == f"{awalan}PT Uji - Proyek Live"
+    assert verifikator.ambil(p.gdrive_folder_id)["name"] == "01-Proyek Live"
     anak = _subfolder(verifikator, p.gdrive_folder_id)
     assert set(anak) == {"Inventory", "Diagram", "Solutions"}
     assert anak["Solutions"] == p.gdrive_solutions_folder_id

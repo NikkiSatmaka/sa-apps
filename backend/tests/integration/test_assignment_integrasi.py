@@ -8,13 +8,14 @@ provisioning ditangkap lalu `_trigger_folder_provisioner` ASLI dijalankan setela
 `test_fake_boundary_contoh.py`).
 """
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import func, select
 
-from app.models import IntegrationOperation, Subtask
+from app.models import Customer, IntegrationOperation, Subtask
 from app.services.folder_provisioner import folder_provisioner
 from app.services.sla_timer import sla_timer
 from tests.integration.conftest import patch_session_factory
@@ -512,8 +513,18 @@ async def test_assign_memulai_timer_seed_subtask_notifikasi_lalu_provisioning_su
     await jalankan_provisioning(dunia.db, tugas[0])
 
     p = await ambil_proyek(dunia.db, pid)
+    customer = await dunia.db.get(Customer, p.customer_id)
     assert p.folder_provisioning_status == "provisioned"
-    assert fake_drive.folder[p.gdrive_folder_id]["name"] == "PT Bank - Core Banking"
+    assert p.gdrive_folder_number == 1
+    assert customer.gdrive_folder_id is not None
+    assert fake_drive.folder[customer.gdrive_folder_id] == {
+        "name": "PT Bank",
+        "parent": fake_drive.parent_id,
+    }
+    assert fake_drive.folder[p.gdrive_folder_id] == {
+        "name": "01-Core Banking",
+        "parent": customer.gdrive_folder_id,
+    }
     assert fake_drive.folder[p.gdrive_solutions_folder_id]["name"] == "Solutions"
     assert fake_drive.folder[p.gdrive_solutions_folder_id]["parent"] == p.gdrive_folder_id
     assert fake_drive.peran(p.gdrive_folder_id, dunia.sa.email) == "writer"
@@ -536,10 +547,15 @@ async def test_assign_provisioning_gagal_status_failed_lalu_provision_ulang_berh
     await jalankan_provisioning(dunia.db, tugas[0])
 
     p = await ambil_proyek(dunia.db, pid)
+    customer = await dunia.db.get(Customer, p.customer_id)
     assert p.folder_provisioning_status == "failed"
-    assert (p.gdrive_folder_id, p.gdrive_solutions_folder_id) == (None, None)
-    assert fake_drive.folder == {}
-    # Kegagalan Drive tidak membatalkan assignment, timer, maupun subtask.
+    assert p.gdrive_folder_id is None
+    assert p.gdrive_folder_number == 1
+    assert customer.gdrive_folder_id is not None
+    assert [
+        folder for folder in fake_drive.folder.values()
+        if folder["parent"] == customer.gdrive_folder_id
+    ] == []
     assert (p.status, p.assigned_sa) == ("Assigned", dunia.sa.id)
     assert (await ambil_sla(dunia.db, pid)) is not None
     assert len(await daftar_subtask(dunia.db, pid)) == 4
@@ -585,6 +601,184 @@ async def test_assign_provisioning_gagal_status_failed_lalu_provision_ulang_berh
     assert lagi.status_code == 409
     assert len(fake_drive.panggilan) == panggilan_sebelum
     assert len(tugas) == 2
+
+
+async def test_project_number_uses_highest_numbered_folder_and_leaves_legacy_flat_folder(
+    dunia, api, fake_drive, monkeypatch
+):
+    project = await dunia.buat_proyek(project_name="Migration", customer_name="PT Bank")
+    customer = await dunia.db.get(Customer, project.customer_id)
+    customer_folder_id = fake_drive.seed_folder("PT Bank", fake_drive.parent_id)
+    customer.gdrive_folder_id = customer_folder_id
+    legacy_folder_id = fake_drive.seed_folder("PT Bank - Legacy", fake_drive.parent_id)
+    fake_drive.seed_folder("01-Old", customer_folder_id)
+    fake_drive.seed_folder("104-Old", customer_folder_id)
+    await dunia.db.commit()
+
+    tasks = rekam_background(monkeypatch)
+    response = await api.client.post(
+        ASSIGN.format(project.id_project),
+        json={"sa_id": str(dunia.sa.id)},
+        headers=dunia.h["lead"],
+    )
+    assert response.status_code == 200, response.text
+    await jalankan_provisioning(dunia.db, tasks[0])
+
+    persisted = await ambil_proyek(dunia.db, project.id_project)
+    assert persisted.gdrive_folder_number == 105
+    assert fake_drive.folder[persisted.gdrive_folder_id] == {
+        "name": "105-Migration",
+        "parent": customer_folder_id,
+    }
+    assert fake_drive.folder[legacy_folder_id] == {
+        "name": "PT Bank - Legacy",
+        "parent": fake_drive.parent_id,
+    }
+
+
+async def test_partial_provisioning_retry_reuses_reserved_number_and_master_folder(
+    dunia, api, fake_drive, monkeypatch
+):
+    project = await dunia.buat_proyek(project_name="Migration", customer_name="PT Bank")
+    tasks = rekam_background(monkeypatch)
+    response = await api.client.post(
+        ASSIGN.format(project.id_project),
+        json={"sa_id": str(dunia.sa.id)},
+        headers=dunia.h["lead"],
+    )
+    assert response.status_code == 200, response.text
+
+    fake_drive.fail_next("create_inventory_subfolder")
+    await jalankan_provisioning(dunia.db, tasks[0])
+
+    failed = await ambil_proyek(dunia.db, project.id_project)
+    assert failed.folder_provisioning_status == "failed"
+    assert failed.gdrive_folder_number == 1
+    assert failed.gdrive_folder_id is not None
+    master_id = failed.gdrive_folder_id
+    customer = await dunia.db.get(Customer, failed.customer_id)
+    assert fake_drive.folder[master_id] == {
+        "name": "01-Migration",
+        "parent": customer.gdrive_folder_id,
+    }
+
+    response = await api.client.post(
+        REPROVISION.format(project.id_project), headers=dunia.h["lead"]
+    )
+    assert response.status_code == 200, response.text
+    await jalankan_provisioning(dunia.db, tasks[1])
+
+    retried = await ambil_proyek(dunia.db, project.id_project)
+    assert retried.folder_provisioning_status == "provisioned"
+    assert (retried.gdrive_folder_number, retried.gdrive_folder_id) == (1, master_id)
+    assert sum(
+        folder["parent"] == customer.gdrive_folder_id for folder in fake_drive.folder.values()
+    ) == 1
+    subfolders = {
+        folder["name"]
+        for folder in fake_drive.folder.values()
+        if folder["parent"] == master_id
+    }
+    assert subfolders == {"Inventory", "Diagram", "Solutions"}
+
+
+async def test_concurrent_assignments_for_one_customer_reserve_distinct_numbers(
+    dunia, api, fake_drive, monkeypatch
+):
+    projects = [
+        await dunia.buat_proyek(project_name=name, customer_name="PT Bank")
+        for name in ("Migration", "Modernization")
+    ]
+    tasks = rekam_background(monkeypatch)
+    for project in projects:
+        response = await api.client.post(
+            ASSIGN.format(project.id_project),
+            json={"sa_id": str(dunia.sa.id)},
+            headers=dunia.h["lead"],
+        )
+        assert response.status_code == 200, response.text
+
+    await asyncio.gather(
+        *(jalankan_provisioning(dunia.db, task) for task in tasks)
+    )
+
+    persisted = [await ambil_proyek(dunia.db, project.id_project) for project in projects]
+    assert {project.gdrive_folder_number for project in persisted} == {1, 2}
+    customer = await dunia.db.get(Customer, persisted[0].customer_id)
+    assert persisted[0].customer_id == persisted[1].customer_id
+    assert customer.gdrive_folder_id is not None
+    assert {
+        fake_drive.folder[project.gdrive_folder_id]["parent"] for project in persisted
+    } == {customer.gdrive_folder_id}
+    assert {
+        fake_drive.folder[project.gdrive_folder_id]["name"] for project in persisted
+    } == {"01-Migration", "02-Modernization"}
+    assert sum(
+        folder["name"] == "PT Bank" and folder["parent"] == fake_drive.parent_id
+        for folder in fake_drive.folder.values()
+    ) == 1
+
+
+async def test_unassociated_project_folder_name_collision_fails_closed(
+    dunia, api, fake_drive, monkeypatch
+):
+    project = await dunia.buat_proyek(project_name="Proyek", customer_name="Cust")
+    customer = await dunia.db.get(Customer, project.customer_id)
+    customer.gdrive_folder_id = fake_drive.seed_folder("Cust", fake_drive.parent_id)
+    project.gdrive_folder_number = 1
+    collision_id = fake_drive.seed_folder("01-Proyek", customer.gdrive_folder_id)
+    await dunia.db.commit()
+    tasks = rekam_background(monkeypatch)
+
+    response = await api.client.post(
+        ASSIGN.format(project.id_project),
+        json={"sa_id": str(dunia.sa.id)},
+        headers=dunia.h["lead"],
+    )
+    assert response.status_code == 200, response.text
+    await jalankan_provisioning(dunia.db, tasks[0])
+
+    persisted = await ambil_proyek(dunia.db, project.id_project)
+    assert persisted.folder_provisioning_status == "failed"
+    assert persisted.gdrive_folder_number == 1
+    assert persisted.gdrive_folder_id is None
+    assert fake_drive.folder[collision_id] == {
+        "name": "01-Proyek",
+        "parent": customer.gdrive_folder_id,
+    }
+    detail = await api.client.get(
+        f"/api/v1/projects/{project.id_project}", headers=dunia.h["lead"]
+    )
+    error = detail.json()["data"]["folder_provisioning_operation"]["actionable_error"]
+    assert "collision" in error.lower() or "already exists" in error.lower()
+
+
+async def test_duplicate_customer_folders_fail_with_actionable_operation_error(
+    dunia, api, fake_drive, monkeypatch
+):
+    project = await dunia.buat_proyek(project_name="Migration", customer_name="Cust")
+    fake_drive.seed_folder("Cust", fake_drive.parent_id)
+    fake_drive.seed_folder("Cust", fake_drive.parent_id)
+    tasks = rekam_background(monkeypatch)
+
+    response = await api.client.post(
+        ASSIGN.format(project.id_project),
+        json={"sa_id": str(dunia.sa.id)},
+        headers=dunia.h["lead"],
+    )
+    assert response.status_code == 200, response.text
+    await jalankan_provisioning(dunia.db, tasks[0])
+
+    persisted = await ambil_proyek(dunia.db, project.id_project)
+    customer = await dunia.db.get(Customer, persisted.customer_id)
+    assert persisted.folder_provisioning_status == "failed"
+    assert persisted.gdrive_folder_number is None
+    assert customer.gdrive_folder_id is None
+    detail = await api.client.get(
+        f"/api/v1/projects/{project.id_project}", headers=dunia.h["lead"]
+    )
+    error = detail.json()["data"]["folder_provisioning_operation"]["actionable_error"]
+    assert "multiple" in error.lower() or "duplicate" in error.lower()
 
 
 async def test_provisioning_error_tak_terduga_dipersisten_dan_tetap_non_blocking(
@@ -1156,7 +1350,10 @@ async def test_drive_palsu_gagal_permanen_provisioning_failed_tanpa_folder_yatim
     p = await ambil_proyek(dunia.db, proyek.id_project)
     assert p.folder_provisioning_status == "failed" and p.gdrive_folder_id is None
     assert len(fake_drive.panggilan_operasi("provision_project_folder")) == 2
-    assert all(not c.berhasil for c in fake_drive.panggilan)
+    assert all(
+        not call.berhasil
+        for call in fake_drive.panggilan_operasi("provision_project_folder")
+    )
 
 
 @pytest.mark.parametrize(

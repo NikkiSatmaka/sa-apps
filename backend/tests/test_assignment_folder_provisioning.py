@@ -64,6 +64,10 @@ def _make_project(status_value: str = "Awaiting Assignment"):
     project.id_project = PROJECT_ID
     project.project_name = "Proyek Uji"
     project.customer_name = "Customer A"
+    project.customer_id = uuid.uuid4()
+    project.customer = MagicMock()
+    project.customer.name = "Customer A"
+    project.customer.gdrive_folder_id = "customer-drive-folder"
     project.status = status_value
     project.bant_score = 80
     project.use_case_tags = ["etl"]
@@ -71,6 +75,7 @@ def _make_project(status_value: str = "Awaiting Assignment"):
     project.assigned_sa = None
     project.assigned_at = None
     project.target_submit = date(2026, 12, 31)
+    project.gdrive_folder_number = 1
     project.gdrive_folder_id = None
     project.gdrive_solutions_folder_id = None
     project.folder_provisioning_status = None
@@ -95,6 +100,7 @@ class _FakeProvisionSession:
     def __init__(self, project):
         self._project = project
         self.commits = 0
+        self._execute_count = 0
 
     async def __aenter__(self):
         return self
@@ -103,12 +109,17 @@ class _FakeProvisionSession:
         return False
 
     async def execute(self, _stmt):
-        return _execute_result_scalar(self._project)
+        self._execute_count += 1
+        value = self._project if self._execute_count == 1 else self._project.customer
+        return _execute_result_scalar(value)
+
+    async def scalar(self, _stmt):
+        return 0
 
     async def commit(self):
         self.commits += 1
 
-    async def refresh(self, _obj):
+    async def refresh(self, _obj, attribute_names=None):
         return None
 
 

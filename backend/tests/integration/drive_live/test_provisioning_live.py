@@ -30,13 +30,29 @@ NAMA_SUBFOLDER = {"Inventory", "Diagram", "Solutions"}
 
 
 def _proyek(awalan: str) -> SimpleNamespace:
-    return SimpleNamespace(customer_name=f"{awalan}PT Uji", project_name="Proyek Live")
+    return SimpleNamespace(
+        customer_name=f"{awalan}PT Uji",
+        project_name="Proyek Live",
+        id_project=f"{awalan}project",
+        customer=SimpleNamespace(gdrive_folder_id=None),
+        gdrive_folder_number=1,
+        gdrive_folder_id=None,
+    )
+
+
+async def _proyek_dengan_customer(provisioner, awalan: str) -> SimpleNamespace:
+    project = _proyek(awalan)
+    project.customer.gdrive_folder_id = await provisioner.ensure_customer_folder(
+        project.customer_name
+    )
+    return project
 
 
 async def _provision(provisioner, cfg, pembersih, awalan):
+    project = await _proyek_dengan_customer(provisioner, awalan)
     hasil = await asyncio.wait_for(
         provisioner.provision_project_folder(
-            _proyek(awalan), cfg.email_sa, cfg.email_lead, cfg.email_sales
+            project, cfg.email_sa, cfg.email_lead, cfg.email_sales
         ),
         cfg.timeout,
     )
@@ -60,7 +76,7 @@ async def test_struktur_master_dan_izin_awal(
     hasil = await _provision(provisioner, cfg, pembersih, awalan)
 
     # Struktur: master berisi tepat Inventory / Diagram / Solutions.
-    assert verifikator.ambil(hasil.master)["name"] == f"{awalan}PT Uji - Proyek Live"
+    assert verifikator.ambil(hasil.master)["name"] == "01-Proyek Live"
     anak = {f["name"]: f["id"] for f in verifikator.anak(hasil.master)}
     assert set(anak) == NAMA_SUBFOLDER
     assert anak == {
@@ -192,7 +208,10 @@ async def test_email_tidak_valid_gagal_setelah_retry(
     with pytest.raises(FolderProvisioningError):
         await asyncio.wait_for(
             provisioner.provision_project_folder(
-                _proyek(awalan), sa_email, cfg.email_lead, cfg.email_sales
+                await _proyek_dengan_customer(provisioner, awalan),
+                sa_email,
+                cfg.email_lead,
+                cfg.email_sales,
             ),
             cfg.timeout,
         )

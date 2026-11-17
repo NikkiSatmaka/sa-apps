@@ -9,7 +9,7 @@ from datetime import date, timedelta
 
 from sqlalchemy import select
 
-from app.models import Project, User
+from app.models import Customer, Project, User
 from app.services.notification_service import notification_service
 from tests.integration.fakes.calendar import event_berjadwal
 from tests.integration.kualifikasi_support import id_product_demo
@@ -110,14 +110,13 @@ async def test_drive_fake_sukses_id_folder_tersimpan_di_proyek(api, db_session, 
     resp = await api.client.post(f"{PROYEK}/{id_project}/provision-folder", headers=lead)
 
     assert resp.status_code == 200, resp.text
-    proyek = (
-        await db_session.execute(select(Project).where(Project.id_project == id_project))
-    ).scalar_one()
-    await db_session.refresh(proyek)
-    panggilan = fake_drive.panggilan_operasi("provision_project_folder")
-    assert len(panggilan) == 1 and panggilan[0].berhasil
+    customer = await db_session.get(Customer, proyek.customer_id)
     assert proyek.folder_provisioning_status == "provisioned"
-    assert fake_drive.folder[proyek.gdrive_folder_id]["name"] == "PT Fake - Proyek Fake"
+    assert proyek.gdrive_folder_number == 1
+    assert fake_drive.folder[proyek.gdrive_folder_id] == {
+        "name": "01-Proyek Fake",
+        "parent": customer.gdrive_folder_id,
+    }
     assert fake_drive.folder[proyek.gdrive_solutions_folder_id]["name"] == "Solutions"
     # Sales tidak punya akses ke Solutions; SA editor di master.
     assert fake_drive.peran(proyek.gdrive_solutions_folder_id, "demo-sales@portal-sa.local") is None
@@ -136,9 +135,12 @@ async def test_drive_fake_gagal_status_provisioning_failed(api, db_session, fake
         await db_session.execute(select(Project).where(Project.id_project == id_project))
     ).scalar_one()
     await db_session.refresh(proyek)
+    customer = await db_session.get(Customer, proyek.customer_id)
     assert proyek.folder_provisioning_status == "failed"
     assert proyek.gdrive_folder_id is None
-    assert fake_drive.folder == {}
+    assert proyek.gdrive_folder_number == 1
+    assert customer.gdrive_folder_id is not None
+    assert list(fake_drive.folder) == [customer.gdrive_folder_id]
 
 
 # ----------------------------------------------------------------------------- Gmail

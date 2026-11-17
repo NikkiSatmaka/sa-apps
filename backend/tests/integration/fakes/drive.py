@@ -22,13 +22,28 @@ from app.services.folder_provisioner import (
 )
 
 OPERASI = (
+    "ensure_customer_folder",
+    "list_folder_children",
     "provision_project_folder",
+    "create_master_folder",
+    "create_inventory_subfolder",
+    "create_diagram_subfolder",
+    "create_solutions_subfolder",
     "lock_solutions_folder",
     "unlock_solutions_folder",
     "provision_handover",
     "reassign_sa_access",
 )
 
+BOUNDARY_METHODS = (
+    "ensure_customer_folder",
+    "list_folder_children",
+    "provision_project_folder",
+    "lock_solutions_folder",
+    "unlock_solutions_folder",
+    "provision_handover",
+    "reassign_sa_access",
+)
 
 @dataclass
 class PanggilanDrive:
@@ -45,6 +60,7 @@ class FakeDrive:
     folder: dict[str, dict[str, Any]] = field(default_factory=dict)  # id -> {name, parent}
     izin: dict[str, dict[str, str]] = field(default_factory=dict)  # id folder -> {email: role}
     _gagal: list[tuple[str | None, int | None, str]] = field(default_factory=list)
+    parent_id: str = "fake-shared-drive-parent"
     _hitung: Any = field(default_factory=lambda: count(1))
 
     # ------------------------------------------------------------------ pemrograman
@@ -88,9 +104,69 @@ class FakeDrive:
         self.izin[folder_id] = {}
         return folder_id
 
+    def seed_folder(self, name: str, parent: str | None = None) -> str:
+        """Create a Drive fixture folder without recording a provisioning call."""
+        return self._buat_folder(name, parent)
+
+    async def ensure_customer_folder(
+        self, customer_name: str, existing_folder_id: str | None = None
+    ) -> str:
+        self._mulai(
+            "ensure_customer_folder",
+            customer_name=customer_name,
+            existing_folder_id=existing_folder_id,
+        )
+        if existing_folder_id:
+            return existing_folder_id
+
+        name = folder_provisioner.sanitize_folder_name(customer_name.strip())
+        matches = [
+            folder_id
+            for folder_id, folder in self.folder.items()
+            if folder["parent"] == self.parent_id
+            and folder["name"].strip().casefold() == name.casefold()
+        ]
+        if len(matches) > 1:
+            raise FolderProvisioningError(
+                f"Multiple Customer folders named '{name}' exist under the configured parent."
+            )
+        if matches:
+            return matches[0]
+        return self._buat_folder(name, self.parent_id)
+
+    async def list_folder_children(self, parent_folder_id: str) -> list[dict[str, str]]:
+        self._mulai("list_folder_children", parent_folder_id=parent_folder_id)
+        return [
+            {"id": folder_id, "name": folder["name"]}
+            for folder_id, folder in self.folder.items()
+            if folder["parent"] == parent_folder_id
+        ]
+
+    def _ensure_child_folder(self, name: str, parent_id: str, operation: str) -> str:
+        matches = [
+            folder_id
+            for folder_id, folder in self.folder.items()
+            if folder["parent"] == parent_id and folder["name"].casefold() == name.casefold()
+        ]
+        if len(matches) > 1:
+            raise FolderProvisioningError(
+                f"Multiple '{name}' folders exist under Drive folder '{parent_id}'."
+            )
+        if matches:
+            return matches[0]
+        self._mulai(operation, parent_folder_id=parent_id, name=name)
+        return self._buat_folder(name, parent_id)
+
+
     # ------------------------------------------------------------------ pengganti API publik
     async def provision_project_folder(
-        self, project: Any, sa_email: str, lead_sa_email: str, sales_email: str
+        self,
+        project: Any,
+        sa_email: str,
+        lead_sa_email: str,
+        sales_email: str,
+        *,
+        persist_master_folder_id=None,
     ) -> ProvisionedFolders:
         self._mulai(
             "provision_project_folder",
@@ -99,17 +175,54 @@ class FakeDrive:
             lead_sa_email=lead_sa_email,
             sales_email=sales_email,
         )
-        customer = folder_provisioner.sanitize_folder_name(project.customer_name)
-        nama = folder_provisioner.sanitize_folder_name(project.project_name)
-        master = self._buat_folder(f"{customer} - {nama}")
-        inventory = self._buat_folder("Inventory", master)
-        diagram = self._buat_folder("Diagram", master)
-        solutions = self._buat_folder("Solutions", master)
+        customer = getattr(project, "customer", None)
+        customer_folder_id = getattr(customer, "gdrive_folder_id", None)
+        if not customer_folder_id:
+            raise FolderProvisioningError("Customer Drive folder ID is missing.")
+
+        master = project.gdrive_folder_id
+        if master is None:
+            project_number = getattr(project, "gdrive_folder_number", None)
+            if project_number is None:
+                raise FolderProvisioningError("Project folder number is not reserved.")
+            name = (
+                f"{project_number:02d}-"
+                f"{folder_provisioner.sanitize_folder_name(project.project_name)}"
+            )
+            matches = [
+                folder_id
+                for folder_id, folder in self.folder.items()
+                if folder["parent"] == customer_folder_id
+                and folder["name"].strip().casefold() == name.casefold()
+            ]
+            if matches:
+                raise FolderProvisioningError(
+                    f"Project folder '{name}' already exists and is not associated with this project."
+                )
+            self._mulai(
+                "create_master_folder",
+                parent_folder_id=customer_folder_id,
+                name=name,
+            )
+            master = self._buat_folder(name, customer_folder_id)
+            if persist_master_folder_id is not None:
+                await persist_master_folder_id(master)
+
+        inventory = self._ensure_child_folder(
+            "Inventory", master, "create_inventory_subfolder"
+        )
+        diagram = self._ensure_child_folder("Diagram", master, "create_diagram_subfolder")
+        solutions = self._ensure_child_folder(
+            "Solutions", master, "create_solutions_subfolder"
+        )
         self.izin[master][sa_email] = "writer"
         self.izin[master][lead_sa_email] = "writer"
         self.izin[inventory][sales_email] = "reader"
         return ProvisionedFolders(
-            master=master, inventory=inventory, diagram=diagram, solutions=solutions
+            master=master,
+            inventory=inventory,
+            diagram=diagram,
+            solutions=solutions,
         )
 
     async def lock_solutions_folder(self, solutions_folder_id: str, sales_email: str) -> None:
@@ -157,5 +270,5 @@ class FakeDrive:
             izin.pop(old_sa_email, None)
 
     def pasang(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        for operasi in OPERASI:
+        for operasi in BOUNDARY_METHODS:
             monkeypatch.setattr(folder_provisioner, operasi, getattr(self, operasi))

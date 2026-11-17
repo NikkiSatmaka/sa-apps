@@ -7,7 +7,8 @@ panggilan jaringan nyata.
 
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -32,7 +33,11 @@ class FakeProject:
     customer_name: str = "PT Acme Indonesia"
     project_name: str = "Data Platform Migration"
     id_project: str = "PRJ-001"
-
+    customer: SimpleNamespace = field(
+        default_factory=lambda: SimpleNamespace(gdrive_folder_id="customer-folder")
+    )
+    gdrive_folder_number: int = 1
+    gdrive_folder_id: str | None = None
 
 @pytest.fixture
 def provisioner():
@@ -47,6 +52,10 @@ def mock_drive_service():
 
     # Mock files().create()
     create_mock = MagicMock()
+    # Mock files().list() for child-folder lookups.
+    list_mock = MagicMock()
+    list_mock.execute.return_value = {"files": [], "nextPageToken": None}
+    service.files.return_value.list.return_value = list_mock
     create_mock.execute.return_value = {"id": "folder_id_123"}
     service.files.return_value.create.return_value = create_mock
 

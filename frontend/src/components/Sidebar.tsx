@@ -6,7 +6,7 @@ import { useSidebarStore } from "@/store/sidebar";
 import { useAuthStore } from "@/store/auth";
 import { logout } from "@/lib/auth";
 import { UserMenu } from "@/components/UserMenu";
-import { isAdmin, type Actor } from "@/lib/roles";
+import { isAdmin, isPrivileged, type Actor } from "@/lib/roles";
 
 /**
  * Sidebar Navigation — collapsible (Requirement 19.7)
@@ -234,6 +234,14 @@ export function Sidebar() {
             );
           })}
 
+          {isPrivileged(user) && (
+            <li>
+              <Link href="/customers" className={`flex items-center gap-3 rounded-lg px-3 min-h-[44px] min-w-[44px] ${isOpen ? "" : "justify-center"} ${pathname.startsWith("/customers") ? "bg-primary-50 text-primary-600 font-medium" : "text-neutral-700 hover:bg-neutral-100 hover:text-primary-600"}`} title="Customer">
+                <UsersIcon className="w-5 h-5 shrink-0" />
+                {isOpen && <span className="text-sm font-medium truncate">Customer</span>}
+              </Link>
+            </li>
+          )}
           {/* Admin-only menu items */}
           {isAdmin(user) && (
             <>

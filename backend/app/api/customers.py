@@ -31,8 +31,8 @@ async def list_customers(db: AsyncSession = Depends(get_db), user: User = Depend
 
 @router.post("", status_code=201)
 async def create_customer(body: CustomerInput, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    if user.role not in {"Sales", "Product", "Lead_SA"} and user.is_admin is not True:
-        raise HTTPException(status_code=403, detail="Tidak memiliki akses membuat Customer.")
+    if user.role != "Lead_SA" and user.is_admin is not True:
+        raise HTTPException(status_code=403, detail="Hanya Lead SA atau Admin yang dapat membuat Customer.")
     name = body.name.strip()
     normalized = normalize_customer_name(name)
     if not normalized:
@@ -42,7 +42,8 @@ async def create_customer(body: CustomerInput, db: AsyncSession = Depends(get_db
         return {"id": str(existing.id), "name": existing.name}
     customer = Customer(name=name, normalized_name=normalized)
     db.add(customer)
-    await db.flush()
+    await db.commit()
+    await db.refresh(customer)
     return {"id": str(customer.id), "name": customer.name}
 
 
@@ -63,4 +64,5 @@ async def rename_customer(customer_id: uuid.UUID, body: CustomerInput, db: Async
     customer.name = name
     customer.normalized_name = normalized
     await db.execute(update(Project).where(Project.customer_id == customer.id).values(customer_name=name))
+    await db.commit()
     return {"id": str(customer.id), "name": customer.name}

@@ -18,6 +18,8 @@ class FakeSession:
         self.execute = AsyncMock()
         scalar_result = existing if existing is not None else duplicate
         self.scalar = AsyncMock(return_value=scalar_result)
+        self.commit = AsyncMock()
+        self.refresh = AsyncMock()
         self.get = AsyncMock(return_value=customer)
         self.flush = AsyncMock(side_effect=self._flush)
 
@@ -74,7 +76,7 @@ def test_list_customers_rejects_unprivileged_role():
 
 def test_create_customer_trims_and_persists_new_identity():
     session = FakeSession()
-    with api_as(user("Sales"), session) as client:
+    with api_as(user("Lead_SA"), session) as client:
         response = client.post("/api/v1/customers", json={"name": "  PT Acme  "})
 
     assert response.status_code == 201
@@ -83,33 +85,31 @@ def test_create_customer_trims_and_persists_new_identity():
     assert session.added[0].name == "PT Acme"
     assert session.added[0].normalized_name == "pt acme"
     assert response.json()["id"] == str(session.added[0].id)
-
+    session.commit.assert_awaited_once()
 
 def test_create_customer_reuses_existing_normalized_identity():
     customer = Customer(id=uuid.uuid4(), name="PT Acme", normalized_name="pt acme")
     session = FakeSession(existing=customer)
-    with api_as(user("Product"), session) as client:
+    with api_as(user("Lead_SA"), session) as client:
         response = client.post("/api/v1/customers", json={"name": "PT ACME"})
-
     assert response.status_code == 201
     assert response.json() == {"id": str(customer.id), "name": "PT Acme"}
     assert session.added == []
 
 
-@pytest.mark.parametrize("role", ["SA", "Admin"])
-def test_create_customer_rejects_unprivileged_role(role):
-    with api_as(user(role), FakeSession()) as client:
+@pytest.mark.parametrize("role,is_admin", [("Sales", False), ("Product", False), ("SA", False), ("Admin", False)])
+def test_create_customer_rejects_unprivileged_role(role, is_admin):
+    with api_as(user(role, is_admin=is_admin), FakeSession()) as client:
         response = client.post("/api/v1/customers", json={"name": "Acme"})
 
     assert response.status_code == 403
 
 
 def test_create_customer_rejects_name_that_normalizes_empty():
-    with api_as(user("Sales"), FakeSession()) as client:
+    with api_as(user("Lead_SA"), FakeSession()) as client:
         response = client.post("/api/v1/customers", json={"name": "   "})
 
     assert response.status_code == 422
-
 
 def test_rename_customer_updates_customer_identity_and_returns_new_name():
     customer = Customer(id=uuid.uuid4(), name="Old Name", normalized_name="old name")
@@ -122,7 +122,7 @@ def test_rename_customer_updates_customer_identity_and_returns_new_name():
     assert response.status_code == 200
     assert response.json() == {"id": str(customer.id), "name": "New Name"}
     assert (customer.name, customer.normalized_name) == ("New Name", "new name")
-    session.execute.assert_awaited_once()
+    session.commit.assert_awaited_once()
 
 
 def test_rename_customer_rejects_missing_identity():

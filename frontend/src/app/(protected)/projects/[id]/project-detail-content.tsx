@@ -6,8 +6,16 @@ import useSWR from "swr";
 import { apiRequest, fetcher } from "@/lib/fetcher";
 import { isPrivileged } from "@/lib/roles";
 import type { QualificationView } from "@/lib/qualification";
-import type { IntegrationOperationResponse, CustomerOption } from "@/lib/api/projects";
-import { repairProjectCustomerLink } from "@/lib/api/projects";
+import type {
+  CustomerOption,
+  IntegrationOperationResponse,
+  ProjectDriveFolderPreview,
+} from "@/lib/api/projects";
+import {
+  previewProjectDriveFolder,
+  registerProjectDriveFolder,
+  repairProjectCustomerLink,
+} from "@/lib/api/projects";
 import type { HandoverReadiness } from "@/lib/api/handover";
 import { BANTOverride } from "@/components/BANTOverride";
 import { CollaboratorSection } from "@/components/CollaboratorSection";
@@ -66,6 +74,8 @@ export interface ProjectDetail {
   collaborators: { id: string; user_id: string; user_name: string; user_email: string; user_role: string; role: "viewer" | "contributor"; added_by_name: string; created_at: string }[];
   source_documents?: SourceDocumentItem[];
   gdrive_folder_id: string | null;
+  gdrive_inventory_folder_id?: string | null;
+  gdrive_diagram_folder_id?: string | null;
   gdrive_solutions_folder_id?: string | null;
   gdrive_folder_number?: number | null;
   folder_provisioning_status: "pending" | "provisioned" | "failed" | null;
@@ -334,9 +344,12 @@ export function ProjectDetailContent({
         )}
       </section>
       <FolderProvisioningSection
+        projectId={projectId}
         status={project.folder_provisioning_status}
         operation={project.folder_provisioning_operation}
         masterFolderId={project.gdrive_folder_id}
+        canRegister={canRepairCustomer && Boolean(project.customer_id)}
+        onRegistered={onProjectChanged}
         canRetry={isPrivileged(user)}
         isRetrying={folderProvisioning.isRetrying}
         retryError={folderProvisioning.error}
@@ -591,9 +604,12 @@ function ProjectActivitySection({ projectId }: { projectId: string }) {
 }
 
 interface FolderProvisioningSectionProps {
+  projectId: string;
   status: ProjectDetail["folder_provisioning_status"];
   operation?: FolderProvisioningOperation | null;
   masterFolderId: string | null;
+  canRegister: boolean;
+  onRegistered: () => void;
   canRetry: boolean;
   isRetrying: boolean;
   retryError: string | null;
@@ -601,19 +617,101 @@ interface FolderProvisioningSectionProps {
 }
 
 function FolderProvisioningSection({
+  projectId,
   status,
   operation,
   masterFolderId,
+  canRegister,
+  onRegistered,
   canRetry,
   isRetrying,
   retryError,
   onRetry,
 }: FolderProvisioningSectionProps) {
+  const [showRegistration, setShowRegistration] = useState(false);
+  const [folderId, setFolderId] = useState("");
+  const [reason, setReason] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [preview, setPreview] = useState<ProjectDriveFolderPreview | null>(null);
+  const [registrationError, setRegistrationError] = useState<string | null>(null);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const failed = status === "failed" || operation?.status === "failed";
   const pending =
     !failed && (status === "pending" || operation?.status === "pending");
   const provisioned =
     !failed && !pending && (status === "provisioned" || operation?.status === "succeeded");
+  const loadPreview = async () => {
+    setRegistrationError(null);
+    setPreview(null);
+    setConfirmed(false);
+    setIsLoadingPreview(true);
+    try {
+      setPreview(await previewProjectDriveFolder(projectId, folderId.trim(), reason.trim()));
+    } catch (cause) {
+      setRegistrationError(cause instanceof Error ? cause.message : "Gagal memeriksa folder Drive.");
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+  const registerFolder = async () => {
+    if (!preview || !confirmed) return;
+    setIsRegistering(true);
+    setRegistrationError(null);
+    try {
+      await registerProjectDriveFolder(projectId, folderId.trim(), reason.trim());
+      setShowRegistration(false);
+      setPreview(null);
+      onRegistered();
+    } catch (cause) {
+      setRegistrationError(cause instanceof Error ? cause.message : "Gagal mendaftarkan folder Drive.");
+    } finally {
+      setIsRegistering(false);
+    }
+  };
+  const registrationControl = canRegister && !masterFolderId ? (
+    <div className="mt-4 border-t border-neutral-200 pt-4">
+      {!showRegistration ? (
+        <button type="button" className="text-sm font-medium text-primary-700 underline" onClick={() => setShowRegistration(true)}>
+          Daftarkan folder yang sudah ada
+        </button>
+      ) : (
+        <div className="space-y-3">
+          <label className="block text-sm">
+            ID folder Google Drive
+            <input className="mt-1 block w-full rounded border border-neutral-300 px-3 py-2" value={folderId} onChange={(event) => { setFolderId(event.target.value); setPreview(null); setConfirmed(false); }} />
+          </label>
+          <label className="block text-sm">
+            Alasan pendaftaran
+            <textarea className="mt-1 block w-full rounded border border-neutral-300 px-3 py-2" value={reason} onChange={(event) => { setReason(event.target.value); setPreview(null); setConfirmed(false); }} />
+          </label>
+          <button type="button" disabled={!folderId.trim() || !reason.trim() || isLoadingPreview} onClick={loadPreview} className="rounded border px-3 py-2 text-sm disabled:opacity-50">
+            {isLoadingPreview ? "Memeriksa folder..." : "Periksa dan tinjau"}
+          </button>
+          {preview && (
+            <div className="rounded bg-neutral-50 p-3 text-sm" aria-label="Pratinjau folder Drive">
+              <p>Nama folder: {preview.name}</p>
+              <p>Parent Drive: {preview.parent_id ?? "Tidak ada"}</p>
+              <p>Nomor proyek terdeteksi: {preview.detected_project_number ?? "Tidak terdeteksi"}</p>
+              <p>Inventory: {preview.inventory_folder_id}</p>
+              <p>Diagram: {preview.diagram_folder_id}</p>
+              <p>Solutions: {preview.solutions_folder_id}</p>
+              {preview.parent_mismatch && <p role="alert">Parent folder berbeda dari folder Customer. Folder tidak akan dipindahkan.</p>}
+              <label className="mt-2 flex items-center gap-2">
+                <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
+                Saya telah meninjau dan mengonfirmasi pendaftaran folder ini.
+              </label>
+              <button type="button" disabled={!confirmed || isRegistering} onClick={registerFolder} className="mt-3 rounded bg-primary-600 px-3 py-2 text-sm text-white disabled:opacity-50">
+                {isRegistering ? "Mendaftarkan..." : "Konfirmasi pendaftaran"}
+              </button>
+            </div>
+          )}
+          {registrationError && <p role="alert" className="text-sm text-red-700">{registrationError}</p>}
+          <button type="button" className="text-sm underline" onClick={() => setShowRegistration(false)}>Batal</button>
+        </div>
+      )}
+    </div>
+  ) : null;
 
   if (!failed && !pending && !provisioned) {
     return (
@@ -631,6 +729,7 @@ function FolderProvisioningSection({
         ) : (
           <p className="mt-2 text-sm text-neutral-600">Folder Google Drive belum terdaftar</p>
         )}
+        {registrationControl}
       </section>
     );
   }
@@ -736,6 +835,7 @@ function FolderProvisioningSection({
           {retryError}
         </p>
       )}
+      {registrationControl}
     </section>
   );
 

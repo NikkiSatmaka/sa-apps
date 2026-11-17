@@ -203,6 +203,25 @@ class FolderProvisioner:
 
         return folder.get("id")
 
+
+    def _get_folder_metadata_sync(self, folder_id: str) -> dict[str, Any]:
+        """Read existing Drive metadata without changing the file or its permissions."""
+        service = self._get_drive_service()
+        return (
+            service.files()
+            .get(
+                fileId=folder_id,
+                fields="id,name,mimeType,parents,trashed",
+                supportsAllDrives=True,
+            )
+            .execute()
+        )
+
+    async def get_folder_metadata(self, folder_id: str) -> dict[str, Any]:
+        """Read metadata for a Drive file; callers must validate folder and trash state."""
+        return await self._execute_with_retry(
+            "get_folder_metadata", self._get_folder_metadata_sync, folder_id
+        )
     def _list_folder_children_sync(self, parent_id: str) -> list[dict[str, Any]]:
         """List all immediate child folders for a Shared Drive folder."""
         service = self._get_drive_service()

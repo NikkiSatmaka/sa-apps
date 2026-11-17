@@ -2,6 +2,7 @@
 
 import logging
 import random
+import re
 import string
 import uuid
 from datetime import datetime, timezone
@@ -39,6 +40,10 @@ from app.services.integration_operations import list_project_operations
 from app.services.qualification_view import build_qualification_view
 from app.services.scoring_engine import scoring_engine
 from app.services import requirement_generator
+from app.services.folder_provisioner import (
+    FolderProvisioningError,
+    folder_provisioner,
+)
 from app.api.project_api_helpers import _ringkas_orang
 
 logger = logging.getLogger(__name__)
@@ -121,6 +126,172 @@ async def repair_project_customer_link(
         message="Tautan Customer proyek diperbaiki. Data Google Drive tidak diubah.",
     )
 
+
+
+
+class ProjectFolderRegistrationInput(BaseModel):
+    folder_id: str = Field(min_length=1, max_length=255)
+    reason: str = Field(min_length=1)
+    confirm: bool = False
+
+
+def _require_folder_registration_operator(current_user: User) -> None:
+    if current_user.role != "Lead_SA" and current_user.is_admin is not True:
+        raise HTTPException(status_code=403, detail="Hanya Lead_SA atau Admin.")
+
+
+async def _read_project_folder_registration(project_id: str, folder_id: str, db: AsyncSession):
+    folder_id = folder_id.strip()
+    if not folder_id:
+        raise HTTPException(status_code=422, detail="ID folder Drive wajib diisi.")
+    result = await db.execute(
+        select(Project).where(Project.id_project == project_id).with_for_update()
+    )
+    project = result.scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
+    if project.customer_id is None:
+        raise HTTPException(status_code=409, detail="Proyek belum memiliki Customer identity.")
+    if project.gdrive_folder_id is not None:
+        raise HTTPException(status_code=409, detail="Folder master proyek sudah terdaftar.")
+
+    linked = await db.execute(
+        select(Project.id_project).where(
+            Project.gdrive_folder_id == folder_id,
+            Project.id_project != project_id,
+        )
+    )
+    if linked.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="Folder sudah tertaut ke proyek lain.")
+
+    try:
+        metadata = await folder_provisioner.get_folder_metadata(folder_id)
+    except (FolderProvisioningError, KeyError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="Folder Drive tidak dapat diakses.") from exc
+    if metadata.get("id") != folder_id:
+        raise HTTPException(status_code=422, detail="Metadata Drive tidak cocok dengan ID folder.")
+    if (
+        metadata.get("mimeType") != "application/vnd.google-apps.folder"
+        or metadata.get("trashed") is True
+    ):
+        raise HTTPException(status_code=422, detail="ID Drive bukan folder aktif.")
+
+    try:
+        children = await folder_provisioner.list_folder_children(folder_id)
+    except FolderProvisioningError as exc:
+        raise HTTPException(status_code=422, detail="Isi folder Drive tidak dapat dibaca.") from exc
+    child_ids: dict[str, str] = {}
+    for expected in ("Inventory", "Diagram", "Solutions"):
+        matching = [
+            item for item in children
+            if item.get("name", "").strip().casefold() == expected.casefold()
+        ]
+        if len(matching) != 1 or not matching[0].get("id"):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Folder {expected} harus tersedia tepat satu.",
+            )
+        child_ids[expected.lower()] = matching[0]["id"]
+
+    number_match = re.match(r"^\s*(\d+)-", metadata.get("name", ""))
+    detected_number = int(number_match.group(1)) if number_match else None
+    customer = await db.get(Customer, project.customer_id)
+    customer_folder_id = customer.gdrive_folder_id if customer is not None else None
+    parents = metadata.get("parents") or []
+    parent_id = parents[0] if parents else None
+    return project, {
+        "folder_id": metadata["id"],
+        "name": metadata.get("name", ""),
+        "parent_id": parent_id,
+        "parents": parents,
+        "detected_project_number": detected_number,
+        "inventory_folder_id": child_ids["inventory"],
+        "diagram_folder_id": child_ids["diagram"],
+        "solutions_folder_id": child_ids["solutions"],
+        "parent_mismatch": parent_id != customer_folder_id,
+        "expected_customer_folder_id": customer_folder_id,
+    }
+
+
+@router.post("/{project_id}/register-folder/preview", summary="Tinjau folder Drive yang sudah ada")
+async def preview_project_folder_registration(
+    project_id: str,
+    body: ProjectFolderRegistrationInput,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_folder_registration_operator(current_user)
+    if not body.reason.strip():
+        raise HTTPException(status_code=422, detail="Alasan pendaftaran wajib diisi.")
+    _, preview = await _read_project_folder_registration(project_id, body.folder_id, db)
+    return success_response(data=preview, message="Folder Drive berhasil diverifikasi.")
+
+
+@router.post("/{project_id}/register-folder", summary="Daftarkan folder Drive yang sudah ada")
+async def register_project_folder(
+    project_id: str,
+    body: ProjectFolderRegistrationInput,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_folder_registration_operator(current_user)
+    if not body.confirm:
+        raise HTTPException(status_code=422, detail="Konfirmasi akhir wajib diberikan.")
+    reason = body.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="Alasan pendaftaran wajib diisi.")
+
+    project, detected = await _read_project_folder_registration(
+        project_id, body.folder_id, db
+    )
+    old_value = {
+        "gdrive_folder_id": project.gdrive_folder_id,
+        "gdrive_inventory_folder_id": project.gdrive_inventory_folder_id,
+        "gdrive_diagram_folder_id": project.gdrive_diagram_folder_id,
+        "gdrive_solutions_folder_id": project.gdrive_solutions_folder_id,
+        "gdrive_folder_number": project.gdrive_folder_number,
+    }
+    number = (
+        project.gdrive_folder_number
+        if project.gdrive_folder_number is not None
+        else detected["detected_project_number"]
+    )
+    now = datetime.now(timezone.utc)
+    project.gdrive_folder_id = detected["folder_id"]
+    project.gdrive_inventory_folder_id = detected["inventory_folder_id"]
+    project.gdrive_diagram_folder_id = detected["diagram_folder_id"]
+    project.gdrive_solutions_folder_id = detected["solutions_folder_id"]
+    project.gdrive_folder_number = number
+    project.folder_provisioning_status = "provisioned"
+    project.updated_at = now
+    db.add(
+        AuditLog(
+            id=_customer_repair_audit_id(),
+            entity_type="project",
+            entity_id=project.id_project,
+            action="drive_folder_registered",
+            performed_by=current_user.id,
+            old_value=old_value,
+            new_value={
+                "gdrive_folder_id": detected["folder_id"],
+                "gdrive_inventory_folder_id": detected["inventory_folder_id"],
+                "gdrive_diagram_folder_id": detected["diagram_folder_id"],
+                "gdrive_solutions_folder_id": detected["solutions_folder_id"],
+                "gdrive_folder_number": number,
+                "detected_project_number": detected["detected_project_number"],
+                "detected_parent_id": detected["parent_id"],
+                "expected_customer_folder_id": detected["expected_customer_folder_id"],
+                "parent_mismatch": detected["parent_mismatch"],
+                "reason": reason,
+            },
+            created_at=now,
+        )
+    )
+    await db.commit()
+    return success_response(
+        data={"id_project": project.id_project, **detected, "gdrive_folder_number": number},
+        message="Folder Drive terdaftar tanpa mengubah Drive.",
+    )
 
 
 
@@ -270,6 +441,8 @@ async def get_project_detail(
         else None,
         "collaborators": collab_list,
         "gdrive_folder_id": project.gdrive_folder_id,
+        "gdrive_inventory_folder_id": project.gdrive_inventory_folder_id,
+        "gdrive_diagram_folder_id": project.gdrive_diagram_folder_id,
         "gdrive_solutions_folder_id": project.gdrive_solutions_folder_id,
         "gdrive_folder_number": project.gdrive_folder_number,
         "source_documents": source_documents,

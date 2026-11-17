@@ -345,8 +345,10 @@ async def _trigger_folder_provisioner(
                     "actionable_error": None,
                 }
             )
-            # Sukses — persist kedua id folder + status provisioned
+            # Sukses — persist master + child IDs and status provisioned
             project.gdrive_folder_id = result.master
+            project.gdrive_inventory_folder_id = result.inventory
+            project.gdrive_diagram_folder_id = result.diagram
             project.gdrive_solutions_folder_id = result.solutions
             project.folder_provisioning_status = "provisioned"
             project.folder_provisioning_operation = operation

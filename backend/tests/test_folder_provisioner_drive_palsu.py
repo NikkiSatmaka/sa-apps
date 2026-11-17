@@ -56,8 +56,25 @@ class DriveApiPalsu:
             raise self.antrian_gagal.pop(0)
 
     def files(self):
-        return SimpleNamespace(create=self._files_create, list=self._files_list)
+        return SimpleNamespace(
+            create=self._files_create, get=self._files_get, list=self._files_list
+        )
 
+    def _files_get(self, fileId, fields, supportsAllDrives):  # noqa: N803
+        assert supportsAllDrives is True
+
+        def jalan():
+            self._coba()
+            folder = self.folder[fileId]
+            return {
+                "id": fileId,
+                "name": folder["name"],
+                "mimeType": folder.get("mimeType", "application/vnd.google-apps.folder"),
+                "parents": folder.get("parents", []),
+                "trashed": folder.get("trashed", False),
+            }
+
+        return _Permintaan(jalan)
     def _files_list(
         self,
         q,
@@ -585,3 +602,28 @@ def test_sanitasi_menghilangkan_semua_karakter_terlarang_dan_menjaga_panjang(nam
 @given(st.text(alphabet=st.characters(blacklist_characters='/\\*?"')))
 def test_sanitasi_tidak_mengubah_nama_yang_sudah_valid(nama):
     assert FolderProvisioner().sanitize_folder_name(nama) == nama
+
+async def test_manual_registration_reads_existing_folder_metadata_without_writes(
+    provisioner, drive
+):
+    drive.folder["existing-master"] = {
+        "name": "04-Migrasi",
+        "parents": ["customer-folder"],
+    }
+    drive.folder["existing-inventory"] = {
+        "name": "Inventory",
+        "parents": ["existing-master"],
+    }
+
+    metadata = await provisioner.get_folder_metadata("existing-master")
+
+    assert metadata == {
+        "id": "existing-master",
+        "name": "04-Migrasi",
+        "mimeType": "application/vnd.google-apps.folder",
+        "parents": ["customer-folder"],
+        "trashed": False,
+    }
+    assert drive.panggilan_api == 1
+    assert drive.folder["existing-master"]["parents"] == ["customer-folder"]
+    assert "existing-master" not in drive.izin

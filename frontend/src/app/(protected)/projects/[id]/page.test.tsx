@@ -921,3 +921,52 @@ describe("Detail proyek — perbaikan tautan Customer", () => {
     expect(screen.queryByRole("button", { name: "Perbaiki tautan Customer" })).not.toBeInTheDocument();
   });
 });
+
+describe("Detail proyek — pendaftaran folder Drive manual", () => {
+  it("meninjau metadata dan memerlukan konfirmasi eksplisit sebelum menyimpan", async () => {
+    let previewBody: unknown;
+    let registerBody: unknown;
+    server.use(
+      http.post(api(`/projects/${DETAIL_ID}/register-folder/preview`), async ({ request }) => {
+        previewBody = await request.json();
+        return HttpResponse.json(successEnvelope({
+          folder_id: "manual-master",
+          name: "04-Migrasi",
+          parent_id: "legacy-parent",
+          detected_project_number: 4,
+          inventory_folder_id: "inventory-id",
+          diagram_folder_id: "diagram-id",
+          solutions_folder_id: "solutions-id",
+          parent_mismatch: true,
+          expected_customer_folder_id: "customer-parent",
+        }));
+      }),
+      http.post(api(`/projects/${DETAIL_ID}/register-folder`), async ({ request }) => {
+        registerBody = await request.json();
+        return HttpResponse.json(successEnvelope({ id_project: DETAIL_ID }));
+      }),
+    );
+    const { user } = setup("Lead_SA", { customer_id: "customer-id" });
+    await user.click(await screen.findByRole("button", { name: "Daftarkan folder yang sudah ada" }));
+    await user.type(screen.getByLabelText("ID folder Google Drive"), "manual-master");
+    await user.type(screen.getByLabelText("Alasan pendaftaran"), "Folder dibuat manual");
+    await user.click(screen.getByRole("button", { name: "Periksa dan tinjau" }));
+
+    expect(await screen.findByText("Nama folder: 04-Migrasi")).toBeInTheDocument();
+    expect(screen.getByText(/Parent folder berbeda/)).toBeInTheDocument();
+    expect(previewBody).toEqual({
+      folder_id: "manual-master",
+      reason: "Folder dibuat manual",
+    });
+    const confirm = screen.getByRole("button", { name: "Konfirmasi pendaftaran" });
+    expect(confirm).toBeDisabled();
+    await user.click(screen.getByLabelText(/Saya telah meninjau/));
+    await user.click(confirm);
+
+    await waitFor(() => expect(registerBody).toEqual({
+      folder_id: "manual-master",
+      reason: "Folder dibuat manual",
+      confirm: true,
+    }));
+  });
+});

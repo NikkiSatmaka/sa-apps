@@ -174,7 +174,30 @@ async function installFixtures(page: Page) {
       return json(route, { connected: true });
     }
     if (path === "/calendar/sync" && method === "POST") {
-      return json(route, { events: [calendarEvent] });
+      return json(route, {
+        events: [calendarEvent],
+        integration_operation: {
+          id: "calendar-sync-operation",
+          operation_type: "calendar",
+          action: "sync_calendar",
+          status: "succeeded",
+          attempts: [{
+            attempt: 1,
+            status: "succeeded",
+            started_at: "2026-11-16T10:00:00Z",
+            finished_at: "2026-11-16T10:00:01Z",
+            outcome: "Loaded 1 events from Google Calendar.",
+            actionable_error: null,
+          }],
+          started_at: "2026-11-16T10:00:00Z",
+          finished_at: "2026-11-16T10:00:01Z",
+          outcome: "Loaded 1 events from Google Calendar.",
+          actionable_error: null,
+          retryable: false,
+          project_id: null,
+          context: { action: "sync_calendar" },
+        },
+      });
     }
     if (path === "/calendar/auth-url") {
       return json(route, { auth_url: "https://accounts.google.com/o/oauth2/v2/auth?state=fixture" });
@@ -647,6 +670,8 @@ test("Calendar handoff exchanges a one-time code without storing a Calendar toke
   await page.keyboard.press("Enter");
   await expect(page.getByText(/Calendar tersinkronisasi/)).toBeVisible();
   await expect(page.getByRole("heading", { name: "Design review" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Status operasi Calendar" }))
+    .toContainText("Status operasi: Berhasil");
   expect(requests).toContainEqual(expect.objectContaining({
     path: "/calendar/sync",
     method: "POST",
@@ -663,4 +688,96 @@ test("Calendar handoff exchanges a one-time code without storing a Calendar toke
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
     .analyze();
   expect(violations.violations).toEqual([]);
+});
+
+test("Calendar mapping failure is visible and the form remains available for safe manual recovery", async ({ page }) => {
+  await installFixtures(page);
+  let mapAttempt = 0;
+  await page.route("**/api/v1/calendar/map", async (route) => {
+    mapAttempt += 1;
+    if (mapAttempt > 1) {
+      return json(route, {
+        status: "success",
+        data: {
+          integration_operation: {
+            id: "calendar-map-retry-operation",
+            operation_type: "calendar",
+            action: "map_event_to_project",
+            status: "succeeded",
+            attempts: [{
+              attempt: 1,
+              status: "succeeded",
+              started_at: "2026-11-16T10:01:00Z",
+              finished_at: "2026-11-16T10:01:01Z",
+              outcome: "Calendar event mapped after manual recovery.",
+              actionable_error: null,
+            }],
+            started_at: "2026-11-16T10:01:00Z",
+            finished_at: "2026-11-16T10:01:01Z",
+            outcome: "Calendar event mapped after manual recovery.",
+            actionable_error: null,
+            retryable: false,
+            project_id: "PRJ-E2E-001",
+            context: {
+              gcal_event_id: calendarEvent.gcal_event_id,
+              work_type: "Project",
+              activity_log_id: "LOG-E2E-002",
+            },
+          },
+        },
+        message: "The event was mapped.",
+      }, 201);
+    }
+    return json(route, {
+      status: "error",
+      data: {
+        integration_operation: {
+          id: "calendar-map-operation",
+          operation_type: "calendar",
+          action: "map_event_to_project",
+          status: "failed",
+          attempts: [{
+            attempt: 1,
+            status: "failed",
+            started_at: "2026-11-16T10:00:00Z",
+            finished_at: "2026-11-16T10:00:02Z",
+            outcome: "The Calendar event was not mapped.",
+            actionable_error: "Check the project activity log before trying again.",
+          }],
+          started_at: "2026-11-16T10:00:00Z",
+          finished_at: "2026-11-16T10:00:02Z",
+          outcome: "The Calendar event was not mapped.",
+          actionable_error: "Check the project activity log before trying again.",
+          retryable: false,
+          project_id: "PRJ-E2E-001",
+          context: {
+            gcal_event_id: calendarEvent.gcal_event_id,
+            work_type: "Project",
+            activity_log_id: "LOG-E2E-001",
+          },
+        },
+      },
+      message: "The event was not mapped.",
+    }, 409);
+  });
+  await loginAsSA(page);
+  await page.goto("/activity-logs/calendar");
+  await page.getByRole("button", { name: /sync calendar/i }).click();
+  await page.getByRole("button", { name: "Map ke Subtask" }).click();
+  await page.getByLabel("Proyek *", { exact: true }).selectOption(project.id_project);
+  await page.getByLabel(/Subtask/).selectOption("Assessment");
+  await page.getByRole("button", { name: "Simpan Mapping" }).click();
+
+  const operation = page.getByRole("region", { name: "Status operasi Calendar" });
+  await expect(operation).toContainText("Status operasi: Gagal");
+  await expect(operation).toContainText("ID operasi: calendar-map-operation");
+  await expect(operation).toContainText("Proyek: PRJ-E2E-001");
+  await expect(operation).toContainText("Check the project activity log before trying again.");
+  await expect(page.getByRole("heading", { name: "Map Event ke Subtask" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Simpan Mapping" })).toBeEnabled();
+  await expect(page.getByText("✓ Sudah di-mapping")).toHaveCount(0);
+  await page.getByRole("button", { name: "Simpan Mapping" }).click();
+  await expect(operation).toContainText("Status operasi: Berhasil");
+  await expect(operation).toContainText("Calendar event mapped after manual recovery.");
+  await expect(page.getByText("✓ Sudah di-mapping")).toBeVisible();
 });

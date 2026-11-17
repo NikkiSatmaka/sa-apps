@@ -161,6 +161,7 @@ def serialize_operation(operation: IntegrationOperation) -> dict:
         "outcome": operation.outcome,
         "actionable_error": operation.actionable_error,
         "retryable": operation.retryable,
+        "project_id": operation.project_id,
         "context": operation.context or {},
     }
 

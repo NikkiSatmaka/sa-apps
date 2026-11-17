@@ -23,4 +23,5 @@ class IntegrationOperationResponse(BaseModel):
     outcome: str | None
     actionable_error: str | None
     retryable: bool
+    project_id: str | None = None
     context: dict[str, Any]

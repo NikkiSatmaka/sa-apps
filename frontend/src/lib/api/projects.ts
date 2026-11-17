@@ -71,6 +71,7 @@ export interface IntegrationOperationResponse {
   outcome: string | null;
   actionable_error: string | null;
   retryable: boolean;
+  project_id?: string | null;
   context: Record<string, unknown>;
 }
 

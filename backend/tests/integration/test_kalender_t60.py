@@ -110,6 +110,13 @@ async def test_sync_mengembalikan_event_ter_parse_dan_meneruskan_token(
     assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
     assert data["total_events"] == 2
+    operation = data["integration_operation"]
+    assert operation["project_id"] is None
+    assert operation["action"] == "sync_calendar"
+    assert operation["status"] == "succeeded"
+    assert operation["attempts"][-1]["status"] == "succeeded"
+    assert operation["started_at"] and operation["finished_at"]
+    assert operation["outcome"] == "Loaded 2 events from Google Calendar."
     e1, e2 = data["events"]
     assert (e1["gcal_event_id"], e1["title"], e1["is_all_day"]) == ("e1", "Weekly sync", False)
     assert float(e1["duration_hours"]) == 1.5

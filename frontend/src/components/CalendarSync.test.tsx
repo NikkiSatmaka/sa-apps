@@ -63,6 +63,75 @@ async function syncWithSession(user: ReturnType<typeof setup>["user"], items: un
 }
 
 const toast = () => screen.findByRole("alert");
+const calendarOperation = (over: Record<string, unknown> = {}) => ({
+  id: "operation-1",
+  operation_type: "calendar",
+  project_id: null,
+  action: "sync_calendar",
+  status: "succeeded",
+  attempts: [{
+    attempt: 1,
+    status: "succeeded",
+    started_at: "2025-03-15T10:00:00Z",
+    finished_at: "2025-03-15T10:00:01Z",
+    outcome: "Loaded 1 events from Google Calendar.",
+    actionable_error: null,
+  }],
+  started_at: "2025-03-15T10:00:00Z",
+  finished_at: "2025-03-15T10:00:01Z",
+  outcome: "Loaded 1 events from Google Calendar.",
+  actionable_error: null,
+  retryable: false,
+  context: { action: "sync_calendar" },
+  ...over,
+});
+
+it("menampilkan status, jumlah percobaan, waktu, dan hasil sync yang tersimpan", async () => {
+  const operation = calendarOperation();
+  server.use(
+    http.post(api("/calendar/sync"), () =>
+      HttpResponse.json(successEnvelope({ events: [], total_events: 0, integration_operation: operation })),
+    ),
+  );
+  const { user } = setup();
+  await user.click(screen.getByRole("button", { name: "Sync Calendar" }));
+  expect(await screen.findByText("Status operasi: Berhasil")).toBeInTheDocument();
+  expect(screen.getByText("ID operasi: operation-1")).toBeInTheDocument();
+  expect(screen.getByText("2025-03-15T10:00:00Z")).toBeInTheDocument();
+  expect(screen.getByText("2025-03-15T10:00:01Z")).toBeInTheDocument();
+  expect(screen.getByText("Percobaan: 1")).toBeInTheDocument();
+  expect(screen.getByText("Loaded 1 events from Google Calendar.")).toBeInTheDocument();
+});
+
+it("menampilkan kegagalan sync dan instruksi pemulihan tanpa menandainya berhasil", async () => {
+  const operation = calendarOperation({
+    action: "sync_calendar",
+    status: "failed",
+    attempts: [{
+      attempt: 1,
+      status: "failed",
+      started_at: "2025-03-15T10:00:00Z",
+      finished_at: "2025-03-15T10:00:02Z",
+      outcome: "Calendar sync failed before events could be loaded.",
+      actionable_error: "Check Calendar permissions and run Sync again.",
+    }],
+    outcome: "Calendar sync failed before events could be loaded.",
+    actionable_error: "Check Calendar permissions and run Sync again.",
+  });
+  server.use(
+    http.post(api("/calendar/sync"), () =>
+      HttpResponse.json(errorEnvelope("Calendar unavailable", { integration_operation: operation }), { status: 502 }),
+    ),
+  );
+  const { user } = setup();
+  await user.click(screen.getByRole("button", { name: "Sync Calendar" }));
+  expect(await screen.findByText("Status operasi: Gagal")).toBeInTheDocument();
+  expect(screen.getByText("2025-03-15T10:00:00Z")).toBeInTheDocument();
+  expect(screen.getByText("2025-03-15T10:00:02Z")).toBeInTheDocument();
+  expect(screen.getByText("Check Calendar permissions and run Sync again.")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Sync Calendar" })).toBeEnabled();
+  expect(screen.queryByText("Status operasi: Berhasil")).not.toBeInTheDocument();
+});
 
 describe("CalendarSync — tampilan awal & navigasi bulan", () => {
   it("menampilkan bulan/tahun berjalan, label hari, tanggal terpilih hari ini, dan petunjuk sync", () => {
@@ -459,6 +528,64 @@ describe("CalendarSync — mapping event ke subtask", () => {
     expect(await screen.findByText("Event sudah pernah di-mapping")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Map Event ke Subtask" })).toBeInTheDocument();
     expect(screen.queryByText("✓ Sudah di-mapping")).not.toBeInTheDocument();
+  });
+  it("failure remains attached to the affected mapping operation and can be retried by the user", async () => {
+    const failedOperation = calendarOperation({
+      action: "map_event_to_project",
+      project_id: "p-1",
+      status: "failed",
+      attempts: [{
+        attempt: 1,
+        started_at: "2025-03-15T10:00:00Z",
+        finished_at: "2025-03-15T10:00:02Z",
+        outcome: "The Calendar event was not mapped.",
+        actionable_error: "Check the activity log, then review the event details before trying again.",
+      }],
+      outcome: "The Calendar event was not mapped.",
+      actionable_error: "Check the activity log, then review the event details before trying again.",
+      context: { gcal_event_id: "ev-1", work_type: "Project", activity_log_id: "log-1" },
+    });
+    server.use(
+      http.post(api("/calendar/map"), () =>
+        HttpResponse.json(errorEnvelope("Mapping was not saved", { integration_operation: failedOperation }), { status: 400 }),
+      ),
+    );
+    const { user } = await openMapping();
+    await user.selectOptions(screen.getByLabelText(/^Proyek/), "p-1");
+    await user.selectOptions(screen.getByLabelText(/^Subtask/), "Assessment");
+    await user.click(screen.getByRole("button", { name: "Simpan Mapping" }));
+    expect(await screen.findByText("Status operasi: Gagal")).toBeInTheDocument();
+    expect(screen.getByText("Check the activity log, then review the event details before trying again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Simpan Mapping" })).toBeEnabled();
+    expect(screen.queryByText("✓ Sudah di-mapping")).not.toBeInTheDocument();
+  });
+
+  it("successful mapping displays its persisted operation result", async () => {
+    const completedOperation = calendarOperation({
+      action: "map_event_to_project",
+      project_id: "p-1",
+      context: { gcal_event_id: "ev-1", work_type: "Project", activity_log_id: "log-1" },
+      outcome: "Calendar event ev-1 was mapped to the project activity log.",
+      attempts: [{
+        status: "succeeded",
+        started_at: "2025-03-15T10:00:00Z",
+        finished_at: "2025-03-15T10:00:02Z",
+        outcome: "Calendar event ev-1 was mapped to the project activity log.",
+        actionable_error: null,
+      }],
+    });
+    server.use(
+      http.post(api("/calendar/map"), () =>
+        HttpResponse.json(successEnvelope({ integration_operation: completedOperation }), { status: 201 }),
+      ),
+    );
+    const { user } = await openMapping();
+    await user.selectOptions(screen.getByLabelText(/^Proyek/), "p-1");
+    await user.selectOptions(screen.getByLabelText(/^Subtask/), "Assessment");
+    await user.click(screen.getByRole("button", { name: "Simpan Mapping" }));
+    expect(await screen.findByText("Status operasi: Berhasil")).toBeInTheDocument();
+    expect(screen.getByText("Calendar event ev-1 was mapped to the project activity log.")).toBeInTheDocument();
+    expect(screen.getByText("Proyek: p-1")).toBeInTheDocument();
   });
 
   it("Batal menutup modal tanpa request", async () => {

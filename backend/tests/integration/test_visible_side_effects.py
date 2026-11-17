@@ -178,7 +178,10 @@ async def test_calendar_mapping_operation_is_visible_with_project_work(
     assert mapped.status_code == 201, mapped.text
     map_operation = mapped.json()["data"]["integration_operation"]
     assert map_operation["status"] == "succeeded"
+    assert map_operation["project_id"] == project.id_project
     assert map_operation["attempts"][-1]["status"] == "succeeded"
+    assert map_operation["started_at"] and map_operation["finished_at"]
+    assert map_operation["outcome"] and map_operation["actionable_error"] is None
 
     from app.models.integration_operation import IntegrationOperation
     from sqlalchemy import select
@@ -202,6 +205,57 @@ async def test_calendar_mapping_operation_is_visible_with_project_work(
     assert operation["status"] == "succeeded"
     assert operation["attempts"][-1]["status"] == "succeeded"
     assert operation["outcome"]
+
+
+async def test_calendar_mapping_duplicate_failure_keeps_project_work_and_operation_traceable(
+    dunia, api, db_session, monkeypatch
+):
+    from sqlalchemy import select
+
+    from app.models import IntegrationOperation
+
+    project = await dunia.buat_proyek(project_name="Calendar duplicate")
+    background = rekam_background(monkeypatch)
+    assigned = await api.client.post(
+        ASSIGN.format(project.id_project),
+        json={"sa_id": str(dunia.sa.id)},
+        headers=dunia.h["lead"],
+    )
+    assert assigned.status_code == 200, assigned.text
+    assert background
+
+    body = {
+        "gcal_event_id": "evt-duplicate-calendar",
+        "work_type": "Project",
+        "project_id": project.id_project,
+        "project_phase": "Pre-Implementation",
+        "subtask_category": "Customer Meeting",
+        "event_title": "Customer workshop",
+    }
+    succeeded = await api.client.post(
+        "/api/v1/calendar/map", json=body, headers=dunia.h["sa"]
+    )
+    assert succeeded.status_code == 201, succeeded.text
+
+    duplicate = await api.client.post(
+        "/api/v1/calendar/map", json=body, headers=dunia.h["sa"]
+    )
+
+    assert duplicate.status_code == 409
+    operation = duplicate.json()["data"]["integration_operation"]
+    assert operation["project_id"] == project.id_project
+    assert operation["action"] == "map_event_to_project"
+    assert operation["status"] == "failed"
+    assert operation["attempts"][-1]["status"] == "failed"
+    assert operation["started_at"] and operation["finished_at"]
+    assert operation["outcome"]
+    assert "already mapped" in operation["actionable_error"].lower()
+    persisted = await db_session.scalar(
+        select(IntegrationOperation).where(IntegrationOperation.id == operation["id"])
+    )
+    assert persisted is not None
+    assert persisted.status == "failed"
+    assert (await ambil_proyek(db_session, project.id_project)).status == "In Progress"
 
 
 

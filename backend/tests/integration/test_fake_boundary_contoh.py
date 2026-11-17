@@ -110,6 +110,10 @@ async def test_drive_fake_sukses_id_folder_tersimpan_di_proyek(api, db_session, 
     resp = await api.client.post(f"{PROYEK}/{id_project}/provision-folder", headers=lead)
 
     assert resp.status_code == 200, resp.text
+    proyek = (
+        await db_session.execute(select(Project).where(Project.id_project == id_project))
+    ).scalar_one()
+    await db_session.refresh(proyek)
     customer = await db_session.get(Customer, proyek.customer_id)
     assert proyek.folder_provisioning_status == "provisioned"
     assert proyek.gdrive_folder_number == 1

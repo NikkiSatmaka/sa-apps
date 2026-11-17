@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
 from app.models.activity_log import ActivityLog
+from app.models.customer import Customer, normalize_customer_name
 from app.models.document import Document
 from app.models.project import Project
 from app.models.user import User
@@ -176,6 +177,27 @@ async def get_or_create_user(db: AsyncSession, user_data: dict) -> User:
     return user
 
 
+async def get_or_create_demo_customer(db: AsyncSession, customer_name: str) -> Customer:
+    """Resolve a demo customer's persistent identity from its canonical name."""
+    name = customer_name.strip()
+    normalized_name = normalize_customer_name(name)
+    result = await db.execute(
+        select(Customer).where(Customer.normalized_name == normalized_name)
+    )
+    customer = result.scalar_one_or_none()
+    if customer is not None:
+        return customer
+
+    customer = Customer(
+        id=uuid.uuid4(),
+        name=name,
+        normalized_name=normalized_name,
+    )
+    db.add(customer)
+    await db.flush()
+    return customer
+
+
 async def get_or_create_project(
     db: AsyncSession,
     project_data: dict,
@@ -192,10 +214,19 @@ async def get_or_create_project(
     if existing:
         # Hanya fixture demo bernama tetap yang ownership-nya disinkronkan saat rerun.
         if project_data["id_project"].startswith("PRJ-DEMO-"):
+            changed = False
+            customer = await get_or_create_demo_customer(
+                db, project_data["customer_name"]
+            )
+            if existing.customer_id != customer.id:
+                existing.customer_id = customer.id
+                changed = True
+            if existing.customer_name != customer.name:
+                existing.customer_name = customer.name
+                changed = True
             ownership = {"sales_pic": sales_id, "assigned_sa": sa_id}
             if product_id is not None:
                 ownership["product_pic"] = product_id
-            changed = False
             for field, value in ownership.items():
                 if getattr(existing, field, None) != value:
                     setattr(existing, field, value)
@@ -228,11 +259,20 @@ async def get_or_create_project(
             print(f"  [ok] Proyek sudah ada: {project_data['project_name']}")
         return existing
 
+    customer = None
+    if project_data["id_project"].startswith("PRJ-DEMO-"):
+        customer = await get_or_create_demo_customer(
+            db, project_data["customer_name"]
+        )
+
     now = datetime.now(timezone.utc)
     project = Project(
         id_project=project_data["id_project"],
         project_name=project_data["project_name"],
-        customer_name=project_data["customer_name"],
+        customer_name=(
+            customer.name if customer is not None else project_data["customer_name"]
+        ),
+        customer_id=customer.id if customer is not None else None,
         created_by=sales_id,
         product_pic=product_id or sales_id,
         sales_pic=sales_id,

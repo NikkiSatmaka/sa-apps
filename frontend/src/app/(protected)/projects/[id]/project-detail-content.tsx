@@ -6,7 +6,8 @@ import useSWR from "swr";
 import { apiRequest, fetcher } from "@/lib/fetcher";
 import { isPrivileged } from "@/lib/roles";
 import type { QualificationView } from "@/lib/qualification";
-import type { IntegrationOperationResponse } from "@/lib/api/projects";
+import type { IntegrationOperationResponse, CustomerOption } from "@/lib/api/projects";
+import { repairProjectCustomerLink } from "@/lib/api/projects";
 import type { HandoverReadiness } from "@/lib/api/handover";
 import { BANTOverride } from "@/components/BANTOverride";
 import { CollaboratorSection } from "@/components/CollaboratorSection";
@@ -44,6 +45,7 @@ type Person = { id: string | null; name: string | null; email: string | null };
 
 export interface ProjectDetail {
   id_project: string;
+  customer_id?: string | null;
   project_name: string;
   customer_name: string;
   status: string;
@@ -64,6 +66,8 @@ export interface ProjectDetail {
   collaborators: { id: string; user_id: string; user_name: string; user_email: string; user_role: string; role: "viewer" | "contributor"; added_by_name: string; created_at: string }[];
   source_documents?: SourceDocumentItem[];
   gdrive_folder_id: string | null;
+  gdrive_solutions_folder_id?: string | null;
+  gdrive_folder_number?: number | null;
   folder_provisioning_status: "pending" | "provisioned" | "failed" | null;
   folder_provisioning_operation?: FolderProvisioningOperation | null;
   integration_operations: IntegrationOperationResponse[];
@@ -99,6 +103,34 @@ export function ProjectDetailContent({
   handover,
 }: Props) {
   const canDelete = isPrivileged(user);
+  const canRepairCustomer = user?.role === "Lead_SA" || user?.is_admin === true;
+  const [showCustomerRepair, setShowCustomerRepair] = useState(false);
+  const [repairCustomerId, setRepairCustomerId] = useState("");
+  const [repairReason, setRepairReason] = useState("");
+  const [driveReviewed, setDriveReviewed] = useState(false);
+  const [repairingCustomer, setRepairingCustomer] = useState(false);
+  const [repairError, setRepairError] = useState<string | null>(null);
+  const { data: customers = [], isLoading: customersLoading } = useSWR<CustomerOption[]>(
+    showCustomerRepair && canRepairCustomer ? "/customers" : null,
+    fetcher,
+  );
+
+  const handleRepairCustomer = async () => {
+    setRepairingCustomer(true);
+    setRepairError(null);
+    try {
+      await repairProjectCustomerLink(projectId, repairCustomerId, repairReason.trim());
+      setShowCustomerRepair(false);
+      setRepairCustomerId("");
+      setRepairReason("");
+      setDriveReviewed(false);
+      onProjectChanged();
+    } catch (cause) {
+      setRepairError(cause instanceof Error ? cause.message : "Gagal memperbaiki tautan Customer.");
+    } finally {
+      setRepairingCustomer(false);
+    }
+  };
 
   return (
     <>
@@ -166,7 +198,93 @@ export function ProjectDetailContent({
             className="shrink-0 rounded-full px-3 py-1 text-xs"
           />
         </div>
+      {canRepairCustomer && (
+        <button
+          type="button"
+          onClick={() => setShowCustomerRepair(true)}
+          className="min-h-[36px] rounded-lg border border-amber-300 px-3 py-1.5 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-50"
+        >
+          Perbaiki tautan Customer
+        </button>
+      )}
       </div>
+      {showCustomerRepair && canRepairCustomer && (
+        <div role="dialog" aria-modal="true" aria-labelledby="customer-repair-title" className="rounded-lg border border-amber-300 bg-amber-50 p-5">
+          <h2 id="customer-repair-title" className="text-lg font-semibold text-neutral-900">Perbaiki tautan Customer proyek</h2>
+          <p className="mt-2 text-sm text-neutral-700">
+            Customer saat ini: <strong>{project.customer_name}</strong> ({project.customer_id || "belum ditautkan"})
+          </p>
+          <p className="mt-2 text-sm text-amber-900">
+            Google Drive tidak akan dipindahkan atau diperbaiki oleh tindakan ini. Periksa folder dan permission yang ada di Google Drive sebelum menyimpan. Permission tidak diverifikasi otomatis.
+          </p>
+          <div className="mt-3 space-y-1 text-sm text-neutral-700">
+            <p>Folder proyek: {project.gdrive_folder_id || "belum terdaftar"}</p>
+            <p>Folder Solutions: {project.gdrive_solutions_folder_id || "belum terdaftar"}</p>
+            <p>Nomor folder: {project.gdrive_folder_number ?? "belum ditetapkan"} · Status: {project.folder_provisioning_status || "belum ada"}</p>
+            {project.gdrive_folder_id && (
+              <a
+                className="inline-block text-primary-700 underline"
+                href={`https://drive.google.com/drive/folders/${project.gdrive_folder_id}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Tinjau folder proyek di Google Drive
+              </a>
+            )}
+            {project.gdrive_solutions_folder_id && (
+              <a
+                className="ml-3 inline-block text-primary-700 underline"
+                href={`https://drive.google.com/drive/folders/${project.gdrive_solutions_folder_id}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Tinjau folder Solutions di Google Drive
+              </a>
+            )}
+          </div>
+          <div className="mt-4 space-y-3">
+            <label className="block text-sm font-medium text-neutral-800" htmlFor="customer-repair-select">Customer tujuan</label>
+            <select
+              id="customer-repair-select"
+              value={repairCustomerId}
+              onChange={(event) => setRepairCustomerId(event.target.value)}
+              disabled={customersLoading}
+              className="w-full rounded border border-neutral-300 bg-white px-3 py-2 text-sm"
+            >
+              <option value="">Pilih Customer yang sudah ada</option>
+              {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+            </select>
+            {customers.length === 0 && !customersLoading && <p className="text-sm text-neutral-600">Belum ada Customer tersedia.</p>}
+            <label className="block text-sm font-medium text-neutral-800" htmlFor="customer-repair-reason">Alasan perbaikan</label>
+            <textarea
+              id="customer-repair-reason"
+              value={repairReason}
+              onChange={(event) => setRepairReason(event.target.value)}
+              required
+              rows={3}
+              className="w-full rounded border border-neutral-300 bg-white px-3 py-2 text-sm"
+            />
+            <label className="flex items-start gap-2 text-sm text-neutral-800">
+              <input type="checkbox" checked={driveReviewed} onChange={(event) => setDriveReviewed(event.target.checked)} />
+              <span>Saya sudah meninjau folder Drive dan permission yang ada.</span>
+            </label>
+            {repairError && <p role="alert" className="text-sm text-red-700">{repairError}</p>}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleRepairCustomer}
+                disabled={!repairCustomerId || !repairReason.trim() || !driveReviewed || repairingCustomer || customersLoading}
+                className="rounded bg-primary-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {repairingCustomer ? "Menyimpan…" : "Simpan tautan Customer"}
+              </button>
+              <button type="button" onClick={() => setShowCustomerRepair(false)} className="rounded border border-neutral-300 px-3 py-2 text-sm">
+                Batal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <StatusActions project={project} onChanged={onProjectChanged} />
       <HandoverAction project={project} onDone={onProjectChanged} />
       <section className="rounded-lg border border-neutral-200 bg-white p-5">

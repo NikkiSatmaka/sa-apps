@@ -131,6 +131,7 @@ class ProjectListPageResponse(BaseModel):
 class ProjectDetailResponse(BaseModel):
     """Detail payload returned by GET /projects/{project_id}."""
 
+    customer_id: Optional[str] = None
     id_project: str
     project_name: str
     customer_name: str
@@ -153,6 +154,7 @@ class ProjectDetailResponse(BaseModel):
     collaborators: list[dict[str, Any]] = Field(default_factory=list)
     gdrive_folder_id: Optional[str] = None
     gdrive_solutions_folder_id: Optional[str] = None
+    gdrive_folder_number: Optional[int] = None
     source_documents: list[dict[str, Any]] = Field(default_factory=list)
     folder_provisioning_status: Optional[str] = None
     folder_provisioning_operation: Optional[dict[str, Any]] = None

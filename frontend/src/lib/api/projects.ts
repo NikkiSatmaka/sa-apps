@@ -213,6 +213,17 @@ export function renameCustomer(customerId: string, name: string): Promise<Custom
   });
 }
 
+export function repairProjectCustomerLink(
+  projectId: string,
+  customerId: string,
+  reason: string,
+): Promise<{ id_project: string; customer_id: string; customer_name: string }> {
+  return apiRequest(`/projects/${projectId}/customer-repair`, {
+    method: "POST",
+    body: { customer_id: customerId, reason },
+  });
+}
+
 /**
  * Submit proyek baru dengan file attachment
  * Menggunakan multipart/form-data karena ada file upload

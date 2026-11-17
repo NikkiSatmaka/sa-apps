@@ -1,6 +1,8 @@
 """Project detail, update, and lifecycle API endpoints."""
 
 import logging
+import random
+import string
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -8,7 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +22,8 @@ from app.core.dependencies import (
     ensure_project_access,
     get_current_user,
 )
+from app.models.audit_log import AuditLog
+from app.models.customer import Customer
 from app.models.project import Project
 from app.models.project_collaborator import ProjectCollaborator
 from app.models.sla_tracking import SLATracking
@@ -39,6 +43,85 @@ from app.api.project_api_helpers import _ringkas_orang
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+class CustomerLinkRepairInput(BaseModel):
+    customer_id: uuid.UUID
+    reason: str = Field(min_length=1)
+
+
+def _customer_repair_audit_id() -> str:
+    date = datetime.now(timezone.utc).strftime("%Y%m%d")
+    suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    return f"AUDIT-{date}-{suffix}"
+
+
+@router.post("/{project_id}/customer-repair", summary="Perbaiki tautan Customer proyek")
+async def repair_project_customer_link(
+    project_id: str,
+    body: CustomerLinkRepairInput,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if current_user.role != "Lead_SA" and current_user.is_admin is not True:
+        raise HTTPException(
+            status_code=403,
+            detail="Hanya Lead SA atau Admin yang dapat memperbaiki tautan Customer.",
+        )
+    reason = body.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="Alasan perbaikan wajib diisi.")
+
+    result = await db.execute(select(Project).where(Project.id_project == project_id))
+    project = result.scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
+    customer = await db.get(Customer, body.customer_id)
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer tidak ditemukan.")
+
+    now = datetime.now(timezone.utc)
+    old_customer = {
+        "id": str(project.customer_id) if project.customer_id else None,
+        "name": project.customer_name,
+    }
+    new_customer = {"id": str(customer.id), "name": customer.name}
+    drive_state = {
+        "gdrive_folder_id": project.gdrive_folder_id,
+        "gdrive_solutions_folder_id": project.gdrive_solutions_folder_id,
+        "gdrive_folder_number": project.gdrive_folder_number,
+        "folder_provisioning_status": project.folder_provisioning_status,
+    }
+    project.customer_id = customer.id
+    project.customer_name = customer.name
+    project.updated_at = now
+    db.add(
+        AuditLog(
+            id=_customer_repair_audit_id(),
+            entity_type="project",
+            entity_id=project.id_project,
+            action="customer_link_repaired",
+            performed_by=current_user.id,
+            old_value={"customer": old_customer},
+            new_value={
+                "customer": new_customer,
+                "reason": reason,
+                "drive_state_unchanged": drive_state,
+            },
+            created_at=now,
+        )
+    )
+    await db.commit()
+    return success_response(
+        data={
+            "id_project": project.id_project,
+            "customer_id": str(customer.id),
+            "customer_name": customer.name,
+        },
+        message="Tautan Customer proyek diperbaiki. Data Google Drive tidak diubah.",
+    )
+
+
 
 
 async def _muat_user(db: AsyncSession, ids) -> dict[uuid.UUID, User]:
@@ -148,6 +231,7 @@ async def get_project_detail(
     )
     integration_operations = await list_project_operations(db, project_id)
     data = {
+        "customer_id": str(project.customer_id) if project.customer_id else None,
         "id_project": project.id_project,
         "project_name": project.project_name,
         "customer_name": project.customer_name,
@@ -187,6 +271,7 @@ async def get_project_detail(
         "collaborators": collab_list,
         "gdrive_folder_id": project.gdrive_folder_id,
         "gdrive_solutions_folder_id": project.gdrive_solutions_folder_id,
+        "gdrive_folder_number": project.gdrive_folder_number,
         "source_documents": source_documents,
         "folder_provisioning_status": project.folder_provisioning_status,
         "folder_provisioning_operation": project.folder_provisioning_operation,

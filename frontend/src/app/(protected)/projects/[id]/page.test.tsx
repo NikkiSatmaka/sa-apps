@@ -868,3 +868,56 @@ describe("Detail proyek — provisioning folder Drive", () => {
     expect(screen.queryByRole("button", { name: "Coba provisioning lagi" })).not.toBeInTheDocument();
   });
 });
+
+describe("Detail proyek — perbaikan tautan Customer", () => {
+  it.each<Role>(["Lead_SA", "Admin"])("%s dapat meninjau dan memperbaiki tautan Customer tanpa memindahkan Drive", async (role) => {
+    let body: Record<string, unknown> | null = null;
+    server.use(
+      http.get(api("/customers"), () =>
+        HttpResponse.json(successEnvelope([{ id: "customer-2", name: "PT Baru" }])),
+      ),
+      http.post(api(`/projects/${DETAIL_ID}/customer-repair`), async ({ request }) => {
+        body = await request.json() as Record<string, unknown>;
+        return HttpResponse.json(successEnvelope({
+          id_project: DETAIL_ID,
+          customer_id: "customer-2",
+          customer_name: "PT Baru",
+        }));
+      }),
+    );
+    serveDetail({
+      customer_id: "customer-1",
+      gdrive_folder_id: "master-folder-42",
+      gdrive_solutions_folder_id: "solutions-folder-42",
+      gdrive_folder_number: 17,
+    });
+    const { user } = renderWithProviders(<ProjectDetailPage />, { role });
+    await user.click(await screen.findByRole("button", { name: "Perbaiki tautan Customer" }));
+
+    const repairDialog = await screen.findByRole("dialog", { name: "Perbaiki tautan Customer proyek" });
+    expect(repairDialog).toBeInTheDocument();
+    expect(repairDialog).toHaveTextContent("customer-1");
+    expect(screen.getByText(/Google Drive tidak akan dipindahkan atau diperbaiki/)).toBeInTheDocument();
+    expect(screen.getByText(/Periksa folder dan permission yang ada di Google Drive/)).toBeInTheDocument();
+    expect(screen.getByText(/Permission tidak diverifikasi otomatis/)).toBeInTheDocument();
+    expect(screen.getByText("Folder proyek: master-folder-42")).toBeInTheDocument();
+    expect(screen.getByText("Folder Solutions: solutions-folder-42")).toBeInTheDocument();
+    expect(screen.getByText(/Nomor folder: 17/)).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Customer tujuan"), "customer-2");
+    await user.type(screen.getByLabelText("Alasan perbaikan"), "Identitas pada dokumen legal");
+    expect(screen.getByRole("button", { name: "Simpan tautan Customer" })).toBeDisabled();
+    await user.click(screen.getByLabelText(/Saya sudah meninjau folder Drive dan permission/));
+    await user.click(screen.getByRole("button", { name: "Simpan tautan Customer" }));
+
+    await waitFor(() => expect(body).toEqual({
+      customer_id: "customer-2",
+      reason: "Identitas pada dokumen legal",
+    }));
+  });
+
+  it.each<Role>(["Sales", "Product", "SA"])("%s tidak dapat memulai perbaikan Customer", async (role) => {
+    setup(role);
+    await screen.findByRole("heading", { level: 1, name: "Migrasi Cloud ACME" });
+    expect(screen.queryByRole("button", { name: "Perbaiki tautan Customer" })).not.toBeInTheDocument();
+  });
+});

@@ -185,3 +185,142 @@ def test_admin_can_rename_customer():
 
     assert response.status_code == 200
     assert (customer.name, customer.normalized_name) == ("Beta", "beta")
+
+def test_project_customer_repair_updates_identity_and_audits_without_changing_drive():
+    from app.models.audit_log import AuditLog
+    from app.models.project import Project
+
+    old_id, new_id = uuid.uuid4(), uuid.uuid4()
+    project = Project(
+        id_project="P-1",
+        project_name="Migration",
+        customer_name="Old Corp",
+        customer_id=old_id,
+        gdrive_folder_id="master-1",
+        gdrive_solutions_folder_id="solutions-1",
+        gdrive_folder_number=17,
+        folder_provisioning_status="provisioned",
+    )
+    customer = Customer(id=new_id, name="New Corp", normalized_name="new corp")
+    session = FakeSession(customer=customer)
+    lookup = MagicMock()
+    lookup.scalar_one_or_none.return_value = project
+    session.execute.return_value = lookup
+    actor = user("Lead_SA")
+    actor.id = uuid.uuid4()
+
+    with api_as(actor, session) as client:
+        response = client.post(
+            "/api/v1/projects/P-1/customer-repair",
+            json={"customer_id": str(new_id), "reason": "Legacy project was linked incorrectly"},
+        )
+
+    assert response.status_code == 200
+    assert (project.customer_id, project.customer_name) == (new_id, "New Corp")
+    assert (
+        project.gdrive_folder_id,
+        project.gdrive_solutions_folder_id,
+        project.gdrive_folder_number,
+        project.folder_provisioning_status,
+    ) == ("master-1", "solutions-1", 17, "provisioned")
+    assert session.commit.await_count == 1
+    audit = next(entry for entry in session.added if isinstance(entry, AuditLog))
+    assert audit.entity_type == "project"
+    assert audit.entity_id == "P-1"
+    assert audit.action == "customer_link_repaired"
+    assert audit.performed_by == actor.id
+    assert audit.old_value["customer"] == {"id": str(old_id), "name": "Old Corp"}
+    assert audit.new_value["customer"] == {"id": str(new_id), "name": "New Corp"}
+    assert audit.new_value["reason"] == "Legacy project was linked incorrectly"
+    assert audit.created_at is not None
+    assert audit.new_value["drive_state_unchanged"] == {
+        "gdrive_folder_id": "master-1",
+        "gdrive_solutions_folder_id": "solutions-1",
+        "gdrive_folder_number": 17,
+        "folder_provisioning_status": "provisioned",
+    }
+
+
+@pytest.mark.parametrize(
+    "role,is_admin,status",
+    [("Sales", False, 403), ("SA", False, 403), ("Admin", False, 403), ("SA", True, 200)],
+)
+def test_project_customer_repair_authorizes_only_lead_sa_or_admin(role, is_admin, status):
+    customer = Customer(id=uuid.uuid4(), name="Verified", normalized_name="verified")
+    session = FakeSession(customer=customer)
+    if is_admin:
+        project = MagicMock(customer_id=None, customer_name="Legacy", id_project="P-1")
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = project
+        session.execute.return_value = result
+    actor = user(role, is_admin=is_admin)
+    with api_as(actor, session) as client:
+        response = client.post(
+            "/api/v1/projects/P-1/customer-repair",
+            json={"customer_id": str(customer.id), "reason": "Verified source record"},
+        )
+    assert response.status_code == status
+    if status == 403:
+        session.execute.assert_not_awaited()
+        session.commit.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"customer_id": str(uuid.uuid4()), "reason": "   "},
+        {"customer_id": str(uuid.uuid4()), "reason": ""},
+        {"customer_id": str(uuid.uuid4())},
+    ],
+)
+def test_project_customer_repair_rejects_empty_reason_without_mutation(body):
+    project = MagicMock(customer_id=None, customer_name="Legacy", id_project="P-1")
+    session = FakeSession()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = project
+    session.execute.return_value = result
+    with api_as(user("Lead_SA"), session) as client:
+        response = client.post("/api/v1/projects/P-1/customer-repair", json=body)
+    assert response.status_code == 422
+    assert project.customer_name == "Legacy"
+    assert session.added == []
+    session.commit.assert_not_awaited()
+
+
+def test_project_customer_repair_rejects_missing_customer_without_mutation():
+    project = MagicMock(customer_id=None, customer_name="Legacy", id_project="P-1")
+    session = FakeSession()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = project
+    session.execute.return_value = result
+    with api_as(user("Lead_SA"), session) as client:
+        response = client.post(
+            "/api/v1/projects/P-1/customer-repair",
+            json={"customer_id": str(uuid.uuid4()), "reason": "Checked the source document"},
+        )
+    assert response.status_code == 404
+    assert project.customer_name == "Legacy"
+    assert session.added == []
+    session.commit.assert_not_awaited()
+
+
+def test_project_customer_repair_attaches_customer_to_unlinked_project():
+    from app.models.audit_log import AuditLog
+
+    project = MagicMock(customer_id=None, customer_name="Legacy Organization", id_project="P-2")
+    customer = Customer(id=uuid.uuid4(), name="Verified Organization", normalized_name="verified organization")
+    session = FakeSession(customer=customer)
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = project
+    session.execute.return_value = result
+
+    with api_as(user("Lead_SA"), session) as client:
+        response = client.post(
+            "/api/v1/projects/P-2/customer-repair",
+            json={"customer_id": str(customer.id), "reason": "Reviewed company registration"},
+        )
+
+    assert response.status_code == 200
+    assert (project.customer_id, project.customer_name) == (customer.id, customer.name)
+    audit = next(entry for entry in session.added if isinstance(entry, AuditLog))
+    assert audit.old_value["customer"] == {"id": None, "name": "Legacy Organization"}

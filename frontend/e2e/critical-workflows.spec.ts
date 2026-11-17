@@ -445,6 +445,26 @@ async function installAssignmentProgressionFixtures(page: Page) {
     const url = new URL(request.url());
     const path = url.pathname.replace(/^\/api\/v1/, "");
     const method = request.method();
+    if (path === `/projects/${projectId}/story` && method === "GET") {
+      return json(route, {
+        data: { items: [], total: 0, page: 1, page_size: 20, total_pages: 1 },
+        message: "Project story kosong.",
+      });
+    }
+    if (path === "/utilization/summary" && method === "GET") {
+      return json(route, {
+        data: {
+          year: Number(url.searchParams.get("year") ?? new Date().getFullYear()),
+          work_type: {
+            months: {},
+            totals: { Project: 0, "Non-Project": 0 },
+            grand_total: 0,
+          },
+          project_phase: { totals: {}, total: 0 },
+        },
+        message: "Ringkasan utilisasi kosong.",
+      });
+    }
     if (path === "/projects/pending-assignment" && method === "GET") {
       requests.push({ path, method, search: url.search });
       return json(route, { data: status === "Awaiting Assignment" ? [pendingProject] : [] });

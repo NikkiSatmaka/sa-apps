@@ -52,11 +52,22 @@ const project = {
   updated_at: "2026-11-17T09:00:00Z",
 };
 
-async function json(route: Route, body: unknown) {
-  await route.fulfill({ status: 200, contentType: "application/json", json: body });
+async function json(route: Route, body: unknown, status = 200) {
+  await route.fulfill({ status, contentType: "application/json", json: body });
 }
 
+async function jsonWithRefreshCookie(route: Route, body: unknown) {
+  await route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    headers: { "set-cookie": "refresh_token=fixture-refresh; Path=/api/v1/auth; HttpOnly; SameSite=Lax" },
+    json: body,
+  });
+}
+
+
 async function installFixtures(page: Page) {
+  let currentRole = "SA";
   let repaired = false;
   const repairRequests: { path: string; method: string; body: unknown }[] = [];
   await page.route("**/api/v1/**", async (route) => {
@@ -67,16 +78,33 @@ async function installFixtures(page: Page) {
     if (path === "/auth/config") return json(route, { demo_mode: true });
     if (path === "/auth/demo-login" && method === "POST") {
       const body = request.postDataJSON() as { role?: string };
-      const role = body.role ?? "SA";
-      return json(route, {
+      currentRole = body.role ?? "SA";
+      return jsonWithRefreshCookie(route, {
         user: {
           id: "00000000-0000-4000-8000-000000000001",
           email: "demo-lead@portal-sa.local",
           name: "Demo Lead SA",
-          role,
-          is_admin: role === "Lead_SA",
+          role: currentRole,
+          is_admin: currentRole === "Lead_SA",
         },
         tokens: { access_token: "fixture-app-session", expires_in: 900 },
+      });
+    }
+    if (path === "/auth/refresh" && method === "POST") {
+      const cookie = request.headers()["cookie"] ?? "";
+      if (!cookie.includes("refresh_token=fixture-refresh")) {
+        return json(route, { detail: "Refresh cookie tidak ditemukan." }, 401);
+      }
+      return json(route, { access_token: "fixture-app-session", expires_in: 900 });
+    }
+    if (path === "/auth/me" && method === "GET") {
+      if (!request.headers()["authorization"]) return json(route, { message: "Unauthorized" }, 401);
+      return json(route, {
+        id: "00000000-0000-4000-8000-000000000001",
+        email: "demo-lead@portal-sa.local",
+        name: "Demo Lead SA",
+        role: currentRole,
+        is_admin: currentRole === "Lead_SA",
       });
     }
     if (path === `/projects/${projectId}` && method === "GET") {

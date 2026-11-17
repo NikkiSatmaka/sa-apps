@@ -399,7 +399,9 @@ async def api(
     api_client: KlienApi | None = None
     gen_requirement = AsyncMock()
     monkeypatch.setattr("app.api.project_intake_api.generate_pending_requirement", gen_requirement)
-    monkeypatch.setattr("app.api.project_lifecycle_api.generate_pending_requirement", gen_requirement)
+    monkeypatch.setattr(
+        "app.services.requirement_generator.generate_pending_requirement", gen_requirement
+    )
 
     async def _get_db_uji() -> AsyncIterator[AsyncSession]:
         pending_notifications: tuple[asyncio.Task, ...] = ()

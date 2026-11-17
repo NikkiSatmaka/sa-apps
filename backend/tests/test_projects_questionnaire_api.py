@@ -428,4 +428,9 @@ def test_edit_kuesioner_need_clarification_memanggil_scoring_engine(monkeypatch)
         )
 
     assert resp.status_code == 200, resp.text
-    rescore.assert_awaited_once_with(session, proyek, jawaban_lemah())
+    from app.schemas.qualification import QUESTIONNAIRE_FIELDS
+
+    normalized_answers = {
+        field: jawaban_lemah().get(field) for field in QUESTIONNAIRE_FIELDS
+    }
+    rescore.assert_awaited_once_with(session, proyek, normalized_answers)

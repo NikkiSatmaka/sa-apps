@@ -34,6 +34,7 @@ from app.services.dq_akses import hentikan_timer_bila_pertama, terapkan_dq
 from app.services.integration_operations import list_project_operations
 from app.services.qualification_view import build_qualification_view
 from app.services.scoring_engine import scoring_engine
+from app.services import requirement_generator
 from app.api.project_api_helpers import _ringkas_orang
 
 logger = logging.getLogger(__name__)
@@ -333,7 +334,9 @@ async def update_qualification_answers(
     if needs_clarification:
         bant_result = await scoring_engine.rescore_from_answers(db, project, answers)
         if project.requirement_generation_status == "pending":
-            background_tasks.add_task(generate_pending_requirement, project.id_project)
+            background_tasks.add_task(
+                requirement_generator.generate_pending_requirement, project.id_project
+            )
         return success_response(
             data=bant_result.model_dump(),
             message=f"Jawaban disimpan dan skor dihitung ulang. Total skor: {bant_result.total_score}.",
@@ -344,7 +347,9 @@ async def update_qualification_answers(
     project.updated_at = datetime.now(timezone.utc)
     await db.commit()
     # Jawaban berubah → Requirement yang belum di-override diperbarui bila hash berbeda.
-    background_tasks.add_task(resummarize_if_source_changed, project.id_project)
+    background_tasks.add_task(
+        requirement_generator.resummarize_if_source_changed, project.id_project
+    )
     return success_response(
         data={
             "total_score": project.bant_score,

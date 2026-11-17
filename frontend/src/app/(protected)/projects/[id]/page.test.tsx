@@ -218,6 +218,22 @@ describe("Detail proyek — informasi", () => {
     expect(screen.queryByText("Qualified", { selector: "span" })).not.toBeInTheDocument();
   });
 });
+describe("Detail proyek — konteks lintas section", () => {
+  it("mempertahankan urutan utama detail, handover, dokumen, story, subtasks, activity dan kolaborator", async () => {
+    setup("Lead_SA", { status: "Won" });
+    const projectHeading = await screen.findByRole("heading", { level: 1, name: "Migrasi Cloud ACME" });
+    const detail = projectHeading.closest("div")?.parentElement?.parentElement;
+    expect(detail).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Dokumen/ })).toHaveAttribute("href", `/projects/${DETAIL_ID}/documents`);
+    expect(screen.getByRole("link", { name: /Riwayat Log/ })).toHaveAttribute("href", `/projects/${DETAIL_ID}/activity-logs`);
+    expect(await screen.findByRole("heading", { name: "Project Story" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Tim SA" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Subtask" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Komentar" })).toBeInTheDocument();
+    expect(screen.getByText("Stub kolaborator: 0")).toBeInTheDocument();
+  });
+});
+
 
 describe("Detail proyek — status BANT", () => {
   it("skor >= 60: BANT Passed", async () => {

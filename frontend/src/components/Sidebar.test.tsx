@@ -29,11 +29,19 @@ describe("Sidebar — menu per peran", () => {
     expect(screen.queryByRole("link", { name: /settings|pengaturan|pengguna/i })).not.toBeInTheDocument();
   });
 
-  it.each(["SA", "Lead_SA"] as const)("%s melihat semua menu umum tetapi bukan menu Admin", (role) => {
-    renderWithProviders(<Sidebar />, { role });
+  it("SA melihat semua menu umum tetapi bukan menu Customer atau Admin", () => {
+    renderWithProviders(<Sidebar />, { role: "SA" });
     expect(navLinks()).toEqual(["Dashboard", "Proyek", "Activity Log", "Notifikasi"]);
+    expect(screen.queryByRole("link", { name: "Customer" })).not.toBeInTheDocument();
     expect(screen.queryByText("Admin")).not.toBeInTheDocument();
   });
+
+  it("Lead_SA melihat menu Customer tetapi bukan menu Admin", () => {
+    renderWithProviders(<Sidebar />, { role: "Lead_SA" });
+    expect(navLinks()).toEqual(["Dashboard", "Proyek", "Activity Log", "Notifikasi", "Customer"]);
+    expect(screen.queryByText("Admin")).not.toBeInTheDocument();
+  });
+
 
   it("Admin (SA dengan is_admin) melihat menu SA plus Dashboard Lead SA dan bagian Admin", () => {
     renderWithProviders(<Sidebar />, { role: "Admin" });
@@ -43,6 +51,7 @@ describe("Sidebar — menu per peran", () => {
       "Activity Log",
       "Notifikasi",
       "Dashboard Lead SA",
+      "Customer",
       "Pengguna",
     ]);
     expect(screen.getByRole("link", { name: "Dashboard Lead SA" })).toHaveAttribute("href", "/dashboard/lead-sa");

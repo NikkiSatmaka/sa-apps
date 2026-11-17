@@ -249,7 +249,7 @@ async def test_calendar_mapping_duplicate_failure_keeps_project_work_and_operati
     assert operation["attempts"][-1]["status"] == "failed"
     assert operation["started_at"] and operation["finished_at"]
     assert operation["outcome"]
-    assert "already mapped" in operation["actionable_error"].lower()
+    assert "activity log" in operation["actionable_error"].lower()
     persisted = await db_session.scalar(
         select(IntegrationOperation).where(IntegrationOperation.id == operation["id"])
     )

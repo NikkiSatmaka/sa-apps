@@ -31,12 +31,17 @@ def bangun_service(kunci: dict):
 
 
 class Verifikator:
-    def __init__(self, service: Any) -> None:
+    def __init__(self, service: Any, parent_folder_id: str) -> None:
         self._s = service
+        self._parent_folder_id = parent_folder_id
 
     # ------------------------------------------------------------------ baca
     def ambil(self, file_id: str) -> dict:
-        return self._s.files().get(fileId=file_id, fields=FIELD_BERKAS).execute()
+        return (
+            self._s.files()
+            .get(fileId=file_id, fields=FIELD_BERKAS, supportsAllDrives=True)
+            .execute()
+        )
 
     def daftar_izin(self, file_id: str) -> list[dict]:
         """Semua permission yang dikembalikan Drive untuk `file_id` (semua halaman)."""
@@ -45,7 +50,12 @@ class Verifikator:
         while True:
             resp = (
                 self._s.permissions()
-                .list(fileId=file_id, fields=FIELD_IZIN, pageToken=token)
+                .list(
+                    fileId=file_id,
+                    fields=FIELD_IZIN,
+                    pageToken=token,
+                    supportsAllDrives=True,
+                )
                 .execute()
             )
             hasil.extend(resp.get("permissions", []))
@@ -56,7 +66,16 @@ class Verifikator:
     def anak(self, parent_id: str) -> list[dict]:
         """Subfolder langsung (tidak di-trash) dari `parent_id`."""
         q = f"'{parent_id}' in parents and mimeType='{MIME_FOLDER}' and trashed=false"
-        return self._s.files().list(q=q, fields=f"files({FIELD_BERKAS})").execute()["files"]
+        return (
+            self._s.files()
+            .list(
+                q=q,
+                fields=f"files({FIELD_BERKAS})",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            )
+            .execute()["files"]
+        )
 
     def rantai_ke_atas(self, file_id: str) -> list[str]:
         """[file_id, induk, kakek, ...] sampai folder tanpa induk yang terlihat."""
@@ -74,10 +93,14 @@ class Verifikator:
         return modul_izin.peran_efektif(izin, email, hitung_publik=True)
 
     # ------------------------------------------------------------------ sapuan & hapus
-    def folder_milik_service_account(self) -> list[dict]:
+    def folder_dalam_parent(self) -> list[dict]:
+        """Semua folder langsung di parent test, termasuk halaman Shared Drive."""
         hasil: list[dict] = []
         token = None
-        q = f"'me' in owners and mimeType='{MIME_FOLDER}' and trashed=false"
+        q = (
+            f"'{self._parent_folder_id}' in parents and "
+            f"mimeType='{MIME_FOLDER}' and trashed=false"
+        )
         while True:
             resp = (
                 self._s.files()
@@ -86,6 +109,8 @@ class Verifikator:
                     fields=f"nextPageToken,files({FIELD_BERKAS})",
                     pageToken=token,
                     pageSize=200,
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
                 )
                 .execute()
             )
@@ -97,16 +122,17 @@ class Verifikator:
     def hapus(self, file_id: str) -> None:
         """Hapus permanen (beserta isinya). Folder yang sudah tidak ada bukan error."""
         try:
-            self._s.files().delete(fileId=file_id).execute()
+            self._s.files().delete(fileId=file_id, supportsAllDrives=True).execute()
         except HttpError as e:
             if e.resp.status != 404:
                 raise
 
     def hapus_berprefiks(self, awalan: str) -> list[str]:
-        """Hapus folder milik service account yang namanya berawalan `awalan`; kembalikan id-nya."""
+        """Hapus hanya folder berprefiks di parent Shared Drive khusus test."""
         terhapus: list[str] = []
-        for folder in self.folder_milik_service_account():
+        for folder in self.folder_dalam_parent():
             if folder["name"].startswith(awalan):
                 self.hapus(folder["id"])
                 terhapus.append(folder["id"])
         return terhapus
+

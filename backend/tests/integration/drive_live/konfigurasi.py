@@ -18,12 +18,14 @@ T = TypeVar("T")
 
 ENV_AKTIF = "GDRIVE_LIVE_TEST"
 ENV_KUNCI = "GDRIVE_SERVICE_ACCOUNT_KEY"
+ENV_PARENT = "GDRIVE_LIVE_PARENT_FOLDER_ID"
 ENV_TIMEOUT = "DRIVE_LIVE_TEST_TIMEOUT"
 TIMEOUT_DEFAULT = 120.0
 
 # Semua wajib bila GDRIVE_LIVE_TEST=1 (email = akun Google nyata milik tim uji).
 ENV_WAJIB = (
     ENV_KUNCI,
+    ENV_PARENT,
     "DRIVE_LIVE_LEAD_EMAIL",
     "DRIVE_LIVE_SA_EMAIL",
     "DRIVE_LIVE_SALES_EMAIL",
@@ -40,6 +42,7 @@ class KonfigurasiLiveError(Exception):
 class KonfigurasiLive:
     kunci_json: str
     kunci: dict
+    parent_folder_id: str
     email_lead: str
     email_sa: str
     email_sales: str
@@ -105,11 +108,16 @@ def muat_konfigurasi(env: Mapping[str, str]) -> KonfigurasiLive:
         )
     mentah = env[ENV_KUNCI].strip()
     kunci = _parse_kunci(mentah)
-    email = {nama: env[nama].strip() for nama in ENV_WAJIB if nama != ENV_KUNCI}
+    email = {
+        nama: env[nama].strip()
+        for nama in ENV_WAJIB
+        if nama not in {ENV_KUNCI, ENV_PARENT}
+    }
     _periksa_email_berbeda(email, kunci["client_email"])
     return KonfigurasiLive(
         kunci_json=mentah,
         kunci=kunci,
+        parent_folder_id=env[ENV_PARENT].strip(),
         email_lead=email["DRIVE_LIVE_LEAD_EMAIL"],
         email_sa=email["DRIVE_LIVE_SA_EMAIL"],
         email_sales=email["DRIVE_LIVE_SALES_EMAIL"],

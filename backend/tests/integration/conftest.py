@@ -338,6 +338,7 @@ def patch_session_factory(
 class KlienApi:
     client: httpx.AsyncClient
     generate_requirement: AsyncMock
+    generate_requirement_real: Callable[..., Any]
     session_factory: async_sessionmaker[AsyncSession]
     login_headers: dict[str, dict[str, str]] = field(default_factory=dict)
     drain_notifications: bool = True
@@ -397,8 +398,13 @@ async def api(
     serialized_factory = _serialized_session_factory(session_factory)
     patch_session_factory(monkeypatch, session_factory)
     api_client: KlienApi | None = None
+    from app.services import requirement_generator
+    generate_requirement_real = requirement_generator.generate_pending_requirement
     gen_requirement = AsyncMock()
-    monkeypatch.setattr("app.api.projects.generate_pending_requirement", gen_requirement)
+    monkeypatch.setattr("app.api.project_intake_api.generate_pending_requirement", gen_requirement)
+    monkeypatch.setattr(
+        "app.services.requirement_generator.generate_pending_requirement", gen_requirement
+    )
 
     async def _get_db_uji() -> AsyncIterator[AsyncSession]:
         pending_notifications: tuple[asyncio.Task, ...] = ()
@@ -433,6 +439,7 @@ async def api(
             api_client = KlienApi(
                 client=client,
                 generate_requirement=gen_requirement,
+                generate_requirement_real=generate_requirement_real,
                 session_factory=session_factory,
             )
             yield api_client

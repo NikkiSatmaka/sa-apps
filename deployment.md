@@ -84,3 +84,11 @@ Use the actual configured database role (the Compose template defaults to `sa_po
 The person performing the release is responsible for recording exact image tags/digests, backup verification, migration compatibility assessment, smoke-check results, and any rollback/repair decision in the approved operational record. A separately authorized service/product owner must approve production-impacting operations, restoration, and traffic cutover according to the organization's access policy. Confirm actual named owners, approver, backup destination/access policy, maintenance window, and escalation path from current organizational records before production work; the repository does not establish them.
 
 Repository evidence: production image/volume/service wiring and fail-closed migration ordering are in `compose.yaml`; image builds and tag selection are in `scripts/publish.sh`; Compose is explicitly the image-based production path in `CONTRIBUTING.md`; CI workflows run tests and browser checks but do not deploy. No production restore, deployment, smoke check, ownership mapping, or recovery exercise is asserted by this guide.
+
+## Google Drive provisioning
+
+Drive provisioning uses a service-account key and a configured parent folder. A key alone does not grant Drive access. Service accounts cannot own My Drive files; use a dedicated Google Workspace Shared Drive rather than a personal Gmail account or a random user's My Drive.
+
+Create an empty, generic test root folder inside a non-production Shared Drive. Give the service account the minimum Shared Drive membership role that permits folder creation and the permission changes required by the app, subject to Workspace policy. Set `GDRIVE_SERVICE_ACCOUNT_KEY` securely in the backend environment and set `GDRIVE_PARENT_FOLDER_ID` to the root folder's ID. The app creates the `Customer - Project` folder and its subfolders there; do not pre-create project folders manually. Keep test data and user accounts disposable, and never commit or paste the key into tickets or chat.
+
+The Drive API calls include `supportsAllDrives=true`. A real provider check still requires a controlled Workspace test drive, a service-account identity with the appropriate membership, and successful create/permission/recovery evidence. Keep production and test service-account keys and drives separate.

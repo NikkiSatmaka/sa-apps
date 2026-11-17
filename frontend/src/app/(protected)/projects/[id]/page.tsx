@@ -1,32 +1,18 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { fetcher, apiRequest } from "@/lib/fetcher";
 import { useAuthStore } from "@/store/auth";
-import { HandoverModal } from "@/components/HandoverModal";
-import { LoadError } from "@/components/LoadError";
-import { HandoverConfigForm } from "@/components/HandoverConfigForm";
-import { AssignmentModal } from "@/components/AssignmentModal";
-import { ReassignModal } from "@/components/ReassignModal";
-import { PeopleSection } from "@/components/PeopleSection";
-import { CollaboratorSection } from "@/components/CollaboratorSection";
-import { SubtaskSection } from "@/components/SubtaskSection";
-import { ProjectComments } from "@/components/ProjectComments";
-import { TimSASection } from "@/components/TimSASection";
-import { QualificationSection } from "@/components/QualificationSection";
-import type { QualificationView } from "@/lib/qualification";
-import { BANTOverride } from "@/components/BANTOverride";
-import { SourceDocumentSection, type SourceDocumentItem } from "@/components/SourceDocumentSection";
-import type { HandoverReadiness } from "@/lib/api/handover";
-import { HandoverAction } from "@/components/HandoverAction";
-import { StatusActions } from "@/components/StatusActions";
-import { StatusBadge } from "@/components/StatusBadge";
-import { isPrivileged } from "@/lib/roles";
+
 import { reprovisionFolder } from "@/lib/api/assignment";
-import type { IntegrationOperationResponse } from "@/lib/api/projects";
+import type { HandoverReadiness } from "@/lib/api/handover";
+import { isPrivileged } from "@/lib/roles";
 import { useAksesProyek } from "@/lib/useAksesProyek";
+
+import { ProjectDetailContent, type ProjectDetail } from "./project-detail-content";
+import { ProjectDetailModals } from "./project-detail-modals";
 
 /**
  * Halaman Detail Proyek
@@ -41,72 +27,6 @@ import { useAksesProyek } from "@/lib/useAksesProyek";
  * Requirements: 17.1, 17.6
  */
 
-interface FolderProvisioningAttempt {
-  attempt: number;
-  status: "pending" | "failed" | "succeeded";
-  started_at: string;
-  finished_at: string | null;
-  outcome: string | null;
-  actionable_error: string | null;
-}
-
-interface FolderProvisioningOperation {
-  status: "pending" | "failed" | "succeeded";
-  attempts: FolderProvisioningAttempt[];
-  started_at: string | null;
-  finished_at: string | null;
-  outcome: string | null;
-  actionable_error: string | null;
-}
-
-interface ProjectDetail {
-  id_project: string;
-  project_name: string;
-  customer_name: string;
-  status: string;
-  /** Hanya bermakna saat `status = Intake` (ADR 0013). */
-  qualification_state?: string | null;
-  /** Status sebelum jeda/Lost/Closed; tujuan lanjut dan buka kembali. */
-  previous_status?: string | null;
-  lost_reason?: string | null;
-  dq_number: string | null;
-  bant_score: number | null;
-  bant_detail: {
-    budget_mrr?: number | null;
-    pic_name?: string | null;
-    pic_position?: string | null;
-    pic_email?: string | null;
-    need_description?: string | null;
-    timeline_target?: string | null;
-    [key: string]: unknown;
-  } | null;
-  qualification?: QualificationView;
-  use_case_tags: string[] | null;
-  target_submit: string | null;
-  created_by?: { id: string | null; name: string | null; email: string | null } | null;
-  product_pic?: { id: string | null; name: string | null; email: string | null } | null;
-  /** Opsional (ADR 0014): project boleh tanpa Sales. */
-  sales_pic: { id: string | null; name: string | null; email: string | null } | null;
-  lead_sa?: { id: string | null; name: string | null; email: string | null } | null;
-  assigned_sa: { id: string | null; name: string | null; email: string | null } | null;
-  collaborators: {
-    id: string;
-    user_id: string;
-    user_name: string;
-    user_email: string;
-    user_role: string;
-    role: "viewer" | "contributor";
-    added_by_name: string;
-    created_at: string;
-  }[];
-  source_documents?: SourceDocumentItem[];
-  gdrive_folder_id: string | null;
-  folder_provisioning_status: "pending" | "provisioned" | "failed" | null;
-  folder_provisioning_operation?: FolderProvisioningOperation | null;
-  integration_operations: IntegrationOperationResponse[];
-  created_at: string;
-  updated_at: string;
-}
 
 export default function ProjectDetailPage() {
   const params = useParams();
@@ -150,7 +70,6 @@ export default function ProjectDetailPage() {
     handoverStatus &&
     (!handoverStatus.pmo_email || !handoverStatus.delivery_email);
 
-  const canDelete = isPrivileged(user);
 
   const handleDeleteProject = async () => {
     if (!project) return;
@@ -182,7 +101,6 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      {/* Loading */}
       {isLoading && (
         <div className="space-y-4 animate-pulse">
           <div className="h-8 bg-neutral-200 rounded w-1/3" />
@@ -190,592 +108,58 @@ export default function ProjectDetailPage() {
           <div className="h-48 bg-neutral-100 rounded" />
         </div>
       )}
-
-      {/* Error */}
       {projError && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
           <p className="text-sm text-red-700">Gagal memuat detail proyek. Silakan coba lagi.</p>
         </div>
       )}
-
-      {/* Konten */}
       {project && (
-        <>
-          {/* Header */}
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-neutral-900">
-                {project.project_name}
-              </h1>
-              <p className="text-sm text-neutral-500 mt-1">{project.customer_name}</p>
-              <p className="text-xs text-neutral-400 mt-0.5 font-mono">{project.id_project}</p>
-              <p className="text-xs text-neutral-400 mt-0.5">
-                Terakhir Diubah: {new Date(project.updated_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              {/* Tombol Assign SA — hanya Lead_SA/Admin dan status Awaiting Assignment */}
-              {project.status === "Awaiting Assignment" &&
-                isPrivileged(user) && (
-                <button
-                  onClick={() => setShowAssignModal(true)}
-                  className="px-3 py-1.5 text-sm font-medium text-white bg-primary-600
-                             rounded-lg hover:bg-primary-700 transition-colors min-h-[36px]"
-                >
-                  Assign SA
-                </button>
-              )}
-              {/* Override skor BANT — hanya Lead_SA/Admin pada status relevan (#30) */}
-              <BANTOverride
-                projectId={project.id_project}
-                status={project.status}
-                qualificationState={project.qualification_state}
-                actor={user}
-                currentScores={project.bant_detail}
-              />
-              {/* Tombol Reassign SA — hanya Lead_SA/Admin dan proyek sudah punya SA */}
-              {project.assigned_sa &&
-                ["Awaiting Assignment", "Assigned", "In Progress", "Submitted"].includes(project.status) &&
-                isPrivileged(user) && (
-                <button
-                  onClick={() => setShowReassignModal(true)}
-                  className="px-3 py-1.5 text-sm font-medium text-amber-700 border border-amber-300
-                             rounded-lg hover:bg-amber-50 transition-colors min-h-[36px]"
-                >
-                  Reassign SA
-                </button>
-              )}
-              {/* Tombol Edit — TingkatAkses.UBAH_PROYEK (viewer dan pengguna tak terkait tidak) */}
-              {bisa("ubah_proyek") && (
-                <button
-                  onClick={() => router.push(`/projects/${projectId}/edit`)}
-                  className="px-3 py-1.5 text-sm font-medium text-neutral-700 border border-neutral-300
-                             rounded-lg hover:bg-neutral-50 transition-colors min-h-[36px]"
-                >
-                  Edit
-                </button>
-              )}
-              {/* Tombol Hapus — hanya Lead_SA/Admin */}
-              {canDelete && (
-                <button
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="px-3 py-1.5 text-sm font-medium text-red-600 border border-red-300
-                             rounded-lg hover:bg-red-50 transition-colors min-h-[36px]"
-                >
-                  Hapus
-                </button>
-              )}
-              <StatusBadge
-                status={project.status}
-                qualificationState={project.qualification_state}
-                className="px-3 py-1 rounded-full text-xs shrink-0"
-              />
-            </div>
-          </div>
-
-          {/* Aksi status (spec §2.0): tombol hanya tampil bila peran berhak */}
-          <StatusActions project={project} onChanged={() => mutateProject()} />
-          <HandoverAction project={project} onDone={() => mutateProject()} />
-
-          {/* Section: PIC & Info Utama */}
-          <div className="bg-white border border-neutral-200 rounded-lg p-5">
-            <h2 className="text-sm font-semibold text-neutral-700 mb-3">Informasi Proyek</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <InfoRow label="Dibuat oleh" value={project.created_by?.name || "—"} />
-              <InfoRow label="Product Manager PIC" value={project.product_pic?.name || "—"} />
-              <InfoRow label="Sales PIC" value={project.sales_pic?.name || "—"} />
-              <InfoRow label="Lead SA" value={project.lead_sa?.name || "Belum ada"} />
-              <InfoRow label="SA Ditugaskan" value={project.assigned_sa?.name || "Belum di-assign"} />
-              <InfoRow label="DQ Number" value={project.dq_number || "Belum diinput"} mono={!!project.dq_number} />
-              <InfoRow
-                label="Target Submit"
-                value={project.target_submit
-                  ? new Date(project.target_submit).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })
-                  : "—"}
-              />
-              <InfoRow
-                label="Dibuat"
-                value={new Date(project.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}
-              />
-            </div>
-
-            {/* Use case tags */}
-            {(project.use_case_tags?.length ?? 0) > 0 && (
-              <div className="mt-4 pt-4 border-t border-neutral-100">
-                <span className="text-xs text-neutral-500">Use Case Tags:</span>
-                <div className="flex flex-wrap gap-1.5 mt-1.5">
-                  {project.use_case_tags?.map((tag) => (
-                    <span key={tag} className="px-2 py-0.5 bg-primary-50 text-primary-600 text-xs rounded-full">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <FolderProvisioningSection
-            status={project.folder_provisioning_status}
-            operation={project.folder_provisioning_operation}
-            hasMasterFolder={!!project.gdrive_folder_id}
-            canRetry={isPrivileged(user)}
-            isRetrying={isReprovisioning}
-            retryError={reprovisionError}
-            onRetry={handleReprovisionFolder}
-          />
-
-          {/* Section: Ganti orang (hanya Lead_SA/Admin; dijaga di dalam komponen) */}
-          <PeopleSection project={project} onChanged={() => mutateProject()} />
-
-          {/* Section: Quick Actions — icon + text style sederhana */}
-          <div className="flex gap-4">
-            <a
-              href={`/projects/${projectId}/documents`}
-              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-neutral-700
-                         border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors min-h-[44px]"
-            >
-              <svg className="w-4 h-4 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              Dokumen
-            </a>
-            <a
-              href={`/projects/${projectId}/activity-logs`}
-              className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-neutral-700
-                         border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors min-h-[44px]"
-            >
-              <svg className="w-4 h-4 text-neutral-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-              </svg>
-              Riwayat Log
-            </a>
-          </div>
-
-          {/* Section: Status BANT — hanya tampilkan pass/fail, skor dihitung di backend */}
-          {project.bant_score !== null && project.bant_score !== undefined && (
-            <div
-              className={`rounded-lg p-4 border ${
-                project.bant_score >= 60
-                  ? "bg-green-50 border-green-200"
-                  : "bg-amber-50 border-amber-200"
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                {project.bant_score >= 60 ? (
-                  <svg className="w-5 h-5 text-green-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                ) : (
-                  <svg className="w-5 h-5 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                  </svg>
-                )}
-                <p
-                  className={`text-sm font-medium ${
-                    project.bant_score >= 60 ? "text-green-700" : "text-amber-700"
-                  }`}
-                >
-                  {project.bant_score >= 60
-                    ? "BANT Passed, waiting for assignment"
-                    : "BANT not passed, please refine your input"}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Section: Kualifikasi — jawaban kuesioner + sub-skor, atau data legacy */}
-          <QualificationSection
-            qualification={project.qualification}
-            targetSubmit={project.target_submit}
-          />
-
-          <SourceDocumentSection documents={project.source_documents ?? []} />
-
-          {/* Section: Activity Log Proyek */}
-          <ProjectActivitySection projectId={projectId} />
-
-          {/* Section: Tim SA — SA utama + SA tambahan (ADR 0014) */}
-          <TimSASection projectId={projectId} />
-
-          {/* Section: Subtask — work item assignable per proyek */}
-          <SubtaskSection projectId={projectId} />
-
-          {/* Section: Komentar — thread project, terpisah dari Project Story (#125) */}
-          <ProjectComments
-            projectId={projectId}
-            readOnly={project.status === "Closed" || project.status === "Lost"}
-          />
-
-          {/* Section: Kolaborator */}
-          <CollaboratorSection
-            projectId={projectId}
-            initialCollaborators={project.collaborators}
-          />
-
-          {/* Gagal memuat status handover: form konfigurasi tak boleh hilang tanpa penjelasan */}
-          {project.status === "Won" && handoverError && !handoverStatus && (
-            <LoadError
-              message="Gagal memuat status handover."
-              onRetry={() => mutateHandoverStatus()}
-            />
-          )}
-
-          {/* Section: Konfigurasi Handover */}
-          {shouldShowConfigForm && (
-            <div className="bg-white border border-amber-200 rounded-lg p-5">
-              <h2 className="text-base font-semibold text-neutral-800 mb-3">Konfigurasi Handover</h2>
-              <p className="text-sm text-neutral-600 mb-4">
-                Email PMO Lead dan Delivery Lead belum dikonfigurasi.
-              </p>
-              <HandoverConfigForm
-                projectId={projectId}
-                existingPmoEmail={handoverStatus?.pmo_email}
-                existingDeliveryEmail={handoverStatus?.delivery_email}
-                onSuccess={() => mutateHandoverStatus()}
-              />
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Modal Assignment SA */}
-      {showAssignModal && project && (
-        <AssignmentModal
-          project={{
-            id_project: project.id_project,
-            project_name: project.project_name,
-            customer_name: project.customer_name,
-            bant_score: project.bant_score,
-            use_case_tags: project.use_case_tags ?? null,
-          }}
-          onClose={() => setShowAssignModal(false)}
-          onSuccess={() => {
-            setShowAssignModal(false);
-            window.location.reload();
-          }}
-        />
-      )}
-
-      {/* Modal Reassign SA */}
-      {showReassignModal && project && (
-        <ReassignModal
-          projectId={project.id_project}
-          projectName={project.project_name}
-          customerName={project.customer_name}
-          currentSAName={project.assigned_sa?.name}
-          currentLeadSa={
-            project.lead_sa?.id
-              ? { id: project.lead_sa.id, name: project.lead_sa.name ?? project.lead_sa.id }
-              : null
-          }
-          onClose={() => setShowReassignModal(false)}
-          onSuccess={() => {
-            setShowReassignModal(false);
-            window.location.reload();
-          }}
-        />
-      )}
-
-      {/* Modal konfirmasi hapus proyek */}
-      {showDeleteConfirm && project && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-sm w-full mx-4">
-            <h3 className="text-lg font-semibold text-neutral-900 mb-2">Hapus Proyek</h3>
-            <p className="text-sm text-neutral-600 mb-4">
-              Apakah Anda yakin ingin menghapus proyek <strong>{project.project_name}</strong> ({project.id_project})? Proyek akan hilang dari semua daftar dan dashboard. Dokumen dan activity log tetap tersimpan, dan jam kerja SA tetap terhitung di utilisasi.
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={isDeleting}
-                className="px-3 py-1.5 text-sm font-medium text-neutral-700 border border-neutral-300
-                           rounded-lg hover:bg-neutral-50 transition-colors min-h-[36px]
-                           disabled:opacity-50"
-              >
-                Batal
-              </button>
-              <button
-                onClick={handleDeleteProject}
-                disabled={isDeleting}
-                className="px-3 py-1.5 text-sm font-medium text-white bg-red-600
-                           rounded-lg hover:bg-red-700 transition-colors min-h-[36px]
-                           disabled:opacity-50"
-              >
-                {isDeleting ? "Menghapus..." : "Hapus"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Won */}
-      {shouldShowHandoverModal && project && (
-        <HandoverModal
+        <ProjectDetailContent
+          project={project}
           projectId={projectId}
-          projectName={project.project_name}
-          onAcknowledge={() => setShowHandoverModal(false)}
+          user={user}
+          bisa={bisa}
+          router={router}
+          onProjectChanged={() => mutateProject()}
+          onAssign={() => setShowAssignModal(true)}
+          onReassign={() => setShowReassignModal(true)}
+          onDelete={() => setShowDeleteConfirm(true)}
+          folderProvisioning={{
+            isRetrying: isReprovisioning,
+            error: reprovisionError,
+            onRetry: handleReprovisionFolder,
+          }}
+          handover={{
+            status: handoverStatus,
+            error: handoverError,
+            onRetry: () => mutateHandoverStatus(),
+            onSuccess: () => mutateHandoverStatus(),
+            shouldShowConfigForm,
+            shouldShowModal: shouldShowHandoverModal,
+            onAcknowledge: () => setShowHandoverModal(false),
+          }}
         />
       )}
+      <ProjectDetailModals
+        project={project}
+        showAssign={showAssignModal}
+        onCloseAssign={() => setShowAssignModal(false)}
+        onSuccessAssign={() => {
+          setShowAssignModal(false);
+          window.location.reload();
+        }}
+        showReassign={showReassignModal}
+        onCloseReassign={() => setShowReassignModal(false)}
+        onSuccessReassign={() => {
+          setShowReassignModal(false);
+          window.location.reload();
+        }}
+        showDelete={showDeleteConfirm}
+        isDeleting={isDeleting}
+        onCancelDelete={() => setShowDeleteConfirm(false)}
+        onDelete={handleDeleteProject}
+      />
     </div>
   );
 }
 
-// === Sub-komponen ===
-
-function InfoRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  const isBelum = value.startsWith("Belum");
-  return (
-    <div>
-      <span className="text-neutral-500">{label}:</span>
-      <span className={`ml-2 font-medium ${
-        isBelum ? "text-red-600 font-bold" : mono ? "font-mono text-sm text-neutral-800" : "text-neutral-800"
-      }`}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-/** Section: Activity Log ringkasan per proyek + tombol Summarize */
-function ProjectActivitySection({ projectId }: { projectId: string }) {
-  const [summary, setSummary] = useState<string | null>(null);
-  const [isSummarizing, setIsSummarizing] = useState(false);
-
-  const { data, isLoading, error, mutate } = useSWR<{
-    items: {
-      id_log: string;
-      subtask_category: string;
-      duration_hours: number;
-      raw_notes: string;
-      ai_polished_notes?: {
-        discussion_points: string[];
-        action_items: { description: string; pic?: string | null }[];
-      } | null;
-      created_at: string;
-    }[];
-    total: number;
-  }>(`/projects/${projectId}/story?page=1&page_size=5`, fetcher);
-
-  // Generate summary dari activity logs menggunakan LLM (backend)
-  const handleSummarize = async () => {
-    if (!data || data.items.length === 0) return;
-    setIsSummarizing(true);
-    setSummary(null);
-
-    try {
-      const result = await apiRequest<{
-        summary: string;
-        total_activities: number;
-        total_hours: number;
-      }>(`/projects/${projectId}/summarize`, { method: "POST" });
-      setSummary(result.summary);
-    } catch (err) {
-      console.error("Summarize failed:", err);
-      setSummary(
-        "Gagal menghasilkan ringkasan. Silakan coba lagi."
-      );
-    } finally {
-      setIsSummarizing(false);
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <div className="bg-white border border-neutral-200 rounded-lg p-5">
-        <div className="h-5 bg-neutral-200 rounded w-1/4 mb-4 animate-pulse" />
-        <div className="space-y-3 animate-pulse">
-          <div className="h-10 bg-neutral-100 rounded" />
-          <div className="h-10 bg-neutral-100 rounded" />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-white border border-neutral-200 rounded-lg p-5">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-sm font-semibold text-neutral-700">Project Story</h2>
-          {data && data.total > 0 && (
-            <p className="text-xs text-neutral-400 mt-0.5">
-              {data.total} aktivitas — menampilkan 5 terbaru
-            </p>
-          )}
-        </div>
-        <div className="flex gap-2">
-          {data && data.total > 0 && (
-            <button
-              onClick={handleSummarize}
-              disabled={isSummarizing}
-              className="px-3 py-1.5 text-xs font-medium text-primary-600 border border-primary-200
-                         rounded-lg hover:bg-primary-50 transition-colors min-h-[36px]
-                         disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSummarizing ? "Generating..." : "Summarize"}
-            </button>
-          )}
-          {data && data.total > 5 && (
-            <a
-              href={`/projects/${projectId}/activity-logs`}
-              className="px-3 py-1.5 text-xs font-medium text-neutral-600 border border-neutral-200
-                         rounded-lg hover:bg-neutral-50 transition-colors min-h-[36px] flex items-center"
-            >
-              Lihat Semua ({data.total})
-            </a>
-          )}
-        </div>
-      </div>
-
-      {/* Summary result */}
-      {summary && (
-        <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-xs font-medium text-blue-700 mb-1">Ringkasan Proyek</p>
-          <p className="text-sm text-blue-800">{summary}</p>
-        </div>
-      )}
-
-      {error && !data ? (
-        <LoadError message="Gagal memuat activity log proyek." onRetry={() => mutate()} />
-      ) : (!data || data.items.length === 0) ? (
-        <p className="text-sm text-neutral-500 text-center py-4">
-          Belum ada activity log untuk proyek ini.
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {data.items.map((log) => (
-            <div key={log.id_log} className="flex items-start gap-3 p-3 bg-neutral-50 rounded-lg">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">
-                    {log.subtask_category}
-                  </span>
-                  <span className="text-xs text-neutral-400">{log.duration_hours}h</span>
-                  <span className="text-xs text-neutral-300">
-                    {new Date(log.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}
-                  </span>
-                </div>
-                <p className="text-sm text-neutral-700 line-clamp-2">{log.raw_notes}</p>
-                {/* Action Items dari AI polishing */}
-                {log.ai_polished_notes?.action_items && log.ai_polished_notes.action_items.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1">
-                    {log.ai_polished_notes.action_items.map((item, idx) => (
-                      <span
-                        key={idx}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800"
-                        title={item.description}
-                      >
-                        <span className="text-amber-500">▸</span>
-                        {item.description}
-                        {item.pic && <span className="text-amber-600">(PIC: {item.pic})</span>}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-interface FolderProvisioningSectionProps {
-  status: ProjectDetail["folder_provisioning_status"];
-  operation?: FolderProvisioningOperation | null;
-  hasMasterFolder: boolean;
-  canRetry: boolean;
-  isRetrying: boolean;
-  retryError: string | null;
-  onRetry: () => void;
-}
-
-function FolderProvisioningSection({
-  status,
-  operation,
-  hasMasterFolder,
-  canRetry,
-  isRetrying,
-  retryError,
-  onRetry,
-}: FolderProvisioningSectionProps) {
-  const failed = status === "failed" || operation?.status === "failed";
-  const pending = !failed && (status === "pending" || operation?.status === "pending");
-  const provisioned = !failed && !pending && (
-    status === "provisioned" || operation?.status === "succeeded"
-  );
-
-  if (!failed && !pending && !provisioned) return null;
-
-  const outcome = operation?.outcome ?? operation?.attempts.at(-1)?.outcome;
-  const actionableError = operation?.actionable_error
-    ?? operation?.attempts.at(-1)?.actionable_error;
-
-  return (
-    <section
-      aria-labelledby="folder-provisioning-heading"
-      aria-live="polite"
-      className={`rounded-lg border p-5 ${
-        failed ? "border-red-200 bg-red-50" : pending ? "border-amber-200 bg-amber-50" : "border-green-200 bg-green-50"
-      }`}
-    >
-      <h2 id="folder-provisioning-heading" className="text-sm font-semibold text-neutral-800">
-        Provisioning folder Google Drive
-      </h2>
-      {failed ? (
-        <p role="alert" className="mt-2 text-sm font-medium text-red-700">
-          Provisioning folder gagal
-        </p>
-      ) : pending ? (
-        <p role="status" className="mt-2 text-sm font-medium text-amber-800">
-          Provisioning folder sedang diproses
-        </p>
-      ) : (
-        <p role="status" className="mt-2 text-sm font-medium text-green-700">
-          Folder Google Drive berhasil dibuat
-        </p>
-      )}
-      {outcome && (
-        <p className="mt-2 text-sm text-neutral-700">
-          Hasil terakhir: <span>{outcome}</span>
-        </p>
-      )}
-      {actionableError && (
-        <p className="mt-2 text-sm text-neutral-700">{actionableError}</p>
-      )}
-      {operation?.attempts && operation.attempts.length > 0 && (
-        <ol className="mt-3 space-y-1 text-xs text-neutral-600" aria-label="Riwayat percobaan provisioning">
-          {operation.attempts.map((attempt) => (
-            <li key={`${attempt.attempt}-${attempt.started_at}`}>
-              Percobaan {attempt.attempt}: {attempt.status}
-              {attempt.finished_at && ` — selesai ${new Date(attempt.finished_at).toLocaleString("id-ID")}`}
-            </li>
-          ))}
-        </ol>
-      )}
-      {failed && canRetry && !hasMasterFolder && (
-        <div className="mt-4">
-          <p className="mb-3 text-sm text-neutral-700">
-            Pastikan izin service account benar dan hapus folder yatim di Drive sebelum mencoba lagi.
-          </p>
-          <button
-            type="button"
-            onClick={onRetry}
-            disabled={isRetrying}
-            className="rounded-lg bg-primary-600 px-3 py-2 text-sm font-medium text-white
-                       hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isRetrying ? "Memulai provisioning..." : "Coba provisioning lagi"}
-          </button>
-        </div>
-      )}
-      {failed && hasMasterFolder && (
-        <p className="mt-3 text-sm text-neutral-700">
-          Folder Drive sudah tersimpan; retry otomatis tidak tersedia. Periksa folder yang ada dan perbaiki izinnya secara manual.
-        </p>
-      )}
-      {retryError && (
-        <p role="alert" className="mt-3 text-sm text-red-700">{retryError}</p>
-      )}
-    </section>
-  );
-}

@@ -85,7 +85,11 @@ async def _finish_calendar_mapping(
         return
     await db.refresh(operation)
     final_status = "succeeded" if succeeded else "failed"
-    if operation.status != final_status:
+    if (
+        operation.status != final_status
+        or operation.outcome != outcome
+        or operation.actionable_error != actionable_error
+    ):
         now = datetime.now(timezone.utc)
         attempts = list(operation.attempts or [])
         if attempts:
@@ -392,16 +396,16 @@ async def map_event_to_project(
         created_at=now,
     )
 
-    db.add(activity_log)
-    # Log Project pertama memindahkan `Assigned` → `In Progress` (satu transaksi dengan log).
-    if project is not None:
-        majukan_ke_in_progress(db, project, current_user.id, "kalender")
-
     try:
+        async with db.begin_nested():
+            db.add(activity_log)
+            # Log Project pertama memindahkan `Assigned` → `In Progress` (satu transaksi dengan log).
+            if project is not None:
+                majukan_ke_in_progress(db, project, current_user.id, "kalender")
+            await db.flush()
         await db.commit()
         await db.refresh(activity_log)
     except IntegrityError as e:
-        await db.rollback()
 
         error_str = str(e.orig) if e.orig else str(e)
         duplicate = "idx_unique_gcal_mapping" in error_str or "gcal_event_id" in error_str
@@ -423,13 +427,16 @@ async def map_event_to_project(
         )
         if not duplicate:
             logger.error(f"IntegrityError saat map event: {e}")
+        operation_details = await _operation_details(db, operation_id)
+        if operation_details is not None:
+            operation_details.pop("project_id", None)
         return JSONResponse(
             status_code=(
                 status.HTTP_409_CONFLICT if duplicate else status.HTTP_400_BAD_REQUEST
             ),
             content=error_response(
                 message=message,
-                data={"integration_operation": await _operation_details(db, operation_id)},
+                data={"integration_operation": operation_details},
             ),
         )
     except Exception:

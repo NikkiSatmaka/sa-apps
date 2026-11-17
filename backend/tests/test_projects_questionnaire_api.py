@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-
+from app.api import project_lifecycle_api
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.main import app
@@ -266,7 +266,7 @@ def test_error_header_dan_kuesioner_dilaporkan_bersama():
 # --------------------------------------------------------------------------- dengan file (perilaku file tidak berubah)
 def test_create_dengan_file_qualification_state_scoring_trigger_scoring_dan_jawaban_tersimpan():
     pdf = ("files", ("mom.pdf", BytesIO(b"%PDF-1.4 isi"), "application/pdf"))
-    with patch("app.api.projects._trigger_scoring_engine", new=AsyncMock()) as trigger:
+    with patch("app.api.project_intake_api._trigger_scoring_engine", new=AsyncMock()) as trigger:
         with _api() as (client, session):
             resp = client.post(URL, data=_form(jawaban_kuat(), file_types=["MoM"]), files=[pdf])
     assert resp.status_code == 201
@@ -403,3 +403,34 @@ def test_patch_bant_detail_metadata_legacy_tetap_boleh():
     assert resp.status_code == 200
     assert proyek.bant_detail["budget_mrr"] == 99
     assert proyek.bant_detail["budget"] == 0
+
+
+def test_edit_kuesioner_need_clarification_memanggil_scoring_engine(monkeypatch):
+    proyek = Project(
+        id_project="PRJ-20250101-ABC123",
+        project_name="P",
+        customer_name="C",
+        status="Intake",
+        qualification_state="Need Clarification",
+        bant_score=22,
+        qualification_answers=jawaban_lemah(),
+        sales_pic=uuid.uuid4(),
+    )
+    hasil = MagicMock()
+    hasil.model_dump.return_value = {"total_score": 22}
+    hasil.total_score = 22
+    rescore = AsyncMock(return_value=hasil)
+    monkeypatch.setattr(project_lifecycle_api.scoring_engine, "rescore_from_answers", rescore)
+
+    with _api(user=_user("Lead_SA"), execute_result=_result(one=proyek)) as (client, session):
+        resp = client.put(
+            f"{URL}/{proyek.id_project}/qualification-answers", json=jawaban_lemah()
+        )
+
+    assert resp.status_code == 200, resp.text
+    from app.schemas.qualification import QUESTIONNAIRE_FIELDS
+
+    normalized_answers = {
+        field: jawaban_lemah().get(field) for field in QUESTIONNAIRE_FIELDS
+    }
+    rescore.assert_awaited_once_with(session, proyek, normalized_answers)

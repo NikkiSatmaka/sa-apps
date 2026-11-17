@@ -5,7 +5,7 @@ import { makeQualificationSchema, makeQuestion } from "@/test/fixtures/qualifica
 import { ApiError } from "../fetcher";
 import { setAccessToken } from "../fetcher";
 import { getAccessToken } from "../fetcher";
-import { createProject, extractFieldErrors, getBANTResult, updateQualificationAnswers } from "./projects";
+import { createProject, extractFieldErrors, getBANTResult, recordManualEmailRepair, updateQualificationAnswers } from "./projects";
 
 describe("extractFieldErrors", () => {
   it("mengambil daftar {field, reason} dari ApiError 422", () => {
@@ -167,5 +167,34 @@ describe("projects: penanganan 401 lewat fetcher (#83)", () => {
     await expect(createProject(new FormData())).rejects.toMatchObject({ status: 401, message: "Token kadaluarsa" });
     expect(getAccessToken()).toBe("a");
     expect(loc.href).toBe("http://localhost/");
+  });
+});
+
+describe("recordManualEmailRepair", () => {
+  it("posts only the explicit acknowledgements and returns the unchanged failed operation", async () => {
+    let body: unknown;
+    server.use(http.post(api("/projects/p1/integration-operations/op1/repair"), async ({ request }) => {
+      body = await request.json();
+      return HttpResponse.json(successEnvelope({
+        id: "op1",
+        operation_type: "email_delivery",
+        action: "send_assignment_email",
+        status: "failed",
+        attempts: [],
+        started_at: null,
+        finished_at: null,
+        outcome: "send_assignment_email failed.",
+        actionable_error: "Check recipient before manual delivery.",
+        retryable: false,
+        context: { manual_repair: { actor_user_id: "lead", repaired_at: "2026-11-17T10:00:00Z" } },
+      }));
+    }));
+
+    await expect(recordManualEmailRepair("p1", "op1")).resolves.toMatchObject({
+      status: "failed",
+      retryable: false,
+      outcome: "send_assignment_email failed.",
+    });
+    expect(body).toEqual({ recipient_checked_not_received: true, manually_delivered_outside_app: true });
   });
 });

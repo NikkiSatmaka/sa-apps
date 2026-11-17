@@ -66,12 +66,14 @@ def konfigurasi_live() -> KonfigurasiLive:
 @pytest.fixture(scope="session")
 def verifikator(konfigurasi_live: KonfigurasiLive) -> Verifikator:
     """Klien Drive MILIK TEST (terpisah dari kode produksi) untuk membaca hasil sebenarnya."""
-    return Verifikator(bangun_service(konfigurasi_live.kunci))
+    return Verifikator(
+        bangun_service(konfigurasi_live.kunci), konfigurasi_live.parent_folder_id
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _sapu_sisa_uji_sebelumnya(verifikator: Verifikator) -> None:
-    """Awal sesi: hapus folder `[LIVE-TEST...` milik service account sisa sesi yang terputus."""
+    """Awal sesi: hapus folder `[LIVE-TEST...` hanya di parent Shared Drive khusus tes."""
     verifikator.hapus_berprefiks(AWALAN_SAPUAN)
 
 
@@ -117,5 +119,6 @@ def provisioner(konfigurasi_live: KonfigurasiLive, monkeypatch: pytest.MonkeyPat
     from app.services.folder_provisioner import folder_provisioner
 
     monkeypatch.setattr(settings, "GDRIVE_SERVICE_ACCOUNT_KEY", konfigurasi_live.kunci_json)
+    monkeypatch.setattr(settings, "GDRIVE_PARENT_FOLDER_ID", konfigurasi_live.parent_folder_id)
     monkeypatch.setattr(folder_provisioner, "_drive_service", None)
     return folder_provisioner

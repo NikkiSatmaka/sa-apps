@@ -17,6 +17,7 @@ from app.services.folder_provisioner import (
     INVALID_FOLDER_CHARS,
     FolderProvisioner,
     FolderProvisioningError,
+    settings,
 )
 
 # =============================================================================
@@ -70,9 +71,10 @@ def mock_drive_service():
 
 
 @pytest.fixture
-def provisioner_with_service(provisioner, mock_drive_service):
+def provisioner_with_service(provisioner, mock_drive_service, monkeypatch):
     """Provisioner dengan mock Drive service yang sudah di-inject."""
     provisioner._drive_service = mock_drive_service
+    monkeypatch.setattr(settings, "GDRIVE_PARENT_FOLDER_ID", "drive-root")
     return provisioner
 
 
@@ -395,7 +397,9 @@ class TestReassignSaAccess:
             "emailAddress": "baru@company.com",
         }
         hapus = mock_drive_service.permissions.return_value.delete
-        hapus.assert_called_once_with(fileId="master_001", permissionId="perm_lama")
+        hapus.assert_called_once_with(
+            fileId="master_001", permissionId="perm_lama", supportsAllDrives=True
+        )
 
     @pytest.mark.asyncio
     async def test_sa_baru_yang_sudah_punya_akses_tidak_dibuat_ulang(
@@ -411,7 +415,7 @@ class TestReassignSaAccess:
 
         mock_drive_service.permissions.return_value.create.assert_not_called()
         mock_drive_service.permissions.return_value.delete.assert_called_once_with(
-            fileId="master_001", permissionId="perm_lama"
+            fileId="master_001", permissionId="perm_lama", supportsAllDrives=True
         )
 
     @pytest.mark.asyncio

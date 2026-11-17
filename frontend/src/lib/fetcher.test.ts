@@ -45,6 +45,26 @@ describe("fetcher (GET)", () => {
     expect(auth).toBeNull();
   });
 
+  it("keeps access tokens in memory without writing browser storage", async () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    setAccessToken("memory-token");
+    server.use(
+      http.post(api("/auth/refresh"), () =>
+        HttpResponse.json({ access_token: "refreshed-token", expires_in: 900 })
+      ),
+      http.get(api("/secure"), ({ request }) =>
+        request.headers.get("Authorization") === "Bearer memory-token"
+          ? HttpResponse.json({}, { status: 401 })
+          : HttpResponse.json(successEnvelope({ ok: true }))
+      ),
+    );
+
+    await expect(fetcher("/secure")).resolves.toEqual({ ok: true });
+    expect(setItem).not.toHaveBeenCalled();
+    expect(localStorage.length).toBe(0);
+    setItem.mockRestore();
+  });
+
   it("refresh gagal: hapus token dan arahkan ke login dengan kode sesi berakhir", async () => {
     setAccessToken("a");
     const loc = stubLocation();

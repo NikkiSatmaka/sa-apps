@@ -20,6 +20,16 @@ import {
   useQualificationSchema,
   validateAnswers,
 } from "@/lib/qualification";
+import {
+  buildProjectFormData,
+  formatIDR,
+  getTodayString,
+  parseIDR,
+  ProjectFormData,
+  ProjectFormErrors,
+  validateProjectForm,
+} from "./project-form";
+
 
 /** User kandidat Product/Sales PIC (GET /projects/users/search?role=...). */
 interface OrangOption {
@@ -42,57 +52,6 @@ interface OrangOption {
  * Requirements: 2.1, 2.3, 2.7, 3.6
  */
 
-// ==================== Types ====================
-
-interface FormData {
-  projectName: string;
-  customerName: string;
-  targetSubmit: string;
-  estimatedValue: string;
-  dqNumber: string;
-  productPic: string;
-  salesPic: string;
-}
-
-interface FormErrors {
-  projectName?: string;
-  customerName?: string;
-  targetSubmit?: string;
-  estimatedValue?: string;
-  dqNumber?: string;
-  productPic?: string;
-  files?: string;
-}
-
-// ==================== Helpers ====================
-
-/**
- * Format angka ke format IDR (titik sebagai pemisah ribuan)
- */
-function formatIDR(value: string): string {
-  // Hapus semua karakter non-digit dan non-dot/comma
-  const cleaned = value.replace(/[^\d]/g, "");
-  if (!cleaned) return "";
-
-  // Format dengan pemisah ribuan
-  return cleaned.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-}
-
-/**
- * Parse string IDR ke angka
- */
-function parseIDR(value: string): number {
-  const cleaned = value.replace(/\./g, "");
-  return parseInt(cleaned) || 0;
-}
-
-/**
- * Dapatkan tanggal hari ini dalam format YYYY-MM-DD (untuk min date picker)
- */
-function getTodayString(): string {
-  const today = new Date();
-  return today.toISOString().split("T")[0];
-}
 
 // ==================== Component ====================
 
@@ -115,7 +74,7 @@ export default function NewProjectPage() {
   );
 
   // Form state
-  const [form, setForm] = useState<FormData>({
+  const [form, setForm] = useState<ProjectFormData>({
     projectName: "",
     customerName: "",
     targetSubmit: "",
@@ -125,8 +84,7 @@ export default function NewProjectPage() {
     salesPic: "",
   });
   const [files, setFiles] = useState<FileItem[]>([]);
-  const [errors, setErrors] = useState<FormErrors>({});
-
+  const [errors, setErrors] = useState<ProjectFormErrors>({});
   // Wizard: langkah 1 = data dasar + file, langkah 2 = kuesioner kualifikasi.
   // State dimiliki komponen ini sehingga kembali ke langkah 1 tidak menghilangkan isian.
   const [step, setStep] = useState<1 | 2>(1);
@@ -159,67 +117,8 @@ export default function NewProjectPage() {
 
   // ==================== Validation ====================
 
-  /**
-   * Validasi form sebelum submit
-   * Returns true jika valid, false jika ada error
-   */
   const validateForm = useCallback((): boolean => {
-    const newErrors: FormErrors = {};
-
-    // Nama proyek: wajib, max 150 karakter
-    if (!form.projectName.trim()) {
-      newErrors.projectName = "Nama proyek wajib diisi";
-    } else if (form.projectName.trim().length > 150) {
-      newErrors.projectName = "Nama proyek maksimal 150 karakter";
-    }
-
-    // Nama customer: wajib, max 150 karakter
-    if (!form.customerName.trim()) {
-      newErrors.customerName = "Nama customer wajib diisi";
-    } else if (form.customerName.trim().length > 150) {
-      newErrors.customerName = "Nama customer maksimal 150 karakter";
-    }
-
-    // Target submit: wajib, tidak boleh di masa lalu
-    if (!form.targetSubmit) {
-      newErrors.targetSubmit = "Target submit wajib diisi";
-    } else {
-      const selectedDate = new Date(form.targetSubmit);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      if (selectedDate < today) {
-        newErrors.targetSubmit = "Target submit tidak boleh tanggal di masa lalu";
-      }
-    }
-
-    // Estimasi nilai: wajib, rentang 0.01 - 999,999,999,999
-    const numericValue = parseIDR(form.estimatedValue);
-    if (!form.estimatedValue.trim()) {
-      newErrors.estimatedValue = "Estimasi nilai proyek wajib diisi";
-    } else if (numericValue < 1) {
-      newErrors.estimatedValue = "Estimasi nilai minimal Rp 1";
-    } else if (numericValue > 999999999999) {
-      newErrors.estimatedValue = "Estimasi nilai maksimal Rp 999.999.999.999";
-    }
-
-    // DQ Number: opsional, tapi kalau diisi harus valid (alfanumerik + hyphen, 5-20 karakter)
-    if (form.dqNumber.trim()) {
-      const dqRegex = /^[A-Za-z0-9\-]{5,20}$/;
-      if (!dqRegex.test(form.dqNumber.trim())) {
-        newErrors.dqNumber = "Format DQ Number tidak valid (alfanumerik + hyphen, 5-20 karakter)";
-      }
-    }
-
-    // Product PIC: wajib bila pembuat bukan Product (ADR 0014)
-    if (perluPilihProduct && !form.productPic) {
-      newErrors.productPic = "Product Manager PIC wajib dipilih";
-    }
-
-    // Tipe Source document (MoM/RFP) wajib dipilih untuk setiap file valid
-    if (validFiles.some((f) => !f.docType)) {
-      newErrors.files = "Pilih tipe (MoM atau RFP) untuk setiap file";
-    }
-
+    const newErrors = validateProjectForm(form, validFiles, perluPilihProduct);
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   }, [form, validFiles, perluPilihProduct]);
@@ -228,10 +127,9 @@ export default function NewProjectPage() {
 
   // Update form field
   const updateField = useCallback(
-    (field: keyof FormData, value: string) => {
+    (field: keyof ProjectFormData, value: string) => {
       setForm((prev) => ({ ...prev, [field]: value }));
-      // Clear error saat user mulai mengetik
-      if (errors[field as keyof FormErrors]) {
+      if (errors[field as keyof ProjectFormErrors]) {
         setErrors((prev) => ({ ...prev, [field]: undefined }));
       }
     },
@@ -248,7 +146,7 @@ export default function NewProjectPage() {
   );
 
   // Pemetaan field backend → field form langkah 1
-  const HEADER_FIELDS: Record<string, keyof FormErrors> = {
+  const HEADER_FIELDS: Record<string, keyof ProjectFormErrors> = {
     project_name: "projectName",
     customer_name: "customerName",
     target_submit: "targetSubmit",
@@ -272,30 +170,13 @@ export default function NewProjectPage() {
     setIsSubmitting(true);
 
     try {
-      // Buat FormData untuk multipart/form-data
-      const formData = new window.FormData();
-      formData.append("project_name", form.projectName.trim());
-      formData.append("customer_name", form.customerName.trim());
-      formData.append("target_submit", form.targetSubmit);
-      formData.append("estimasi_nilai", parseIDR(form.estimatedValue).toString());
-
-      // Orang per project: Product wajib (kecuali pembuat Product), Sales opsional
-      if (perluPilihProduct && form.productPic) formData.append("product_pic", form.productPic);
-      if (bolehPilihSales && form.salesPic) formData.append("sales_pic", form.salesPic);
-
-      // DQ Number opsional
-      if (form.dqNumber.trim()) {
-        formData.append("dq_number", form.dqNumber.trim());
-      }
-
-      formData.append("qualification_answers", JSON.stringify(toPayload(schema, answers)));
-
-      // Tambahkan file valid
-      validFiles.forEach((item) => {
-        formData.append("files", item.file);
-        formData.append("file_types", item.docType ?? "");
-      });
-
+      const formData = buildProjectFormData(
+        form,
+        toPayload(schema, answers),
+        validFiles,
+        perluPilihProduct,
+        bolehPilihSales,
+      );
       const response = await createProject(formData);
       setCreatedProject(response);
 
@@ -313,7 +194,7 @@ export default function NewProjectPage() {
     } catch (err) {
       // Petakan error 422 per field ke form
       const fieldErrors = extractFieldErrors(err);
-      const headerErrs: FormErrors = {};
+      const headerErrs: ProjectFormErrors = {};
       const answerErrs: QualificationErrors = {};
       for (const { field, reason } of fieldErrors) {
         if (field.startsWith("qualification_answers.")) {

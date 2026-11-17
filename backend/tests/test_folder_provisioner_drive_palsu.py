@@ -24,6 +24,7 @@ from app.services.folder_provisioner import (
     RETRY_INTERVAL_SECONDS,
     FolderProvisioner,
     FolderProvisioningError,
+    settings,
 )
 
 
@@ -57,7 +58,8 @@ class DriveApiPalsu:
     def files(self):
         return SimpleNamespace(create=self._files_create)
 
-    def _files_create(self, body, fields):
+    def _files_create(self, body, fields, supportsAllDrives):
+        assert supportsAllDrives is True
         def jalan():
             self._coba()
             fid = f"folder-{next(self._id)}"
@@ -73,7 +75,8 @@ class DriveApiPalsu:
             create=self._izin_create, list=self._izin_list, delete=self._izin_delete
         )
 
-    def _izin_create(self, fileId, body, sendNotificationEmail, fields):  # noqa: N803
+    def _izin_create(self, fileId, body, sendNotificationEmail, fields, supportsAllDrives):  # noqa: N803
+        assert supportsAllDrives is True
         def jalan():
             self._coba()
             assert sendNotificationEmail is False  # tidak boleh mengirim email Google
@@ -83,7 +86,8 @@ class DriveApiPalsu:
 
         return _Permintaan(jalan)
 
-    def _izin_list(self, fileId, fields):  # noqa: N803
+    def _izin_list(self, fileId, fields, supportsAllDrives):  # noqa: N803
+        assert supportsAllDrives is True
         def jalan():
             self._coba()
             return {
@@ -94,7 +98,8 @@ class DriveApiPalsu:
 
         return _Permintaan(jalan)
 
-    def _izin_delete(self, fileId, permissionId):  # noqa: N803
+    def _izin_delete(self, fileId, permissionId, supportsAllDrives):  # noqa: N803
+        assert supportsAllDrives is True
         def jalan():
             self._coba()
             del self.izin[fileId][permissionId]
@@ -142,9 +147,10 @@ def tidur(monkeypatch):
 
 
 @pytest.fixture
-def provisioner(drive, tidur):
+def provisioner(drive, tidur, monkeypatch):
     p = FolderProvisioner()
     p._drive_service = drive
+    monkeypatch.setattr(settings, "GDRIVE_PARENT_FOLDER_ID", "drive-root", raising=False)
     return p
 
 
@@ -160,7 +166,10 @@ async def _provision(provisioner):
 async def test_provisioning_membuat_struktur_dan_izin_sesuai_spec(provisioner, drive):
     hasil = await _provision(provisioner)
 
-    assert drive.folder[hasil.master] == {"name": "PT Acme - Migrasi", "parents": []}
+    assert drive.folder[hasil.master] == {
+        "name": "PT Acme - Migrasi",
+        "parents": ["drive-root"],
+    }
     for nama, fid in [
         ("Inventory", hasil.inventory),
         ("Diagram", hasil.diagram),
@@ -174,6 +183,17 @@ async def test_provisioning_membuat_struktur_dan_izin_sesuai_spec(provisioner, d
     for tanpa_akses in (hasil.master, hasil.diagram, hasil.solutions):
         assert drive.peran(tanpa_akses, "sales@co.com") is None
     assert len({hasil.master, hasil.inventory, hasil.diagram, hasil.solutions}) == 4
+
+
+async def test_parent_shared_drive_missing_gagal_sebelum_panggilan_api(
+    provisioner, drive, monkeypatch
+):
+    monkeypatch.setattr(settings, "GDRIVE_PARENT_FOLDER_ID", "  ")
+
+    with pytest.raises(FolderProvisioningError, match="GDRIVE_PARENT_FOLDER_ID"):
+        await _provision(provisioner)
+
+    assert drive.panggilan_api == 0
 
 
 async def test_nama_folder_disanitasi_di_drive(provisioner, drive):

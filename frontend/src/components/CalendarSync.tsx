@@ -114,6 +114,7 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
     openMappingModal,
     setMapForm,
     setMappingEventId,
+    integrationOperation,
   } = useCalendarIntegration(showToast);
 
   // Navigasi kalender
@@ -256,6 +257,64 @@ export function CalendarSync({ projects }: CalendarSyncProps) {
           )}
         </button>
       </div>
+
+      {integrationOperation && (
+        <section
+          aria-label="Status operasi Calendar"
+          aria-live="polite"
+          className={`rounded-lg border p-4 text-sm ${
+            integrationOperation.status === "failed"
+              ? "border-red-200 bg-red-50 text-red-900"
+              : "border-neutral-200 bg-neutral-50 text-neutral-800"
+          }`}
+        >
+          <h4 className="font-semibold">
+            Status operasi: {integrationOperation.status === "succeeded"
+              ? "Berhasil"
+              : integrationOperation.status === "failed"
+                ? "Gagal"
+                : "Berlangsung"}
+          </h4>
+          <p className="mt-1">
+            Aksi: {integrationOperation.action === "sync_calendar" ? "Sync Calendar" : "Map event ke Activity Log"}
+          </p>
+          <p>
+            Proyek: {integrationOperation.project_id
+              ?? (integrationOperation.action === "map_event_to_project" ? "Non-Project" : "Calendar (global)")}
+          </p>
+          <p>ID operasi: {integrationOperation.id}</p>
+          <p>Percobaan: {integrationOperation.attempts.length}</p>
+          <ol className="mt-2 space-y-2">
+            {integrationOperation.attempts.map((attempt) => (
+              <li key={attempt.attempt}>
+                <p>
+                  Percobaan {attempt.attempt}:{" "}
+                  {attempt.status === "succeeded"
+                    ? "Berhasil"
+                    : attempt.status === "failed"
+                      ? "Gagal"
+                      : "Berlangsung"}
+                </p>
+                <p>
+                  Mulai: <time dateTime={attempt.started_at}>{attempt.started_at}</time>
+                  {attempt.finished_at && <> · Selesai: <time dateTime={attempt.finished_at}>{attempt.finished_at}</time></>}
+                </p>
+                {attempt.outcome && <p>Hasil: {attempt.outcome}</p>}
+                {attempt.actionable_error && (
+                  <p className="font-medium text-red-800">Tindakan: {attempt.actionable_error}</p>
+                )}
+              </li>
+            ))}
+          </ol>
+          {integrationOperation.status === "failed" && (
+            <p className="mt-2">
+              {integrationOperation.action === "sync_calendar"
+                ? "Pemulihan aman: periksa instruksi di atas, lalu jalankan Sync Calendar lagi."
+                : "Pemetaan belum berhasil. Periksa instruksi di atas; formulir tetap terbuka agar Anda dapat memperbaiki pilihan sebelum mencoba lagi."}
+            </p>
+          )}
+        </section>
+      )}
 
       {/* Grid kalender + panel detail */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

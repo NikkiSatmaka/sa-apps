@@ -234,7 +234,7 @@ def test_koreksi_jawaban_lead_sa_setelah_gate_memicu_resummarize():
     app.dependency_overrides[get_db] = _db
     app.dependency_overrides[get_current_user] = lambda: lead
     try:
-        with patch("app.api.projects.resummarize_if_source_changed", new=spy):
+        with patch("app.services.requirement_generator.resummarize_if_source_changed", new=spy):
             resp = TestClient(app).put(
                 "/api/v1/projects/PRJ-X/qualification-answers",
                 json=jawaban_kuat(pic_nama="Budi Baru"),

@@ -28,11 +28,11 @@ export interface MapFormState {
   raw_notes: string;
 }
 
-interface CalendarSyncErrorData {
+interface CalendarOperationErrorData {
   integration_operation: IntegrationOperationResponse | null;
 }
 
-interface CalendarSyncResponse {
+interface CalendarSyncResponse extends CalendarOperationErrorData {
   events: Array<{
     gcal_event_id: string;
     title: string;
@@ -43,8 +43,9 @@ interface CalendarSyncResponse {
     is_all_day: boolean;
   }>;
   total_events: number;
-  integration_operation: IntegrationOperationResponse | null;
 }
+
+type CalendarMapResponse = CalendarOperationErrorData;
 
 const INITIAL_MAP_FORM: MapFormState = {
   work_type: "Project",
@@ -70,6 +71,8 @@ export function useCalendarIntegration(showToast: CalendarToast) {
   const [mappingEventId, setMappingEventId] = useState<string | null>(null);
   const [mapForm, setMapForm] = useState<MapFormState>(INITIAL_MAP_FORM);
   const [isMapping, setIsMapping] = useState(false);
+  const [integrationOperation, setIntegrationOperation] =
+    useState<IntegrationOperationResponse | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -113,8 +116,10 @@ export function useCalendarIntegration(showToast: CalendarToast) {
 
   const handleSync = useCallback(async () => {
     setIsSyncing(true);
+    setIntegrationOperation(null);
     try {
       const result = await apiRequest<CalendarSyncResponse>("/calendar/sync", { body: {} });
+      setIntegrationOperation(result.integration_operation ?? null);
       const fetched = (Array.isArray(result?.events) ? result.events : []).map((event) => ({
         ...event,
         description: event.description ?? undefined,
@@ -132,8 +137,9 @@ export function useCalendarIntegration(showToast: CalendarToast) {
       );
     } catch (err: unknown) {
       const calendarError = err instanceof ApiError
-        ? err.response as ApiErrorResponse<CalendarSyncErrorData> | null
+        ? err.response as ApiErrorResponse<CalendarOperationErrorData> | null
         : null;
+      setIntegrationOperation(calendarError?.data?.integration_operation ?? null);
       if (err instanceof ApiError && err.status === 401) {
         if ((calendarError?.message ?? err.message).toLowerCase().includes("calendar session not found")) {
           showToast("success", "Mengarahkan ke Google untuk otorisasi Calendar...");
@@ -180,6 +186,7 @@ export function useCalendarIntegration(showToast: CalendarToast) {
     if (!event) return;
 
     setIsMapping(true);
+    setIntegrationOperation(null);
     try {
       const body: Record<string, unknown> = {
         gcal_event_id: mappingEventId,
@@ -198,11 +205,16 @@ export function useCalendarIntegration(showToast: CalendarToast) {
         body.project_phase = mapForm.project_phase;
       }
 
-      await apiRequest("/calendar/map", { method: "POST", body });
+      const result = await apiRequest<CalendarMapResponse>("/calendar/map", { method: "POST", body });
+      setIntegrationOperation(result.integration_operation ?? null);
       setMappedIds((previous) => new Set(previous).add(mappingEventId));
       setMappingEventId(null);
       showToast("success", "Event berhasil di-mapping ke subtask proyek");
     } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        const calendarError = err.response as ApiErrorResponse<CalendarOperationErrorData> | null;
+        setIntegrationOperation(calendarError?.data?.integration_operation ?? null);
+      }
       showToast("error", err instanceof Error ? err.message : "Gagal mapping event");
     } finally {
       setIsMapping(false);
@@ -210,6 +222,7 @@ export function useCalendarIntegration(showToast: CalendarToast) {
   }, [events, mapForm, mappingEventId, showToast]);
 
   return {
+    integrationOperation,
     events,
     hasSynced,
     handleMap,

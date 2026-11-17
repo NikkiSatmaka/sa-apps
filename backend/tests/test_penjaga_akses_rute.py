@@ -114,16 +114,18 @@ PENGECUALIAN: dict[tuple[str, str], tuple[str, str]] = {
 
 
 def _ratakan(router_atau_app) -> list[tuple[str, APIRoute]]:
-    """(path absolut, APIRoute) dalam urutan registrasi; menangani `_IncludedRouter`."""
+    """(path absolut, APIRoute) dalam urutan registrasi; menangani router tersarang."""
     hasil: list[tuple[str, APIRoute]] = []
-    for rute in router_atau_app.routes:
-        if isinstance(rute, APIRoute):
-            hasil.append((rute.path, rute))
-        elif type(rute).__name__ == "_IncludedRouter":
-            awalan = rute.include_context.prefix or ""
-            for anak in rute.original_router.routes:
-                if isinstance(anak, APIRoute):
-                    hasil.append((awalan + anak.path, anak))
+
+    def tambahkan(router, awalan: str) -> None:
+        for rute in router.routes:
+            if isinstance(rute, APIRoute):
+                hasil.append((awalan + rute.path, rute))
+            elif type(rute).__name__ == "_IncludedRouter":
+                konteks = rute.include_context
+                tambahkan(rute.original_router, awalan + (konteks.prefix or ""))
+
+    tambahkan(router_atau_app, "")
     return hasil
 
 

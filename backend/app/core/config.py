@@ -103,9 +103,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
 
-    # Google Drive
+    # Google Drive. Parent must be a folder in a Shared Drive writable by the service account.
     GDRIVE_SERVICE_ACCOUNT_KEY: str = ""
-
+    GDRIVE_PARENT_FOLDER_ID: str = ""
     # Google Calendar
     GCAL_WEBHOOK_ENDPOINT: str = ""
 

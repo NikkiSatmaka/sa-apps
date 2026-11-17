@@ -71,7 +71,25 @@ export interface IntegrationOperationResponse {
   outcome: string | null;
   actionable_error: string | null;
   retryable: boolean;
+  project_id?: string | null;
   context: Record<string, unknown>;
+}
+
+/** Record operator-confirmed manual email recovery; this never retries delivery. */
+export function recordManualEmailRepair(
+  projectId: string,
+  operationId: string,
+): Promise<IntegrationOperationResponse> {
+  return apiRequest<IntegrationOperationResponse>(
+    `/projects/${projectId}/integration-operations/${operationId}/repair`,
+    {
+      method: "POST",
+      body: {
+        recipient_checked_not_received: true,
+        manually_delivered_outside_app: true,
+      },
+    },
+  );
 }
 
 export interface ProjectListParams {

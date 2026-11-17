@@ -307,16 +307,20 @@ class NotificationService:
             project_id = None
 
         async def deliver() -> None:
-            sent = await self.send_email(
-                to=to,
-                subject=subject or self._get_default_subject(event_type),
-                template=event_type.value,
-                context={
-                    "event_type": event_type.value,
-                    "reference_id": reference_id,
-                    "metadata": metadata,
-                },
-            )
+            try:
+                sent = await self.send_email(
+                    to=to,
+                    subject=subject or self._get_default_subject(event_type),
+                    template=event_type.value,
+                    context={
+                        "event_type": event_type.value,
+                        "reference_id": reference_id,
+                        "metadata": metadata,
+                    },
+                )
+            except Exception:
+                # Provider errors may include addresses, message contents, or credentials.
+                raise RuntimeError("Email provider failed; details withheld.") from None
             if not sent:
                 raise RuntimeError("Gmail did not confirm message delivery.")
 
@@ -439,9 +443,10 @@ class NotificationService:
             )
             return True
 
-        except Exception as e:
-            # Graceful fallback: caller persists the failed delivery outcome.
-            logger.error(f"Gagal mengirim email ke {to}: {e}")
+        except Exception:
+            # Provider exceptions can contain recipient details or credentials; persist only
+            # the generic failed outcome through the integration operation.
+            logger.error("Gagal mengirim email via Gmail API.")
             return False
 
     def _build_email_body(self, template: str, context: dict) -> str:

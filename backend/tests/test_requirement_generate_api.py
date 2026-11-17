@@ -412,7 +412,7 @@ def test_jalur_dengan_file_scoring_ai_lolos_gate_men_generate_requirement():
     with patch("app.core.database.AsyncSessionLocal", new=lambda: _Ctx(bg)), patch(
         "app.services.scoring_engine.llm_factory.get_provider", return_value=provider
     ), patch("app.services.requirement_generator.llm_factory.get_provider", return_value=provider), patch(
-        "app.api.projects.extract_source_documents", new=AsyncMock()
+        "app.api.project_intake_api.extract_source_documents", new=AsyncMock()
     ):
         with _api() as (client, _):
             resp = client.post(

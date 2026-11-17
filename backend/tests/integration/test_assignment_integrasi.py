@@ -18,7 +18,7 @@ from app.models import IntegrationOperation, Subtask
 from app.services.folder_provisioner import folder_provisioner
 from app.services.sla_timer import sla_timer
 from tests.integration.conftest import patch_session_factory
-from tests.integration.model_helpers import bangun_subtask
+from tests.integration.model_helpers import bangun_log, bangun_subtask
 from tests.integration.support_assignment import (
     ASSIGN,
     REASSIGN,
@@ -231,6 +231,205 @@ async def test_retry_integration_operation_rejects_pending_operation(dunia, api)
     assert response.json()["message"] == "This operation cannot be retried safely."
     assert operation.status == "pending"
 
+REPAIR_OPERATION = "/api/v1/projects/{}/integration-operations/{}/repair"
+
+
+@pytest.mark.parametrize("role", ["lead", "admin"])
+async def test_manual_email_repair_records_confirmation_without_replay(
+    dunia, api, monkeypatch, role
+):
+    project = await dunia.buat_proyek()
+    original_attempts = [
+        {
+            "attempt": 1,
+            "status": "failed",
+            "started_at": "2026-11-17T10:00:00+00:00",
+            "finished_at": "2026-11-17T10:00:01+00:00",
+            "outcome": "send_assignment_email failed.",
+            "actionable_error": "Check the recipient and manually send the notification.",
+        }
+    ]
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        actor_user_id=dunia.sa.id,
+        operation_type="email_delivery",
+        action="send_assignment_email",
+        status="failed",
+        attempts=original_attempts,
+        outcome=original_attempts[0]["outcome"],
+        actionable_error=original_attempts[0]["actionable_error"],
+        retryable=False,
+        context={"event_type": "assignment"},
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+    provider_called = False
+
+    async def fail_if_called(*args, **kwargs):
+        nonlocal provider_called
+        provider_called = True
+        raise AssertionError("manual repair must not contact the provider")
+
+    monkeypatch.setattr(
+        "app.services.notification_service.notification_service.send_email",
+        fail_if_called,
+    )
+    response = await api.client.post(
+        REPAIR_OPERATION.format(project.id_project, operation.id),
+        json={
+            "recipient_checked_not_received": True,
+            "manually_delivered_outside_app": True,
+        },
+        headers=dunia.h[role],
+    )
+
+    assert response.status_code == 200, response.text
+    repaired = response.json()["data"]
+    audit = repaired["context"]["manual_repair"]
+    assert audit["actor_user_id"] == str(getattr(dunia, role).id)
+    assert audit["repaired_at"]
+    assert audit["recipient_checked_not_received"] is True
+    assert audit["manually_delivered_outside_app"] is True
+    assert repaired["status"] == "failed"
+    assert repaired["outcome"] == original_attempts[0]["outcome"]
+    assert repaired["actionable_error"] == original_attempts[0]["actionable_error"]
+    assert repaired["attempts"] == original_attempts
+    assert repaired["retryable"] is False
+    assert provider_called is False
+    await dunia.db.refresh(operation)
+    assert operation.context["manual_repair"] == audit
+    assert operation.status == "failed"
+    assert operation.attempts == original_attempts
+
+
+@pytest.mark.parametrize("role", ["sa", "sales"])
+async def test_manual_email_repair_requires_privileged_user(dunia, api, role):
+    project = await dunia.buat_proyek()
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type="email_delivery",
+        action="send_assignment_email",
+        status="failed",
+        attempts=[],
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        REPAIR_OPERATION.format(project.id_project, operation.id),
+        json={
+            "recipient_checked_not_received": True,
+            "manually_delivered_outside_app": True,
+        },
+        headers=dunia.h[role],
+    )
+
+    assert response.status_code == 403
+    assert operation.context.get("manual_repair") is None
+
+
+@pytest.mark.parametrize(
+    ("operation_type", "operation_status", "context", "payload", "expected_status"),
+    [
+        (
+            "email_delivery",
+            "pending",
+            {},
+            {
+                "recipient_checked_not_received": True,
+                "manually_delivered_outside_app": True,
+            },
+            409,
+        ),
+        (
+            "email_delivery",
+            "succeeded",
+            {},
+            {
+                "recipient_checked_not_received": True,
+                "manually_delivered_outside_app": True,
+            },
+            409,
+        ),
+        (
+            "drive_permission",
+            "failed",
+            {},
+            {
+                "recipient_checked_not_received": True,
+                "manually_delivered_outside_app": True,
+            },
+            409,
+        ),
+        (
+            "email_delivery",
+            "failed",
+            {"manual_repair": {"actor_user_id": "prior"}},
+            {
+                "recipient_checked_not_received": True,
+                "manually_delivered_outside_app": True,
+            },
+            409,
+        ),
+        ("email_delivery", "failed", {}, {"recipient_checked_not_received": True}, 422),
+        (
+            "email_delivery",
+            "failed",
+            {},
+            {"recipient_checked_not_received": False, "manually_delivered_outside_app": True},
+            422,
+        ),
+    ],
+)
+async def test_manual_email_repair_rejects_invalid_state_or_confirmation(
+    dunia, api, operation_type, operation_status, context, payload, expected_status
+):
+    project = await dunia.buat_proyek()
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type=operation_type,
+        action="send_assignment_email",
+        status=operation_status,
+        attempts=[],
+        context=context,
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        REPAIR_OPERATION.format(project.id_project, operation.id),
+        json=payload,
+        headers=dunia.h["lead"],
+    )
+
+    assert response.status_code == expected_status
+    assert operation.context == context
+
+
+async def test_manual_email_repair_cannot_target_operation_from_another_project(dunia, api):
+    requested_project = await dunia.buat_proyek()
+    operation_project = await dunia.buat_proyek()
+    operation = IntegrationOperation(
+        project_id=operation_project.id_project,
+        operation_type="email_delivery",
+        action="send_assignment_email",
+        status="failed",
+        attempts=[],
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        REPAIR_OPERATION.format(requested_project.id_project, operation.id),
+        json={
+            "recipient_checked_not_received": True,
+            "manually_delivered_outside_app": True,
+        },
+        headers=dunia.h["lead"],
+    )
+
+    assert response.status_code == 404
+    assert operation.context.get("manual_repair") is None
 
 async def test_retry_reassignment_rejects_changed_assignment(dunia, api):
     project = await dunia.buat_proyek(
@@ -960,7 +1159,92 @@ async def test_drive_palsu_gagal_permanen_provisioning_failed_tanpa_folder_yatim
     assert all(not c.berhasil for c in fake_drive.panggilan)
 
 
-# ----------------------------------------------------------------------------- daftar subtask dasar
+@pytest.mark.parametrize(
+    ("path", "expected_data"),
+    [
+        ("/api/v1/sa/utilization?year=2025", {"year": 2025}),
+        ("/api/v1/utilization/projects", []),
+        ("/api/v1/utilization/summary?year=2025", {"year": 2025}),
+    ],
+)
+async def test_endpoint_utilisasi_mendukung_kontrak_dasarnya(dunia, api, path, expected_data):
+    response = await api.client.get(path, headers=dunia.h["lead"])
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    if path.startswith("/api/v1/sa/utilization"):
+        assert data["year"] == expected_data["year"]
+        assert {row["sa_id"] for row in data["monthly_data"]} == {
+            str(dunia.sa.id),
+            str(dunia.sa2.id),
+            str(dunia.lead.id),
+            str(dunia.admin.id),
+        }
+        assert data["summary"]["sa_count"] == 4
+    elif path.endswith("/projects"):
+        assert data == expected_data
+    else:
+        assert data["year"] == expected_data["year"]
+        assert data["work_type"]["totals"] == {"Project": 0.0, "Non-Project": 0.0}
+
+
+async def test_endpoint_utilisasi_mengagregasi_jam_activity_log(dunia, api):
+    project = await dunia.buat_proyek(status="Assigned", assigned_sa=dunia.sa.id)
+    dunia.db.add_all(
+        [
+            bangun_log(
+                dunia.sa.id,
+                project.id_project,
+                duration_hours=3.5,
+                created_at=datetime(2025, 2, 5, tzinfo=timezone.utc),
+            ),
+            bangun_log(
+                dunia.sa2.id,
+                None,
+                work_type="Non-Project",
+                project_phase=None,
+                duration_hours=2.25,
+                created_at=datetime(2025, 2, 6, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    await dunia.db.commit()
+
+    per_sa = await api.client.get(
+        "/api/v1/sa/utilization?year=2025", headers=dunia.h["lead"]
+    )
+    per_project = await api.client.get("/api/v1/utilization/projects", headers=dunia.h["lead"])
+    summary = await api.client.get(
+        "/api/v1/utilization/summary?year=2025", headers=dunia.h["lead"]
+    )
+
+    assert per_sa.status_code == per_project.status_code == summary.status_code == 200
+    row_sa = next(
+        row for row in per_sa.json()["data"]["monthly_data"] if row["sa_id"] == str(dunia.sa.id)
+    )
+    assert row_sa["months"]["2"] == 3.5
+    assert per_project.json()["data"][0]["id_project"] == project.id_project
+    assert per_project.json()["data"][0]["total_hours"] == 3.5
+    assert summary.json()["data"]["work_type"]["totals"] == {
+        "Project": 3.5,
+        "Non-Project": 2.25,
+    }
+    assert summary.json()["data"]["project_phase"]["total"] == 3.5
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/sa/utilization?year=2025",
+        "/api/v1/utilization/projects",
+        "/api/v1/utilization/summary?year=2025",
+    ],
+)
+async def test_endpoint_utilisasi_tetap_dibatasi_ke_lead_sa(dunia, api, path):
+    response = await api.client.get(path, headers=dunia.h["sa"])
+
+    assert response.status_code == 403
+
 
 
 async def test_subtask_default_dapat_dibaca_dan_dikerjakan_sa_pemilik_setelah_assign(

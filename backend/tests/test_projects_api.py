@@ -63,14 +63,14 @@ def mock_auth_and_db():
     mock_user = _mock_user()
 
     # Patch get_current_user dependency
-    with patch("app.api.projects.get_current_user", return_value=mock_user) as auth_mock:
+    with patch("app.api.project_intake_api.get_current_user", return_value=mock_user) as auth_mock:
         # Patch database session
         mock_session = AsyncMock()
         mock_session.add = MagicMock()
         mock_session.commit = AsyncMock()
         mock_session.refresh = AsyncMock()
 
-        with patch("app.api.projects.get_db") as db_mock:
+        with patch("app.api.project_intake_api.get_db") as db_mock:
             # Override dependency
             async def override_get_db():
                 yield mock_session

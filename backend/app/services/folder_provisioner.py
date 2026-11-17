@@ -184,6 +184,7 @@ class FolderProvisioner:
             .create(
                 body=file_metadata,
                 fields="id",
+                supportsAllDrives=True,
             )
             .execute()
         )
@@ -215,6 +216,7 @@ class FolderProvisioner:
                 body=permission,
                 sendNotificationEmail=False,
                 fields="id",
+                supportsAllDrives=True,
             )
             .execute()
         )
@@ -233,6 +235,7 @@ class FolderProvisioner:
         service.permissions().delete(
             fileId=file_id,
             permissionId=permission_id,
+            supportsAllDrives=True,
         ).execute()
 
     def _find_permission_sync(self, file_id: str, email: str) -> Optional[str]:
@@ -252,6 +255,7 @@ class FolderProvisioner:
             .list(
                 fileId=file_id,
                 fields="permissions(id,emailAddress)",
+                supportsAllDrives=True,
             )
             .execute()
         )
@@ -293,6 +297,12 @@ class FolderProvisioner:
         Raises:
             FolderProvisioningError: Jika gagal setelah 3x retry
         """
+        parent_folder_id = settings.GDRIVE_PARENT_FOLDER_ID.strip()
+        if not parent_folder_id:
+            raise FolderProvisioningError(
+                "GDRIVE_PARENT_FOLDER_ID must identify a writable Shared Drive parent folder."
+            )
+
         # Sanitasi nama folder
         customer = self.sanitize_folder_name(project.customer_name)
         project_name = self.sanitize_folder_name(project.project_name)
@@ -300,11 +310,12 @@ class FolderProvisioner:
 
         logger.info(f"Memulai provisioning folder: {master_folder_name}")
 
-        # 1. Buat folder master
+        # 1. Buat folder master di dalam parent Shared Drive yang dikonfigurasi.
         master_id = await self._execute_with_retry(
             "create_master_folder",
             self._create_folder_sync,
             master_folder_name,
+            parent_folder_id,
         )
         logger.info(f"Folder master dibuat: {master_id}")
 

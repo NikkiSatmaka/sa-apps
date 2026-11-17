@@ -248,8 +248,11 @@ async def skenario(
     app.dependency_overrides[get_db] = _get_db_req
 
     monkeypatch.setattr(
-        "app.api.projects.generate_pending_requirement",
-        requirement_generator.generate_pending_requirement,
+        "app.api.project_intake_api.generate_pending_requirement",
+        api.generate_requirement_real,
+    )
+    monkeypatch.setattr(
+        requirement_generator, "generate_pending_requirement", api.generate_requirement_real
     )
     monkeypatch.setattr(requirement_generator, "RETRY_INTERVAL_SECONDS", 0)
     monkeypatch.setattr(scoring_engine, "RETRY_INTERVAL_SECONDS", 0)

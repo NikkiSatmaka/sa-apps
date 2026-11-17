@@ -166,6 +166,9 @@ class FakeDrive:
         lead_sa_email: str,
         sales_email: str,
         *,
+        sa_team_emails: tuple[str, ...] = (),
+        product_email: str | None = None,
+        dq_number: str | None = None,
         persist_master_folder_id=None,
     ) -> ProvisionedFolders:
         self._mulai(
@@ -215,9 +218,16 @@ class FakeDrive:
         solutions = self._ensure_child_folder(
             "Solutions", master, "create_solutions_subfolder"
         )
-        self.izin[master][sa_email] = "writer"
-        self.izin[master][lead_sa_email] = "writer"
-        self.izin[inventory][sales_email] = "reader"
+        sa_emails = dict.fromkeys((*sa_team_emails, sa_email, lead_sa_email))
+        for email in sa_emails:
+            self.izin[master][email] = "writer"
+        for email in (sales_email, product_email):
+            if email:
+                self.izin[inventory][email] = "reader"
+        if dq_number:
+            for email in (sales_email, product_email):
+                if email:
+                    self.izin[solutions][email] = "reader"
         return ProvisionedFolders(
             master=master,
             inventory=inventory,

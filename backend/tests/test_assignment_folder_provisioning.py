@@ -81,6 +81,7 @@ def _make_project(status_value: str = "Awaiting Assignment"):
     project.gdrive_solutions_folder_id = None
     project.folder_provisioning_status = None
     project.dq_number = "DQ-123"
+    return project
 
 
 def _execute_result_scalar(value):

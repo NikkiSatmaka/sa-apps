@@ -355,7 +355,7 @@ async def test_requirement_kedua_per_proyek_ditolak_tetapi_proyek_lain_boleh(db_
 
 def test_028_backfills_projects_with_trimmed_casefold_customer_identity(database_kosong_url):
     url = database_kosong_url
-    jalankan_alembic(url, "upgrade", "20261116_0002_027")
+    jalankan_alembic(url, "upgrade", "027")
     _isi_user_dan_proyek(url)
     _sql(
         url,

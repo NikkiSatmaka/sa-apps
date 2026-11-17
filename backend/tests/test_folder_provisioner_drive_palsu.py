@@ -98,6 +98,7 @@ class DriveApiPalsu:
                 "name": body["name"],
                 "parents": body.get("parents", []),
             }
+            self.izin[fid] = {}
             if body.get("appProperties"):
                 self.folder[fid]["appProperties"] = body["appProperties"]
             return {"id": fid}

@@ -6,6 +6,8 @@ panggilan, dan terpasang/ter-reset otomatis. Tanpa DB/Docker/jaringan.
 
 from types import SimpleNamespace
 
+import pytest
+
 from app.core.config import settings
 from app.services.calendar_service import (
     CalendarAPIError,

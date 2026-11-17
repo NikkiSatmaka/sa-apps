@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from app.api.activity_logs import router as activity_logs_router
 from app.api.admin import router as admin_router
 from app.api.assignment import router as assignment_router
+from app.api.utilization import router as utilization_router
 from app.api.auth import router as auth_router
 from app.api.calendar import router as calendar_router
 from app.api.collaborators import router as collaborators_router
@@ -86,6 +87,7 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(scoring_router, prefix="/api/v1")
 app.include_router(requirement_router, prefix="/api/v1")
 app.include_router(assignment_router, prefix="/api/v1")
+app.include_router(utilization_router, prefix="/api/v1")
 app.include_router(projects_router, prefix="/api/v1")
 app.include_router(orang_router, prefix="/api/v1")
 app.include_router(workflow_router, prefix="/api/v1")

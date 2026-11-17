@@ -18,7 +18,7 @@ from app.models import IntegrationOperation, Subtask
 from app.services.folder_provisioner import folder_provisioner
 from app.services.sla_timer import sla_timer
 from tests.integration.conftest import patch_session_factory
-from tests.integration.model_helpers import bangun_subtask
+from tests.integration.model_helpers import bangun_log, bangun_subtask
 from tests.integration.support_assignment import (
     ASSIGN,
     REASSIGN,
@@ -960,7 +960,91 @@ async def test_drive_palsu_gagal_permanen_provisioning_failed_tanpa_folder_yatim
     assert all(not c.berhasil for c in fake_drive.panggilan)
 
 
-# ----------------------------------------------------------------------------- daftar subtask dasar
+@pytest.mark.parametrize(
+    ("path", "expected_data"),
+    [
+        ("/api/v1/sa/utilization?year=2025", {"year": 2025}),
+        ("/api/v1/utilization/projects", []),
+        ("/api/v1/utilization/summary?year=2025", {"year": 2025}),
+    ],
+)
+async def test_endpoint_utilisasi_mendukung_kontrak_dasarnya(dunia, api, path, expected_data):
+    response = await api.client.get(path, headers=dunia.h["lead"])
+
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    if path.startswith("/api/v1/sa/utilization"):
+        assert data["year"] == expected_data["year"]
+        assert {row["sa_id"] for row in data["monthly_data"]} == {
+            str(dunia.sa.id),
+            str(dunia.sa2.id),
+            str(dunia.lead.id),
+        }
+        assert data["summary"]["sa_count"] == 3
+    elif path.endswith("/projects"):
+        assert data == expected_data
+    else:
+        assert data["year"] == expected_data["year"]
+        assert data["work_type"]["totals"] == {"Project": 0.0, "Non-Project": 0.0}
+
+
+async def test_endpoint_utilisasi_mengagregasi_jam_activity_log(dunia, api):
+    project = await dunia.buat_proyek(status="Assigned", assigned_sa=dunia.sa.id)
+    dunia.db.add_all(
+        [
+            bangun_log(
+                dunia.sa.id,
+                project.id_project,
+                duration_hours=3.5,
+                created_at=datetime(2025, 2, 5, tzinfo=timezone.utc),
+            ),
+            bangun_log(
+                dunia.sa2.id,
+                None,
+                work_type="Non-Project",
+                project_phase=None,
+                duration_hours=2.25,
+                created_at=datetime(2025, 2, 6, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    await dunia.db.commit()
+
+    per_sa = await api.client.get(
+        "/api/v1/sa/utilization?year=2025", headers=dunia.h["lead"]
+    )
+    per_project = await api.client.get("/api/v1/utilization/projects", headers=dunia.h["lead"])
+    summary = await api.client.get(
+        "/api/v1/utilization/summary?year=2025", headers=dunia.h["lead"]
+    )
+
+    assert per_sa.status_code == per_project.status_code == summary.status_code == 200
+    row_sa = next(
+        row for row in per_sa.json()["data"]["monthly_data"] if row["sa_id"] == str(dunia.sa.id)
+    )
+    assert row_sa["months"]["2"] == 3.5
+    assert per_project.json()["data"][0]["id_project"] == project.id_project
+    assert per_project.json()["data"][0]["total_hours"] == 3.5
+    assert summary.json()["data"]["work_type"]["totals"] == {
+        "Project": 3.5,
+        "Non-Project": 2.25,
+    }
+    assert summary.json()["data"]["project_phase"]["total"] == 3.5
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/sa/utilization?year=2025",
+        "/api/v1/utilization/projects",
+        "/api/v1/utilization/summary?year=2025",
+    ],
+)
+async def test_endpoint_utilisasi_tetap_dibatasi_ke_lead_sa(dunia, api, path):
+    response = await api.client.get(path, headers=dunia.h["sa"])
+
+    assert response.status_code == 403
+
 
 
 async def test_subtask_default_dapat_dibaca_dan_dikerjakan_sa_pemilik_setelah_assign(

@@ -302,6 +302,25 @@ async function installRequesterWorkflowFixtures(page: Page, role: "Sales" | "Pro
     const url = new URL(request.url());
     const path = url.pathname.replace(/^\/api\/v1/, "");
     const method = request.method();
+    if (path === "/auth/config") {
+      requests.push({ path, method, search: url.search });
+      return json(route, { demo_mode: true });
+    }
+    if (path === "/auth/demo-login" && method === "POST") {
+      const body = asRecord(request.postDataJSON());
+      const loginRole = typeof body.role === "string" ? body.role : role;
+      requests.push({ path, method, body, search: url.search });
+      return json(route, {
+        user: {
+          id: "00000000-0000-4000-8000-000000000001",
+          email: `demo-${loginRole.toLowerCase()}@portal-sa.local`,
+          name: `Demo ${loginRole}`,
+          role: loginRole,
+          is_admin: loginRole === "Lead_SA",
+        },
+        tokens: { access_token: "fixture-app-session", expires_in: 900 },
+      });
+    }
     if (path === "/qualification/schema" && method === "GET") {
       requests.push({ path, method, search: url.search });
       return json(route, { data: workflowSchema, message: "Fixture qualification schema." });
@@ -388,7 +407,7 @@ test("Product Manager requester project intake filters PICs and selects Sales PI
 async function installAssignmentProgressionFixtures(page: Page) {
   const requests = await installFixtures(page);
   const projectId = "PRJ-LEAD-SA-WORKFLOW";
-  const saId = "00000000-0000-4000-8000-000000000001";
+  const saId = "00000000-0000-4000-8000-000000000002";
   const leadId = "00000000-0000-4000-8000-000000000001";
   let status = "Awaiting Assignment";
   let assignedSA: string | null = null;

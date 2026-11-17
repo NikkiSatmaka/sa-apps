@@ -116,11 +116,12 @@ Catatan:
 
 ## Verifikasi Drive live
 
-Suite `tests/integration/drive_live/` (marker `drive_live`, issue #27) membuktikan
-`folder_provisioner` dan alur assign → provisioning → lock/unlock SLA → `doc_ready` terhadap
-**Google Drive nyata**. Ia memverifikasi hasil lewat klien `googleapiclient` terpisah, bukan dari
-nilai kembalian kode produksi. Status: suite ini ditulis tanpa akses kredensial dan **belum pernah
-dijalankan** terhadap Drive sungguhan; hasil run pertama dicatat di issue #27.
+Suite `tests/integration/drive_live/` (marker `drive_live`, related to #195/#210) verifies the
+Customer/`NN-Project` hierarchy, effective access for configured SA, Sales, and Product identities,
+lock/unlock/handover behavior, and a representative provider failure against **Google Drive nyata**.
+It reads results through a separate `googleapiclient` verifier, not production return values.
+The suite is controlled-environment evidence only; record human-run provider results in #195/#210.
+No live run is performed in pull-request CI.
 
 Keamanan: tanpa `GDRIVE_LIVE_TEST=1` seluruh test live **dideselect** (bukan skip, bukan error),
 termasuk di CI (`-m integration`). Gunakan Workspace Shared Drive khusus non-produksi, dan buat
@@ -148,9 +149,9 @@ docker rm -f sa-test-pg
 Env yang dibaca (semua wajib bila `GDRIVE_LIVE_TEST=1`; kurang → error konfigurasi yang menyebut
 namanya): `GDRIVE_SERVICE_ACCOUNT_KEY`, `GDRIVE_LIVE_PARENT_FOLDER_ID`,
 `DRIVE_LIVE_LEAD_EMAIL`, `DRIVE_LIVE_SA_EMAIL`, `DRIVE_LIVE_SALES_EMAIL`,
-`DRIVE_LIVE_PMO_EMAIL`, `DRIVE_LIVE_DELIVERY_EMAIL` (lima email wajib akun Google nyata yang
-**berbeda satu sama lain** dan bukan service account). Opsional: `DRIVE_LIVE_TEST_TIMEOUT` (detik,
-default 120). Skenario API juga butuh `TEST_DATABASE_URL`.
+`DRIVE_LIVE_PRODUCT_EMAIL`, `DRIVE_LIVE_PMO_EMAIL`, `DRIVE_LIVE_DELIVERY_EMAIL` (semua email
+wajib akun Google nyata yang berbeda satu sama lain dan bukan service account). Opsional:
+`DRIVE_LIVE_TEST_TIMEOUT` (detik, default 120). Skenario API juga butuh `TEST_DATABASE_URL`.
 Lihat daftar skenario dengan `GDRIVE_LIVE_TEST=1 uv run pytest --collect-only -m drive_live` (env di atas).
 
 Definisi "akses efektif" yang dipakai assertion: peran tertinggi dari permission user pada folder

@@ -44,6 +44,7 @@ def env_lengkap(**ubah: str) -> dict[str, str]:
         "DRIVE_LIVE_LEAD_EMAIL": "lead@uji.test",
         "DRIVE_LIVE_SA_EMAIL": "sa@uji.test",
         "DRIVE_LIVE_SALES_EMAIL": "sales@uji.test",
+        "DRIVE_LIVE_PRODUCT_EMAIL": "product@uji.test",
         "DRIVE_LIVE_PMO_EMAIL": "pmo@uji.test",
         "DRIVE_LIVE_DELIVERY_EMAIL": "delivery@uji.test",
     }

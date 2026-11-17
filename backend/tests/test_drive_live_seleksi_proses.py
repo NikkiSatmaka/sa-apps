@@ -33,6 +33,7 @@ ENV_LENGKAP = {
     "DRIVE_LIVE_LEAD_EMAIL": "lead@uji.test",
     "DRIVE_LIVE_SA_EMAIL": "sa@uji.test",
     "DRIVE_LIVE_SALES_EMAIL": "sales@uji.test",
+    "DRIVE_LIVE_PRODUCT_EMAIL": "product@uji.test",
     "DRIVE_LIVE_PMO_EMAIL": "pmo@uji.test",
     "DRIVE_LIVE_DELIVERY_EMAIL": "delivery@uji.test",
 }
@@ -97,6 +98,7 @@ def test_env_aktif_tanpa_kredensial_error_konfigurasi_jelas():
     assert hasil.returncode != 0
     assert "GDRIVE_SERVICE_ACCOUNT_KEY" in keluaran
     assert "DRIVE_LIVE_SALES_EMAIL" in keluaran
+    assert "DRIVE_LIVE_PRODUCT_EMAIL" in keluaran
     assert "Traceback" not in keluaran
 
 

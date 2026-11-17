@@ -263,6 +263,17 @@ async def _trigger_folder_provisioner(
             try:
                 await _reserve_project_folder(db, project)
 
+                team_result = await db.execute(
+                    select(User.email).where(User.role.in_(("SA", "Lead_SA")))
+                )
+                sa_team_emails = tuple(team_result.scalars().all())
+                product_email = None
+                if project.product_pic is not None:
+                    product_result = await db.execute(
+                        select(User.email).where(User.id == project.product_pic)
+                    )
+                    product_email = product_result.scalar_one_or_none()
+
                 async def persist_master_folder_id(folder_id: str) -> None:
                     if project.gdrive_folder_id not in (None, folder_id):
                         raise FolderProvisioningError(
@@ -276,6 +287,9 @@ async def _trigger_folder_provisioner(
                     sa_email,
                     lead_sa_email,
                     sales_email,
+                    sa_team_emails=sa_team_emails,
+                    product_email=product_email,
+                    dq_number=project.dq_number,
                     persist_master_folder_id=persist_master_folder_id,
                 )
             except Exception as e:  # noqa: BLE001 - kegagalan Drive harus persisten dan non-blocking
@@ -457,6 +471,8 @@ async def retry_integration_operation(
         document = document_result.scalar_one_or_none()
         sales_result = await db.execute(select(User).where(User.id == project.sales_pic))
         sales_user = sales_result.scalar_one_or_none()
+        product_result = await db.execute(select(User).where(User.id == project.product_pic))
+        product_user = product_result.scalar_one_or_none()
         if (
             document is None
             or document.status != "Reviewed"
@@ -474,11 +490,12 @@ async def retry_integration_operation(
             await folder_provisioner.unlock_solutions_folder(
                 project.gdrive_solutions_folder_id,
                 sales_user.email,
+                product_user.email if product_user else None,
             )
 
-        outcome = "Sales viewer access to the Solutions folder is restored."
+        outcome = "Sales and Product viewer access to the Solutions folder is restored."
         actionable_failure = (
-            "The document review is saved, but Sales access may remain locked. "
+            "The document review is saved, but Sales or Product access may remain locked. "
             "Restore Drive access and retry this idempotent unlock."
         )
     elif operation.operation_type == "sla" and operation.action in {
@@ -507,23 +524,26 @@ async def retry_integration_operation(
             )
         sales_result = await db.execute(select(User).where(User.id == project.sales_pic))
         sales_user = sales_result.scalar_one_or_none()
+        product_result = await db.execute(select(User).where(User.id == project.product_pic))
+        product_user = product_result.scalar_one_or_none()
         if sales_user is None:
             raise HTTPException(status_code=409, detail="The project's Sales PIC is unavailable.")
+        product_email = product_user.email if product_user else None
         if desired_locked:
             perform = lambda: folder_provisioner.lock_solutions_folder(
-                project.gdrive_solutions_folder_id, sales_user.email
+                project.gdrive_solutions_folder_id, sales_user.email, product_email
             )
-            outcome = "Sales access to the Solutions folder is locked."
+            outcome = "Sales and Product access to the Solutions folder is locked."
             actionable_failure = (
                 "The SLA lock is still unresolved. Restore Drive access and retry this idempotent lock."
             )
         else:
             perform = lambda: folder_provisioner.unlock_solutions_folder(
-                project.gdrive_solutions_folder_id, sales_user.email
+                project.gdrive_solutions_folder_id, sales_user.email, product_email
             )
-            outcome = "Sales viewer access to the Solutions folder is restored."
+            outcome = "Sales and Product viewer access to the Solutions folder is restored."
             actionable_failure = (
-                "The DQ number is saved but Solutions access may remain locked. "
+                "The DQ number is saved but Sales or Product access may remain locked. "
                 "Restore Drive access and retry this idempotent unlock."
             )
     else:

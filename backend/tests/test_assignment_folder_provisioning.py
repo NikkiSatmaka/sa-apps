@@ -72,6 +72,7 @@ def _make_project(status_value: str = "Awaiting Assignment"):
     project.bant_score = 80
     project.use_case_tags = ["etl"]
     project.sales_pic = uuid.uuid4()
+    project.product_pic = uuid.uuid4()
     project.assigned_sa = None
     project.assigned_at = None
     project.target_submit = date(2026, 12, 31)
@@ -79,7 +80,7 @@ def _make_project(status_value: str = "Awaiting Assignment"):
     project.gdrive_folder_id = None
     project.gdrive_solutions_folder_id = None
     project.folder_provisioning_status = None
-    return project
+    project.dq_number = "DQ-123"
 
 
 def _execute_result_scalar(value):
@@ -110,8 +111,18 @@ class _FakeProvisionSession:
 
     async def execute(self, _stmt):
         self._execute_count += 1
-        value = self._project if self._execute_count == 1 else self._project.customer
-        return _execute_result_scalar(value)
+        if self._execute_count == 1:
+            return _execute_result_scalar(self._project)
+        if self._execute_count == 2:
+            return _execute_result_scalar(self._project.customer)
+        if self._execute_count == 3:
+            result = MagicMock()
+            result.scalars.return_value.all.return_value = [
+                "sa-one@company.com",
+                "sa-two@company.com",
+            ]
+            return result
+        return _execute_result_scalar("product@company.com")
 
     async def scalar(self, _stmt):
         return 0
@@ -175,6 +186,12 @@ class TestTriggerFolderProvisioner:
             )
 
         mock_provision.assert_awaited_once()
+        assert mock_provision.await_args.kwargs["sa_team_emails"] == (
+            "sa-one@company.com",
+            "sa-two@company.com",
+        )
+        assert mock_provision.await_args.kwargs["product_email"] == "product@company.com"
+        assert mock_provision.await_args.kwargs["dq_number"] == "DQ-123"
         assert project.gdrive_folder_id == "master_001"
         assert project.gdrive_solutions_folder_id == "sol_004"
         assert project.folder_provisioning_status == "provisioned"

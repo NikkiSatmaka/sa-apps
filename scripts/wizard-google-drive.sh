@@ -315,7 +315,7 @@ fi
 
 # ── 6. Akun Google uji ────────────────────────────────────────────────────
 stage "Akun Google untuk peran uji"
-say "Verifikasi memberi izin Drive ke 5 alamat. Semuanya HARUS akun Google yang nyata"
+say "Verifikasi memberi izin Drive ke 6 alamat. Semuanya HARUS akun Google yang nyata"
 say "(Gmail atau Workspace). Alamat demo '*@portal-sa.local' pasti ditolak Google."
 say "Alamat harus BERBEDA satu sama lain. Alias '+tag' pada Gmail dihitung akun yang sama,"
 say "jadi jangan dipakai untuk membedakan peran."
@@ -323,9 +323,10 @@ note "Akun ini hanya diberi izin ke folder uji; mereka tidak perlu login."
 ask LEAD_EMAIL     "Email Lead SA      :"
 ask SA_EMAIL       "Email SA           :"
 ask SALES_EMAIL    "Email Sales PIC    :"
+ask PRODUCT_EMAIL  "Email Product PIC  :"
 ask PMO_EMAIL      "Email PMO Lead     :"
 ask DELIVERY_EMAIL "Email Delivery Lead:"
-_all=("$LEAD_EMAIL" "$SA_EMAIL" "$SALES_EMAIL" "$PMO_EMAIL" "$DELIVERY_EMAIL")
+_all=("$LEAD_EMAIL" "$SA_EMAIL" "$SALES_EMAIL" "$PRODUCT_EMAIL" "$PMO_EMAIL" "$DELIVERY_EMAIL")
 for e in "${_all[@]}"; do
   if [[ ! "$e" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; then
     warn "Format email tidak valid: $e"
@@ -337,13 +338,14 @@ for e in "${_all[@]}"; do
   fi
 done
 _unik=$(printf '%s\n' "${_all[@]}" | tr '[:upper:]' '[:lower:]' | sort -u | wc -l)
-if [[ "$_unik" -ne 5 ]]; then
-  warn "Ada alamat yang sama; kelima peran harus memakai alamat berbeda."
+if [[ "$_unik" -ne 6 ]]; then
+  warn "Ada alamat yang sama; keenam peran harus memakai alamat berbeda."
   exit 1
 fi
 write_env DRIVE_LIVE_LEAD_EMAIL "$LEAD_EMAIL"
 write_env DRIVE_LIVE_SA_EMAIL "$SA_EMAIL"
 write_env DRIVE_LIVE_SALES_EMAIL "$SALES_EMAIL"
+write_env DRIVE_LIVE_PRODUCT_EMAIL "$PRODUCT_EMAIL"
 write_env DRIVE_LIVE_PMO_EMAIL "$PMO_EMAIL"
 write_env DRIVE_LIVE_DELIVERY_EMAIL "$DELIVERY_EMAIL"
 

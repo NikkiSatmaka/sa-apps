@@ -52,7 +52,12 @@ async def _provision(provisioner, cfg, pembersih, awalan):
     project = await _proyek_dengan_customer(provisioner, awalan)
     hasil = await asyncio.wait_for(
         provisioner.provision_project_folder(
-            project, cfg.email_sa, cfg.email_lead, cfg.email_sales
+            project,
+            cfg.email_sa,
+            cfg.email_lead,
+            cfg.email_sales,
+            sa_team_emails=cfg.email_sa_team,
+            product_email=cfg.email_product,
         ),
         cfg.timeout,
     )
@@ -73,9 +78,25 @@ async def test_struktur_master_dan_izin_awal(
     provisioner, konfigurasi_live, verifikator, pembersih, awalan
 ):
     cfg = konfigurasi_live
-    hasil = await _provision(provisioner, cfg, pembersih, awalan)
+    project = await _proyek_dengan_customer(provisioner, awalan)
+    hasil = await asyncio.wait_for(
+        provisioner.provision_project_folder(
+            project,
+            cfg.email_sa,
+            cfg.email_lead,
+            cfg.email_sales,
+            sa_team_emails=cfg.email_sa_team,
+            product_email=cfg.email_product,
+        ),
+        cfg.timeout,
+    )
+    pembersih.append(hasil.master)
 
-    # Struktur: master berisi tepat Inventory / Diagram / Solutions.
+    # Hierarchy is rooted under the configured isolated parent, not flat under Shared Drive.
+    customer = verifikator.ambil(project.customer.gdrive_folder_id)
+    assert customer["parents"] == [cfg.parent_folder_id]
+    assert customer["name"] == project.customer_name
+    assert verifikator.ambil(hasil.master)["parents"] == [project.customer.gdrive_folder_id]
     assert verifikator.ambil(hasil.master)["name"] == "01-Proyek Live"
     anak = {f["name"]: f["id"] for f in verifikator.anak(hasil.master)}
     assert set(anak) == NAMA_SUBFOLDER
@@ -85,51 +106,83 @@ async def test_struktur_master_dan_izin_awal(
         "Solutions": hasil.solutions,
     }
 
-    # SA dan Lead_SA: writer di master (dan, lewat pewarisan, di semua subfolder).
+    # Every configured SA identity (including Lead SA) has Editor effective access.
     for folder in (hasil.master, hasil.inventory, hasil.diagram, hasil.solutions):
-        assert verifikator.peran_efektif(folder, cfg.email_sa) == "writer", folder
-        assert verifikator.peran_efektif(folder, cfg.email_lead) == "writer", folder
+        for email in cfg.email_sa_team:
+            assert verifikator.peran_efektif(folder, email) == "writer", (folder, email)
 
-    # Sales: reader HANYA di Inventory; tidak ada akses efektif ke master, Diagram, Solutions.
-    assert verifikator.peran_efektif(hasil.inventory, cfg.email_sales) == "reader"
-    for folder in (hasil.master, hasil.diagram, hasil.solutions):
-        assert verifikator.peran_efektif(folder, cfg.email_sales) is None, folder
-    # Dan Sales juga tidak muncul sama sekali di daftar izin folder-folder tersebut.
-    for folder in (hasil.master, hasil.diagram, hasil.solutions):
-        assert cfg.email_sales.lower() not in _emails_langsung(verifikator, folder), folder
+    # Sales and Product: Viewer only on Inventory before DQ; no project-level access.
+    for email in (cfg.email_sales, cfg.email_product):
+        assert verifikator.peran_efektif(hasil.inventory, email) == "reader"
+        for folder in (hasil.master, hasil.diagram, hasil.solutions):
+            assert verifikator.peran_efektif(folder, email) is None, (folder, email)
 
     # PMO/Delivery belum diberi akses apa pun sebelum handover.
     for email in (cfg.email_pmo, cfg.email_delivery):
         assert verifikator.peran_efektif(hasil.master, email) is None
 
 
-async def test_unlock_lalu_lock_solutions_untuk_sales(
+async def test_dq_memberi_sales_dan_product_viewer_hanya_pada_solutions(
+    provisioner, konfigurasi_live, verifikator, pembersih, awalan
+):
+    cfg = konfigurasi_live
+    project = await _proyek_dengan_customer(provisioner, awalan)
+    project.dq_number = "DQ-12345"
+    hasil = await asyncio.wait_for(
+        provisioner.provision_project_folder(
+            project,
+            cfg.email_sa,
+            cfg.email_lead,
+            cfg.email_sales,
+            sa_team_emails=cfg.email_sa_team,
+            product_email=cfg.email_product,
+            dq_number=project.dq_number,
+        ),
+        cfg.timeout,
+    )
+    pembersih.append(hasil.master)
+
+    for email in (cfg.email_sales, cfg.email_product):
+        assert verifikator.peran_efektif(hasil.inventory, email) == "reader"
+        assert verifikator.peran_efektif(hasil.solutions, email) == "reader"
+        assert verifikator.peran_efektif(hasil.master, email) is None
+        assert verifikator.peran_efektif(hasil.diagram, email) is None
+
+
+async def test_unlock_lalu_lock_solutions_untuk_sales_dan_product(
     provisioner, konfigurasi_live, verifikator, pembersih, awalan
 ):
     cfg = konfigurasi_live
     hasil = await _provision(provisioner, cfg, pembersih, awalan)
-    assert verifikator.peran_efektif(hasil.solutions, cfg.email_sales) is None
+    for email in (cfg.email_sales, cfg.email_product):
+        assert verifikator.peran_efektif(hasil.solutions, email) is None
 
     await asyncio.wait_for(
-        provisioner.unlock_solutions_folder(hasil.solutions, cfg.email_sales), cfg.timeout
+        provisioner.unlock_solutions_folder(
+            hasil.solutions, cfg.email_sales, cfg.email_product
+        ),
+        cfg.timeout,
     )
 
-    # Unlock: Sales reader di Solutions, dan HANYA di sana (bukan master/Diagram).
-    assert verifikator.peran_efektif(hasil.solutions, cfg.email_sales) == "reader"
-    assert verifikator.peran_efektif(hasil.diagram, cfg.email_sales) is None
-    assert verifikator.peran_efektif(hasil.master, cfg.email_sales) is None
-    assert verifikator.peran_efektif(hasil.inventory, cfg.email_sales) == "reader"
+    for email in (cfg.email_sales, cfg.email_product):
+        assert verifikator.peran_efektif(hasil.solutions, email) == "reader"
+        assert verifikator.peran_efektif(hasil.diagram, email) is None
+        assert verifikator.peran_efektif(hasil.master, email) is None
+        assert verifikator.peran_efektif(hasil.inventory, email) == "reader"
 
     await asyncio.wait_for(
-        provisioner.lock_solutions_folder(hasil.solutions, cfg.email_sales), cfg.timeout
+        provisioner.lock_solutions_folder(
+            hasil.solutions, cfg.email_sales, cfg.email_product
+        ),
+        cfg.timeout,
     )
 
-    # Lock: akses Solutions dicabut; akses Inventory TIDAK ikut tercabut; SA/Lead tetap writer.
-    assert verifikator.peran_efektif(hasil.solutions, cfg.email_sales) is None
-    assert cfg.email_sales.lower() not in _emails_langsung(verifikator, hasil.solutions)
-    assert verifikator.peran_efektif(hasil.inventory, cfg.email_sales) == "reader"
-    assert verifikator.peran_efektif(hasil.solutions, cfg.email_sa) == "writer"
-    assert verifikator.peran_efektif(hasil.solutions, cfg.email_lead) == "writer"
+    for email in (cfg.email_sales, cfg.email_product):
+        assert verifikator.peran_efektif(hasil.solutions, email) is None
+        assert email.lower() not in _emails_langsung(verifikator, hasil.solutions)
+        assert verifikator.peran_efektif(hasil.inventory, email) == "reader"
+    for email in cfg.email_sa_team:
+        assert verifikator.peran_efektif(hasil.solutions, email) == "writer"
 
 
 async def test_unlock_dua_kali_tetap_satu_izin_reader(

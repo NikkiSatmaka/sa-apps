@@ -227,6 +227,48 @@ async def test_provisioning_membuat_struktur_dan_izin_sesuai_spec(provisioner, d
     assert len({hasil.master, hasil.inventory, hasil.diagram, hasil.solutions}) == 4
 
 
+async def test_all_sa_team_editors_and_product_inventory_viewer(provisioner, drive):
+    hasil = await provisioner.provision_project_folder(
+        ProyekPalsu(),
+        "sa@co.com",
+        "lead@co.com",
+        "sales@co.com",
+        sa_team_emails=("sa@co.com", "sa-lain@co.com"),
+        product_email="product@co.com",
+    )
+
+    assert drive.peran(hasil.master, "sa-lain@co.com") == "writer"
+    assert drive.peran(hasil.inventory, "product@co.com") == "reader"
+    assert drive.peran(hasil.master, "product@co.com") is None
+    assert drive.peran(hasil.diagram, "product@co.com") is None
+    assert drive.peran(hasil.solutions, "product@co.com") is None
+
+
+async def test_product_gets_solutions_viewer_only_after_dq(provisioner, drive):
+    hasil = await provisioner.provision_project_folder(
+        ProyekPalsu(),
+        "sa@co.com",
+        "lead@co.com",
+        "sales@co.com",
+        product_email="product@co.com",
+        dq_number="DQ-123",
+    )
+
+    assert drive.peran(hasil.inventory, "product@co.com") == "reader"
+    assert drive.peran(hasil.solutions, "product@co.com") == "reader"
+    assert drive.peran(hasil.master, "product@co.com") is None
+    await provisioner.lock_solutions_folder(
+        hasil.solutions, "sales@co.com", "product@co.com"
+    )
+    assert drive.peran(hasil.solutions, "sales@co.com") is None
+    assert drive.peran(hasil.solutions, "product@co.com") is None
+    await provisioner.unlock_solutions_folder(
+        hasil.solutions, "sales@co.com", "product@co.com"
+    )
+    assert drive.peran(hasil.solutions, "sales@co.com") == "reader"
+    assert drive.peran(hasil.solutions, "product@co.com") == "reader"
+
+
 async def test_parent_shared_drive_missing_gagal_sebelum_panggilan_api(
     provisioner, drive, monkeypatch
 ):

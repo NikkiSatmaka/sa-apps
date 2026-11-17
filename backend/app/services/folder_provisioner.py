@@ -12,7 +12,7 @@ import logging
 import re
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional, Sequence
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -415,6 +415,9 @@ class FolderProvisioner:
         lead_sa_email: str,
         sales_email: str,
         *,
+        sa_team_emails: Sequence[str] = (),
+        product_email: Optional[str] = None,
+        dq_number: Optional[str] = None,
         persist_master_folder_id: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> ProvisionedFolders:
         """Create or resume a numbered Customer project folder and its subfolders."""
@@ -462,27 +465,36 @@ class FolderProvisioner:
             "Solutions", master_id, "create_solutions_subfolder"
         )
 
-        await self._execute_with_retry(
-            "set_permission_sa",
-            self._set_permission_sync,
-            master_id,
-            sa_email,
-            "writer",
-        )
-        await self._execute_with_retry(
-            "set_permission_lead_sa",
-            self._set_permission_sync,
-            master_id,
-            lead_sa_email,
-            "writer",
-        )
-        await self._execute_with_retry(
-            "set_permission_sales_inventory",
-            self._set_permission_sync,
-            inventory_id,
-            sales_email,
-            "reader",
-        )
+        sa_emails = dict.fromkeys((*sa_team_emails, sa_email, lead_sa_email))
+        for email in sa_emails:
+            await self._execute_with_retry(
+                "set_permission_sa_team",
+                self._set_permission_sync,
+                master_id,
+                email,
+                "writer",
+            )
+
+        for role_email in (sales_email, product_email):
+            if role_email:
+                await self._execute_with_retry(
+                    "set_permission_sales_product_inventory",
+                    self._set_permission_sync,
+                    inventory_id,
+                    role_email,
+                    "reader",
+                )
+
+        if dq_number:
+            for role_email in (sales_email, product_email):
+                if role_email:
+                    await self._execute_with_retry(
+                        "set_permission_sales_product_solutions",
+                        self._set_permission_sync,
+                        solutions_id,
+                        role_email,
+                        "reader",
+                    )
 
         return ProvisionedFolders(
             master=master_id,
@@ -497,18 +509,12 @@ class FolderProvisioner:
         old_sa_email: Optional[str],
         new_sa_email: str,
     ) -> None:
-        """
-        Pindahkan akses Editor folder master dari SA lama ke SA baru (reassign, issue #77).
-
-        SA baru diberi `writer` (dilewati bila sudah punya), lalu akses SA lama dicabut. Izin
-        Editor pada folder master diwarisi subfolder, jadi cukup menyentuh folder master.
-        Urutannya sengaja beri-dulu-baru-cabut agar proyek tidak pernah tanpa SA bila gagal di
-        tengah. Tidak melakukan apa pun bila SA lama dan baru adalah orang yang sama.
+        """Grant Editor access to the newly assigned SA without revoking team access.
 
         Args:
             master_folder_id: ID folder master proyek (`gdrive_folder_id`)
-            old_sa_email: Email SA lama, atau None bila tidak ada
-            new_sa_email: Email SA baru
+            old_sa_email: Email SA sebelumnya (dipertahankan sebagai anggota tim)
+            new_sa_email: Email SA baru yang ditugaskan
 
         Raises:
             FolderProvisioningError: Jika gagal setelah 3x retry
@@ -517,8 +523,9 @@ class FolderProvisioner:
             return
 
         logger.info(
-            f"Memindahkan akses SA pada folder {master_folder_id}: "
-            f"{old_sa_email or '-'} -> {new_sa_email}"
+            "Ensuring Editor access for assigned SA %s on folder %s",
+            new_sa_email,
+            master_folder_id,
         )
 
         sudah_punya = await self._execute_with_retry(
@@ -536,86 +543,44 @@ class FolderProvisioner:
                 "writer",
             )
 
-        if old_sa_email:
+    async def lock_solutions_folder(
+        self, solutions_folder_id: str, sales_email: str, product_email: Optional[str] = None
+    ) -> None:
+        """Remove assigned Sales and Product Viewer permissions from Solutions."""
+        for email in dict.fromkeys(filter(None, (sales_email, product_email))):
             permission_id = await self._execute_with_retry(
-                "find_old_sa_permission",
+                "find_requester_permission",
                 self._find_permission_sync,
-                master_folder_id,
-                old_sa_email,
+                solutions_folder_id,
+                email,
             )
             if permission_id:
                 await self._execute_with_retry(
-                    "remove_old_sa_permission",
+                    "remove_requester_permission",
                     self._remove_permission_sync,
-                    master_folder_id,
+                    solutions_folder_id,
                     permission_id,
                 )
 
-    async def lock_solutions_folder(self, solutions_folder_id: str, sales_email: str) -> None:
-        """
-        Hapus akses Sales dari folder Solutions (SLA auto-lock H+5).
-
-        Dipanggil oleh SLA_Timer saat DQ Number belum diinput
-        setelah 5 hari dari assignment.
-
-        Args:
-            solutions_folder_id: ID folder Solutions di Google Drive
-            sales_email: Email Sales yang aksesnya akan dihapus
-
-        Raises:
-            FolderProvisioningError: Jika gagal setelah 3x retry
-        """
-        logger.info(f"Locking folder Solutions ({solutions_folder_id}) untuk {sales_email}")
-
-        # Cari permission ID Sales di folder Solutions
-        permission_id = await self._execute_with_retry(
-            "find_sales_permission",
-            self._find_permission_sync,
-            solutions_folder_id,
-            sales_email,
-        )
-
-        if permission_id:
-            await self._execute_with_retry(
-                "remove_sales_permission",
-                self._remove_permission_sync,
+    async def unlock_solutions_folder(
+        self, solutions_folder_id: str, sales_email: str, product_email: Optional[str] = None
+    ) -> None:
+        """Restore assigned Sales and Product Viewer permissions on Solutions."""
+        for email in dict.fromkeys(filter(None, (sales_email, product_email))):
+            permission_id = await self._execute_with_retry(
+                "find_requester_permission",
+                self._find_permission_sync,
                 solutions_folder_id,
-                permission_id,
+                email,
             )
-            logger.info(f"Akses Sales dihapus dari folder Solutions")
-        else:
-            logger.info(f"Sales ({sales_email}) tidak punya akses ke folder Solutions, skip lock.")
-
-    async def unlock_solutions_folder(self, solutions_folder_id: str, sales_email: str) -> None:
-        """
-        Kembalikan akses Viewer untuk Sales ke folder Solutions.
-
-        Dipanggil saat DQ Number berhasil diinput setelah sebelumnya
-        folder di-lock oleh SLA_Timer.
-
-        Args:
-            solutions_folder_id: ID folder Solutions di Google Drive
-            sales_email: Email Sales yang aksesnya akan dikembalikan
-
-        Raises:
-            FolderProvisioningError: Jika gagal setelah 3x retry
-        """
-        permission_id = await self._execute_with_retry(
-            "find_sales_permission",
-            self._find_permission_sync,
-            solutions_folder_id,
-            sales_email,
-        )
-
-        if not permission_id:
-            await self._execute_with_retry(
-                "restore_sales_permission",
-                self._set_permission_sync,
-                solutions_folder_id,
-                sales_email,
-                "reader",
-            )
-        logger.info(f"Akses Viewer Sales tersedia di folder Solutions")
+            if not permission_id:
+                await self._execute_with_retry(
+                    "restore_requester_permission",
+                    self._set_permission_sync,
+                    solutions_folder_id,
+                    email,
+                    "reader",
+                )
 
     async def provision_handover(
         self,

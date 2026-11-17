@@ -356,7 +356,7 @@ export default function NewProjectPage() {
                 {errors.projectName}
               </p>
             )}
-            <p className="text-xs text-neutral-400 mt-1">
+            <p className="text-xs text-neutral-500 mt-1">
               {form.projectName.length}/150 karakter
             </p>
           </div>
@@ -435,7 +435,7 @@ export default function NewProjectPage() {
             {errors.customerName && (
               <p id="customerName-error" className="text-xs text-red-600 mt-1" role="alert">{errors.customerName}</p>
             )}
-            <p className="text-xs text-neutral-400 mt-1">{form.customerName.length}/150 karakter</p>
+            <p className="text-xs text-neutral-500 mt-1">{form.customerName.length}/150 karakter</p>
           </div>
 
           {/* Target Submit Date */}

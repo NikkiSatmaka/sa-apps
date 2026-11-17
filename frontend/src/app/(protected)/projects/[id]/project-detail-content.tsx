@@ -148,8 +148,8 @@ export function ProjectDetailContent({
         <div>
           <h1 className="text-2xl font-bold text-neutral-900">{project.project_name}</h1>
           <p className="mt-1 text-sm text-neutral-500">{project.customer_name}</p>
-          <p className="mt-0.5 font-mono text-xs text-neutral-400">{project.id_project}</p>
-          <p className="mt-0.5 text-xs text-neutral-400">
+          <p className="mt-0.5 font-mono text-xs text-neutral-500">{project.id_project}</p>
+          <p className="mt-0.5 text-xs text-neutral-500">
             Terakhir Diubah:{" "}
             {new Date(project.updated_at).toLocaleDateString("id-ID", {
               day: "numeric",

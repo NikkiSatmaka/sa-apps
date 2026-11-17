@@ -29,6 +29,7 @@ KUNCI = json.dumps(
 ENV_LENGKAP = {
     "GDRIVE_LIVE_TEST": "1",
     "GDRIVE_SERVICE_ACCOUNT_KEY": KUNCI,
+    "GDRIVE_LIVE_PARENT_FOLDER_ID": "test-parent-folder-id",
     "DRIVE_LIVE_LEAD_EMAIL": "lead@uji.test",
     "DRIVE_LIVE_SA_EMAIL": "sa@uji.test",
     "DRIVE_LIVE_SALES_EMAIL": "sales@uji.test",

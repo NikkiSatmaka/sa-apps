@@ -331,10 +331,46 @@ async def test_manual_email_repair_requires_privileged_user(dunia, api, role):
 @pytest.mark.parametrize(
     ("operation_type", "operation_status", "context", "payload", "expected_status"),
     [
-        ("email_delivery", "pending", {}, {}, 409),
-        ("email_delivery", "succeeded", {}, {}, 409),
-        ("drive_permission", "failed", {}, {}, 409),
-        ("email_delivery", "failed", {"manual_repair": {"actor_user_id": "prior"}}, {}, 409),
+        (
+            "email_delivery",
+            "pending",
+            {},
+            {
+                "recipient_checked_not_received": True,
+                "manually_delivered_outside_app": True,
+            },
+            409,
+        ),
+        (
+            "email_delivery",
+            "succeeded",
+            {},
+            {
+                "recipient_checked_not_received": True,
+                "manually_delivered_outside_app": True,
+            },
+            409,
+        ),
+        (
+            "drive_permission",
+            "failed",
+            {},
+            {
+                "recipient_checked_not_received": True,
+                "manually_delivered_outside_app": True,
+            },
+            409,
+        ),
+        (
+            "email_delivery",
+            "failed",
+            {"manual_repair": {"actor_user_id": "prior"}},
+            {
+                "recipient_checked_not_received": True,
+                "manually_delivered_outside_app": True,
+            },
+            409,
+        ),
         ("email_delivery", "failed", {}, {"recipient_checked_not_received": True}, 422),
         (
             "email_delivery",

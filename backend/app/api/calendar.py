@@ -85,7 +85,11 @@ async def _finish_calendar_mapping(
         return
     await db.refresh(operation)
     final_status = "succeeded" if succeeded else "failed"
-    if operation.status != final_status:
+    if (
+        operation.status != final_status
+        or operation.outcome != outcome
+        or operation.actionable_error != actionable_error
+    ):
         now = datetime.now(timezone.utc)
         attempts = list(operation.attempts or [])
         if attempts:

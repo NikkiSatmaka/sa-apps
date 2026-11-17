@@ -92,7 +92,8 @@ async def test_drive_permission_failure_is_visible_without_rolling_back_reassign
     assert operation["started_at"]
     assert operation["finished_at"]
     assert operation["outcome"]
-    assert "Google Drive" in operation["actionable_error"]
+    assert operation["actionable_error"]
+    assert "retry this idempotent permission update" in operation["actionable_error"].lower()
     assert operation["retryable"] is True
 
     retry_url = (
@@ -352,7 +353,8 @@ async def test_sla_lock_failure_is_visible_and_safe_retry_updates_sla_state(
     assert operation["status"] == "failed"
     assert operation["attempts"][-1]["status"] == "failed"
     assert operation["retryable"] is True
-    assert "Drive lock unavailable" in operation["actionable_error"]
+    assert operation["actionable_error"]
+    assert "retry this idempotent lock" in operation["actionable_error"].lower()
     assert sla.is_locked is False
 
     retried = await api.client.post(

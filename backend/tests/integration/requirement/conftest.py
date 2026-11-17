@@ -249,7 +249,10 @@ async def skenario(
 
     monkeypatch.setattr(
         "app.api.project_intake_api.generate_pending_requirement",
-        requirement_generator.generate_pending_requirement,
+        api.generate_requirement_real,
+    )
+    monkeypatch.setattr(
+        requirement_generator, "generate_pending_requirement", api.generate_requirement_real
     )
     monkeypatch.setattr(requirement_generator, "RETRY_INTERVAL_SECONDS", 0)
     monkeypatch.setattr(scoring_engine, "RETRY_INTERVAL_SECONDS", 0)

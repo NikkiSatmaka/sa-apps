@@ -7,7 +7,7 @@ from datetime import datetime as dt_type
 from datetime import timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -79,12 +79,7 @@ async def get_sa_utilization(
 
         sa_query = (
             select(User)
-            .where(
-                or_(
-                    User.role == "SA",
-                    and_(User.role == "Lead_SA", User.is_admin.is_(False)),
-                )
-            )
+            .where(User.role.in_(["SA", "Lead_SA"]))
             .order_by(User.name)
         )
         if sa_id:

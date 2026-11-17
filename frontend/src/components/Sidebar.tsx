@@ -247,7 +247,7 @@ export function Sidebar() {
             <>
               <li className="pt-3 mt-3 border-t border-neutral-100">
                 {isOpen && (
-                  <span className="px-3 text-xs font-semibold text-neutral-400 uppercase">
+                  <span className="px-3 text-xs font-semibold text-neutral-500 uppercase">
                     Admin
                   </span>
                 )}

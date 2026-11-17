@@ -679,7 +679,7 @@ describe("Detail proyek — Project Story", () => {
     expect(screen.getByText("1.5h")).toBeInTheDocument();
     expect(screen.getByText(/Kirim proposal/)).toBeInTheDocument();
     expect(screen.getByText("(PIC: Andi)")).toBeInTheDocument();
-    expect(screen.getByText("Review HLD")).toBeInTheDocument();
+    expect(screen.getByText(/Review HLD/)).toBeInTheDocument();
     expect(screen.getByText("2 aktivitas — menampilkan 5 terbaru")).toBeInTheDocument();
   });
 

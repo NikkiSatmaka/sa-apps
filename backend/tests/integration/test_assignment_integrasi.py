@@ -231,6 +231,169 @@ async def test_retry_integration_operation_rejects_pending_operation(dunia, api)
     assert response.json()["message"] == "This operation cannot be retried safely."
     assert operation.status == "pending"
 
+REPAIR_OPERATION = "/api/v1/projects/{}/integration-operations/{}/repair"
+
+
+@pytest.mark.parametrize("role", ["lead", "admin"])
+async def test_manual_email_repair_records_confirmation_without_replay(
+    dunia, api, monkeypatch, role
+):
+    project = await dunia.buat_proyek()
+    original_attempts = [
+        {
+            "attempt": 1,
+            "status": "failed",
+            "started_at": "2026-11-17T10:00:00+00:00",
+            "finished_at": "2026-11-17T10:00:01+00:00",
+            "outcome": "send_assignment_email failed.",
+            "actionable_error": "Check the recipient and manually send the notification.",
+        }
+    ]
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        actor_user_id=dunia.sa.id,
+        operation_type="email_delivery",
+        action="send_assignment_email",
+        status="failed",
+        attempts=original_attempts,
+        outcome=original_attempts[0]["outcome"],
+        actionable_error=original_attempts[0]["actionable_error"],
+        retryable=False,
+        context={"event_type": "assignment"},
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+    provider_called = False
+
+    async def fail_if_called(*args, **kwargs):
+        nonlocal provider_called
+        provider_called = True
+        raise AssertionError("manual repair must not contact the provider")
+
+    monkeypatch.setattr(
+        "app.services.notification_service.notification_service.send_email",
+        fail_if_called,
+    )
+    response = await api.client.post(
+        REPAIR_OPERATION.format(project.id_project, operation.id),
+        json={
+            "recipient_checked_not_received": True,
+            "manually_delivered_outside_app": True,
+        },
+        headers=dunia.h[role],
+    )
+
+    assert response.status_code == 200, response.text
+    repaired = response.json()["data"]
+    audit = repaired["context"]["manual_repair"]
+    assert audit["actor_user_id"] == str(getattr(dunia, role).id)
+    assert audit["repaired_at"]
+    assert audit["recipient_checked_not_received"] is True
+    assert audit["manually_delivered_outside_app"] is True
+    assert repaired["status"] == "failed"
+    assert repaired["outcome"] == original_attempts[0]["outcome"]
+    assert repaired["actionable_error"] == original_attempts[0]["actionable_error"]
+    assert repaired["attempts"] == original_attempts
+    assert repaired["retryable"] is False
+    assert provider_called is False
+    await dunia.db.refresh(operation)
+    assert operation.context["manual_repair"] == audit
+    assert operation.status == "failed"
+    assert operation.attempts == original_attempts
+
+
+@pytest.mark.parametrize("role", ["sa", "sales"])
+async def test_manual_email_repair_requires_privileged_user(dunia, api, role):
+    project = await dunia.buat_proyek()
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type="email_delivery",
+        action="send_assignment_email",
+        status="failed",
+        attempts=[],
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        REPAIR_OPERATION.format(project.id_project, operation.id),
+        json={
+            "recipient_checked_not_received": True,
+            "manually_delivered_outside_app": True,
+        },
+        headers=dunia.h[role],
+    )
+
+    assert response.status_code == 403
+    assert operation.context.get("manual_repair") is None
+
+
+@pytest.mark.parametrize(
+    ("operation_type", "operation_status", "context", "payload", "expected_status"),
+    [
+        ("email_delivery", "pending", {}, {}, 409),
+        ("email_delivery", "succeeded", {}, {}, 409),
+        ("drive_permission", "failed", {}, {}, 409),
+        ("email_delivery", "failed", {"manual_repair": {"actor_user_id": "prior"}}, {}, 409),
+        ("email_delivery", "failed", {}, {"recipient_checked_not_received": True}, 422),
+        (
+            "email_delivery",
+            "failed",
+            {},
+            {"recipient_checked_not_received": False, "manually_delivered_outside_app": True},
+            422,
+        ),
+    ],
+)
+async def test_manual_email_repair_rejects_invalid_state_or_confirmation(
+    dunia, api, operation_type, operation_status, context, payload, expected_status
+):
+    project = await dunia.buat_proyek()
+    operation = IntegrationOperation(
+        project_id=project.id_project,
+        operation_type=operation_type,
+        action="send_assignment_email",
+        status=operation_status,
+        attempts=[],
+        context=context,
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        REPAIR_OPERATION.format(project.id_project, operation.id),
+        json=payload,
+        headers=dunia.h["lead"],
+    )
+
+    assert response.status_code == expected_status
+    assert operation.context == context
+
+
+async def test_manual_email_repair_cannot_target_operation_from_another_project(dunia, api):
+    requested_project = await dunia.buat_proyek()
+    operation_project = await dunia.buat_proyek()
+    operation = IntegrationOperation(
+        project_id=operation_project.id_project,
+        operation_type="email_delivery",
+        action="send_assignment_email",
+        status="failed",
+        attempts=[],
+    )
+    dunia.db.add(operation)
+    await dunia.db.flush()
+
+    response = await api.client.post(
+        REPAIR_OPERATION.format(requested_project.id_project, operation.id),
+        json={
+            "recipient_checked_not_received": True,
+            "manually_delivered_outside_app": True,
+        },
+        headers=dunia.h["lead"],
+    )
+
+    assert response.status_code == 404
+    assert operation.context.get("manual_repair") is None
 
 async def test_retry_reassignment_rejects_changed_assignment(dunia, api):
     project = await dunia.buat_proyek(

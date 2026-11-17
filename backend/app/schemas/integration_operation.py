@@ -12,6 +12,11 @@ class IntegrationOperationAttemptResponse(BaseModel):
     actionable_error: str | None = None
 
 
+class ManualEmailRepairRequest(BaseModel):
+    recipient_checked_not_received: Literal[True]
+    manually_delivered_outside_app: Literal[True]
+
+
 class IntegrationOperationResponse(BaseModel):
     id: str
     operation_type: str

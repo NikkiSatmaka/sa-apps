@@ -21,6 +21,7 @@ import { SourceDocumentSection, type SourceDocumentItem } from "@/components/Sou
 import { StatusActions } from "@/components/StatusActions";
 import { StatusBadge } from "@/components/StatusBadge";
 import { SubtaskSection } from "@/components/SubtaskSection";
+import { ProjectIntegrationOperations } from "@/components/ProjectIntegrationOperations";
 import { TimSASection } from "@/components/TimSASection";
 
 type FolderProvisioningAttempt = {
@@ -73,7 +74,7 @@ export interface ProjectDetail {
 interface Props {
   project: ProjectDetail;
   projectId: string;
-  user: { role: string } | null;
+  user: { role: string; is_admin?: boolean | null } | null;
   bisa: (permission: "ubah_proyek" | "handover") => boolean;
   router: AppRouterInstance;
   onProjectChanged: () => void;
@@ -222,6 +223,12 @@ export function ProjectDetailContent({
         isRetrying={folderProvisioning.isRetrying}
         retryError={folderProvisioning.error}
         onRetry={folderProvisioning.onRetry}
+      />
+      <ProjectIntegrationOperations
+        projectId={projectId}
+        operations={project.integration_operations ?? []}
+        user={user}
+        onRepaired={onProjectChanged}
       />
       <PeopleSection project={project} onChanged={onProjectChanged} />
       <div className="flex gap-4">

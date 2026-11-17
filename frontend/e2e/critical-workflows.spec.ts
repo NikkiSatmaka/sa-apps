@@ -97,6 +97,14 @@ function projectDetails(provisioningStatus: "failed" | "pending") {
 async function json(route: Route, body: unknown, status = 200) {
   await route.fulfill({ status, contentType: "application/json", json: body });
 }
+async function jsonWithRefreshCookie(route: Route, body: unknown, status = 200) {
+  await route.fulfill({
+    status,
+    contentType: "application/json",
+    headers: { "set-cookie": "refresh_token=fixture-refresh; Path=/api/v1/auth; HttpOnly; SameSite=Lax" },
+    json: body,
+  });
+}
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
@@ -106,6 +114,20 @@ function asRecord(value: unknown): Record<string, unknown> {
 async function installFixtures(page: Page) {
   const requests: { path: string; method: string; body?: unknown; search: string }[] = [];
   let reprovisionStarted = false;
+  let currentRole: "SA" | "Sales" | "Product" | "Lead_SA" = "SA";
+  const currentUser = () => ({
+    id: currentRole === "Lead_SA"
+      ? "00000000-0000-4000-8000-000000000001"
+      : currentRole === "SA"
+        ? "00000000-0000-4000-8000-000000000002"
+        : currentRole === "Sales"
+          ? "00000000-0000-4000-8000-000000000003"
+          : "00000000-0000-4000-8000-000000000004",
+    email: `demo-${currentRole.toLowerCase()}@portal-sa.local`,
+    name: `Demo ${currentRole}`,
+    role: currentRole,
+    is_admin: currentRole === "Lead_SA",
+  });
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -117,17 +139,24 @@ async function installFixtures(page: Page) {
 
     if (path === "/auth/config") return json(route, { demo_mode: true });
     if (path === "/auth/demo-login") {
-      const role = typeof body.role === "string" ? body.role : "SA";
-      return json(route, {
-        user: {
-          id: "00000000-0000-4000-8000-000000000001",
-          email: `demo-${role.toLowerCase()}@portal-sa.local`,
-          name: `Demo ${role}`,
-          role,
-          is_admin: role === "Lead_SA",
-        },
+      currentRole = body.role === "Sales" || body.role === "Product" || body.role === "Lead_SA"
+        ? body.role
+        : "SA";
+      return jsonWithRefreshCookie(route, {
+        user: currentUser(),
         tokens: { access_token: "fixture-app-session", expires_in: 900 },
       });
+    }
+    if (path === "/auth/refresh" && method === "POST") {
+      const cookie = request.headers()["cookie"] ?? "";
+      if (!cookie.includes("refresh_token=fixture-refresh")) {
+        return json(route, { detail: "Refresh cookie tidak ditemukan." }, 401);
+      }
+      return json(route, { access_token: "fixture-app-session", expires_in: 900 });
+    }
+    if (path === "/auth/me" && method === "GET") {
+      if (!request.headers()["authorization"]) return json(route, { message: "Unauthorized" }, 401);
+      return json(route, currentUser());
     }
     if (path === "/projects/status-summary" && method === "GET") {
       return json(route, []);
@@ -302,25 +331,7 @@ async function installRequesterWorkflowFixtures(page: Page, role: "Sales" | "Pro
     const url = new URL(request.url());
     const path = url.pathname.replace(/^\/api\/v1/, "");
     const method = request.method();
-    if (path === "/auth/config") {
-      requests.push({ path, method, search: url.search });
-      return json(route, { demo_mode: true });
-    }
-    if (path === "/auth/demo-login" && method === "POST") {
-      const body = asRecord(request.postDataJSON());
-      const loginRole = typeof body.role === "string" ? body.role : role;
-      requests.push({ path, method, body, search: url.search });
-      return json(route, {
-        user: {
-          id: "00000000-0000-4000-8000-000000000001",
-          email: `demo-${loginRole.toLowerCase()}@portal-sa.local`,
-          name: `Demo ${loginRole}`,
-          role: loginRole,
-          is_admin: loginRole === "Lead_SA",
-        },
-        tokens: { access_token: "fixture-app-session", expires_in: 900 },
-      });
-    }
+    if (path === "/auth/config" || path === "/auth/demo-login") return route.fallback();
     if (path === "/qualification/schema" && method === "GET") {
       requests.push({ path, method, search: url.search });
       return json(route, { data: workflowSchema, message: "Fixture qualification schema." });
@@ -499,7 +510,7 @@ test("Lead SA assignment hands the project to its SA and SA progresses assigned 
   await page.getByRole("button", { name: "Assign SA", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Assign SA ke Proyek" })).toBeVisible();
   await page.getByRole("button", { name: /Fixture SA/ }).click();
-  await page.getByRole("button", { name: "Konfirmasi", exact: true }).click();
+  await page.getByRole("button", { name: "Konfirmasi Assignment", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Assign SA ke Proyek" })).toHaveCount(0);
   expect(requests).toContainEqual(expect.objectContaining({
     path: `/projects/${projectId}/assign`,
@@ -520,6 +531,8 @@ test("Lead SA assignment hands the project to its SA and SA progresses assigned 
     body: { new_status: "Submitted" },
   }));
 });
+
+
 
 
 

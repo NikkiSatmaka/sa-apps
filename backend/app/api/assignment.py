@@ -39,7 +39,10 @@ from app.schemas.assignment import (
     ProjectBrief,
     SAAvailability,
 )
-from app.schemas.integration_operation import IntegrationOperationResponse
+from app.schemas.integration_operation import (
+    IntegrationOperationResponse,
+    ManualEmailRepairRequest,
+)
 from app.schemas.response import ErrorResponse, SuccessResponse, success_response
 from app.services.folder_provisioner import (
     FolderProvisioningError,
@@ -525,6 +528,70 @@ async def retry_integration_operation(
     return success_response(
         data=serialize_operation(operation),
         message="Integration operation retry recorded.",
+    )
+
+
+@router.post(
+    "/projects/{project_id}/integration-operations/{operation_id}/repair",
+    summary="Record operator-confirmed manual email recovery",
+    response_model=SuccessResponse[IntegrationOperationResponse],
+    responses={
+        401: {"model": ErrorResponse[None]},
+        403: {"model": ErrorResponse[None]},
+        404: {"model": ErrorResponse[None]},
+        409: {"model": ErrorResponse[None]},
+        422: {"model": ErrorResponse[list[dict[str, str]]]},
+    },
+)
+async def record_manual_email_repair(
+    project_id: str,
+    operation_id: uuid.UUID,
+    confirmation: ManualEmailRepairRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record human-confirmed recovery without contacting the email provider."""
+    _require_lead_sa(current_user)
+    project_result = await db.execute(select(Project).where(Project.id_project == project_id))
+    project = project_result.scalar_one_or_none()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    await ensure_project_access(db, project, current_user, TingkatAkses.BACA)
+
+    result = await db.execute(
+        select(IntegrationOperation)
+        .where(
+            IntegrationOperation.id == operation_id,
+            IntegrationOperation.project_id == project_id,
+        )
+        .with_for_update()
+    )
+    operation = result.scalar_one_or_none()
+    if operation is None:
+        raise HTTPException(status_code=404, detail="Integration operation not found.")
+    if (
+        operation.operation_type != "email_delivery"
+        or operation.status != "failed"
+        or "manual_repair" in (operation.context or {})
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only an unrepaired failed email operation can be recorded as manually resolved.",
+        )
+
+    context = dict(operation.context or {})
+    context["manual_repair"] = {
+        "actor_user_id": str(current_user.id),
+        "repaired_at": datetime.now(timezone.utc).isoformat(),
+        "recipient_checked_not_received": confirmation.recipient_checked_not_received,
+        "manually_delivered_outside_app": confirmation.manually_delivered_outside_app,
+    }
+    operation.context = context
+    await db.commit()
+    await db.refresh(operation)
+    return success_response(
+        data=serialize_operation(operation),
+        message="Operator-confirmed manual email recovery recorded; provider delivery was not confirmed.",
     )
 
 

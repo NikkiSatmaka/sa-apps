@@ -502,3 +502,38 @@ async def test_service_membatasi_per_page_maksimal_20_walau_dipanggil_langsung(a
     hasil = await notification_service.get_user_notifications(user.id, page=1, per_page=500)
 
     assert (hasil["per_page"], len(hasil["items"]), hasil["total"]) == (20, 20, 22)
+
+
+async def test_email_provider_exception_text_is_never_persisted_or_logged(
+    db_session, fake_gmail, monkeypatch, caplog
+):
+    user = await buat_user(db_session, "SA")
+    secret = "recipient@example.test access_token=private-value"
+
+    async def fail_email_provider(**_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(notification_service, "send_email", fail_email_provider)
+    await notification_service.send_notification(_event(user))
+    await _tunggu_task_latar()
+
+    operation = (
+        await db_session.execute(
+            select(IntegrationOperation).where(
+                IntegrationOperation.operation_type == "email_delivery",
+                IntegrationOperation.action == "send_assignment_email",
+            )
+        )
+    ).scalar_one()
+    assert operation.actionable_error == (
+        "Gmail did not confirm this email. Check Gmail configuration and permissions, "
+        "then confirm the recipient did not receive it before manually sending."
+    )
+    assert operation.status == "failed"
+    assert operation.outcome == "send_assignment_email failed."
+    assert operation.attempts[0]["actionable_error"] == operation.actionable_error
+    assert secret not in operation.actionable_error
+    assert secret not in str(operation.context)
+    assert secret not in str(operation.attempts)
+    assert secret not in caplog.text
+    assert fake_gmail.percobaan == []

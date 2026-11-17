@@ -113,6 +113,7 @@ PENGECUALIAN: dict[tuple[str, str], tuple[str, str]] = {
 # --------------------------------------------------------------------------- pemindai
 
 
+def _ratakan(router_atau_app) -> list[tuple[str, APIRoute]]:
     """(path absolut, APIRoute) dalam urutan registrasi; menangani router tersarang."""
     hasil: list[tuple[str, APIRoute]] = []
 

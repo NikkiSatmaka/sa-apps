@@ -121,18 +121,14 @@ async def run_side_effect(
     )
     try:
         await perform()
-    except Exception as error:  # noqa: BLE001 - integration failures never block core work
-        detail = str(error).strip()
-        actionable_error = actionable_failure
-        if detail:
-            actionable_error = f"{actionable_failure} Provider error: {detail[:1000]}"
+    except Exception:  # noqa: BLE001 - integration failures never block core work
         await finish_operation(
             operation_id,
             succeeded=False,
             outcome=f"{action} failed.",
-            actionable_error=actionable_error,
+            actionable_error=actionable_failure,
         )
-        logger.warning("Integration operation %s failed: %s", action, error)
+        logger.warning("Integration operation %s failed.", action)
         return False
 
     await finish_operation(operation_id, succeeded=True, outcome=outcome)
@@ -198,16 +194,12 @@ async def retry_side_effect(
 ) -> bool:
     try:
         await perform()
-    except Exception as error:  # noqa: BLE001 - recovery remains non-blocking
-        detail = str(error).strip()
-        message = actionable_failure
-        if detail:
-            message = f"{actionable_failure} Provider error: {detail[:1000]}"
+    except Exception:  # noqa: BLE001 - do not persist provider exception content
         await finish_operation(
             operation_id,
             succeeded=False,
             outcome="Manual retry failed.",
-            actionable_error=message,
+            actionable_error=actionable_failure,
         )
         return False
     await finish_operation(operation_id, succeeded=True, outcome=outcome)

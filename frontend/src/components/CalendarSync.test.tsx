@@ -100,7 +100,7 @@ it("menampilkan status, jumlah percobaan, waktu, dan hasil sync yang tersimpan",
   expect(screen.getByText("2025-03-15T10:00:00Z")).toBeInTheDocument();
   expect(screen.getByText("2025-03-15T10:00:01Z")).toBeInTheDocument();
   expect(screen.getByText("Percobaan: 1")).toBeInTheDocument();
-  expect(screen.getByText("Loaded 1 events from Google Calendar.")).toBeInTheDocument();
+  expect(screen.getByText(/Loaded 1 events from Google Calendar\./)).toBeInTheDocument();
 });
 
 it("menampilkan kegagalan sync dan instruksi pemulihan tanpa menandainya berhasil", async () => {
@@ -128,7 +128,7 @@ it("menampilkan kegagalan sync dan instruksi pemulihan tanpa menandainya berhasi
   expect(await screen.findByText("Status operasi: Gagal")).toBeInTheDocument();
   expect(screen.getByText("2025-03-15T10:00:00Z")).toBeInTheDocument();
   expect(screen.getByText("2025-03-15T10:00:02Z")).toBeInTheDocument();
-  expect(screen.getByText("Check Calendar permissions and run Sync again.")).toBeInTheDocument();
+  expect(screen.getByText(/Check Calendar permissions and run Sync again\./)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Sync Calendar" })).toBeEnabled();
   expect(screen.queryByText("Status operasi: Berhasil")).not.toBeInTheDocument();
 });
@@ -555,7 +555,7 @@ describe("CalendarSync — mapping event ke subtask", () => {
     await user.selectOptions(screen.getByLabelText(/^Subtask/), "Assessment");
     await user.click(screen.getByRole("button", { name: "Simpan Mapping" }));
     expect(await screen.findByText("Status operasi: Gagal")).toBeInTheDocument();
-    expect(screen.getByText("Check the activity log, then review the event details before trying again.")).toBeInTheDocument();
+    expect(screen.getByText(/Check the activity log, then review the event details before trying again\./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Simpan Mapping" })).toBeEnabled();
     expect(screen.queryByText("✓ Sudah di-mapping")).not.toBeInTheDocument();
   });
@@ -584,7 +584,7 @@ describe("CalendarSync — mapping event ke subtask", () => {
     await user.selectOptions(screen.getByLabelText(/^Subtask/), "Assessment");
     await user.click(screen.getByRole("button", { name: "Simpan Mapping" }));
     expect(await screen.findByText("Status operasi: Berhasil")).toBeInTheDocument();
-    expect(screen.getByText("Calendar event ev-1 was mapped to the project activity log.")).toBeInTheDocument();
+    expect(screen.getByText(/Calendar event ev-1 was mapped to the project activity log\./)).toBeInTheDocument();
     expect(screen.getByText("Proyek: p-1")).toBeInTheDocument();
   });
 

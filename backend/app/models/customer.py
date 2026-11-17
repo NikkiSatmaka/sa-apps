@@ -10,6 +10,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
 
+def normalize_customer_name(name: str) -> str:
+    """Return the canonical identity key for a customer name."""
+    return name.strip().casefold()
+
+
 class Customer(Base):
     __tablename__ = "customers"
 

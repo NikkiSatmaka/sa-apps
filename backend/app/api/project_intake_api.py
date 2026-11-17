@@ -25,8 +25,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import status as status_konst
 from app.core.database import get_db
 from app.core.dependencies import boleh_membuat_proyek, PeranUser, get_current_user
+from app.models.customer import Customer, normalize_customer_name
 from app.models.project import Project
-from app.models.customer import Customer
 from app.models.source_document import DOC_TYPES, SourceDocument
 from app.models.user import User
 from app.schemas.project import FileUploadResult, ProjectResponse
@@ -463,7 +463,7 @@ async def create_project(
         if customer is None:
             raise HTTPException(status_code=422, detail="Customer tidak ditemukan.")
     else:
-        normalized_customer = customer_name.strip().casefold()
+        normalized_customer = normalize_customer_name(customer_name)
         customer = await db.scalar(select(Customer).where(Customer.normalized_name == normalized_customer))
         if customer is None:
             customer = Customer(name=customer_name, normalized_name=normalized_customer)

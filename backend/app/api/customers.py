@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
-from app.models.customer import Customer
+from app.models.customer import Customer, normalize_customer_name
 from app.models.project import Project
 from app.models.user import User
 
@@ -19,9 +19,6 @@ router = APIRouter(prefix="/customers", tags=["Customers"])
 class CustomerInput(BaseModel):
     name: str = Field(min_length=1, max_length=150)
 
-
-def _normalized(name: str) -> str:
-    return name.strip().casefold()
 
 
 @router.get("")
@@ -37,7 +34,7 @@ async def create_customer(body: CustomerInput, db: AsyncSession = Depends(get_db
     if user.role not in {"Sales", "Product", "Lead_SA"} and user.is_admin is not True:
         raise HTTPException(status_code=403, detail="Tidak memiliki akses membuat Customer.")
     name = body.name.strip()
-    normalized = _normalized(name)
+    normalized = normalize_customer_name(name)
     if not normalized:
         raise HTTPException(status_code=422, detail="Nama Customer wajib diisi.")
     existing = await db.scalar(select(Customer).where(Customer.normalized_name == normalized))
@@ -57,7 +54,7 @@ async def rename_customer(customer_id: uuid.UUID, body: CustomerInput, db: Async
     if customer is None:
         raise HTTPException(status_code=404, detail="Customer tidak ditemukan.")
     name = body.name.strip()
-    normalized = _normalized(name)
+    normalized = normalize_customer_name(name)
     if not normalized:
         raise HTTPException(status_code=422, detail="Nama Customer wajib diisi.")
     duplicate = await db.scalar(select(Customer).where(Customer.normalized_name == normalized, Customer.id != customer.id))

@@ -3,6 +3,7 @@ import type { FileItem } from "@/components/FileUpload";
 export interface ProjectFormData {
   projectName: string;
   customerName: string;
+  customerId?: string;
   targetSubmit: string;
   estimatedValue: string;
   dqNumber: string;

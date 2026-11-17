@@ -64,6 +64,13 @@ class Project(Base):
         nullable=False,
         comment="Nama customer/perusahaan",
     )
+    customer_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("customers.id", name="fk_projects_customer_id"),
+        nullable=False,
+    )
+    customer: Mapped["Customer"] = relationship(back_populates="projects")
+
     dq_number: Mapped[Optional[str]] = mapped_column(
         String(20),
         nullable=True,

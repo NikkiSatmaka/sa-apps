@@ -93,6 +93,8 @@ app.include_router(orang_router, prefix="/api/v1")
 app.include_router(workflow_router, prefix="/api/v1")
 app.include_router(documents_router, prefix="/api/v1")
 app.include_router(dq_number_router, prefix="/api/v1")
+from app.api.customers import router as customers_router
+app.include_router(customers_router, prefix="/api/v1")
 app.include_router(activity_logs_router, prefix="/api/v1")
 app.include_router(calendar_router, prefix="/api/v1")
 app.include_router(sla_router, prefix="/api/v1")

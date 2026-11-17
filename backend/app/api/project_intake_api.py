@@ -26,6 +26,7 @@ from app.core import status as status_konst
 from app.core.database import get_db
 from app.core.dependencies import boleh_membuat_proyek, PeranUser, get_current_user
 from app.models.project import Project
+from app.models.customer import Customer
 from app.models.source_document import DOC_TYPES, SourceDocument
 from app.models.user import User
 from app.schemas.project import FileUploadResult, ProjectResponse
@@ -261,6 +262,7 @@ async def create_project(
         max_length=150,
         description="Nama customer (wajib, max 150 karakter)",
     ),
+    customer_id: Optional[str] = Form(default=None),
     target_submit: date = Form(
         ...,
         description="Target tanggal submit (format: YYYY-MM-DD, tidak boleh masa lalu)",
@@ -454,11 +456,28 @@ async def create_project(
     feedback: Optional[str] = None
     if scored_now and rubric_total < bant_rubric.GATE_THRESHOLD:
         feedback = bant_rubric.generate_feedback(rubric_scores)
+ 
+    # Resolve a stable Customer identity; legacy name-only clients create/reuse it by case-folded name.
+    if customer_id:
+        customer = await db.get(Customer, customer_id)
+        if customer is None:
+            raise HTTPException(status_code=422, detail="Customer tidak ditemukan.")
+    else:
+        normalized_customer = customer_name.strip().casefold()
+        customer = await db.scalar(select(Customer).where(Customer.normalized_name == normalized_customer))
+        if customer is None:
+            customer = Customer(name=customer_name, normalized_name=normalized_customer)
+            db.add(customer)
+            await db.flush()
+    customer_name = customer.name
+
+        feedback = bant_rubric.generate_feedback(rubric_scores)
 
     new_project = Project(
         id_project=project_id,
         project_name=project_name,
         customer_name=customer_name,
+        customer_id=customer.id,
         target_submit=target_submit,
         estimasi_nilai=estimasi_decimal,
         dq_number=validated_dq,

@@ -84,39 +84,212 @@ interface Props {
   handover: { status?: HandoverReadiness; error?: unknown; onRetry: () => void; onSuccess: () => void; shouldShowConfigForm: boolean | undefined; shouldShowModal: boolean; onAcknowledge: () => void };
 }
 
-export function ProjectDetailContent({ project, projectId, user, bisa, router, onProjectChanged, onAssign, onReassign, onDelete, folderProvisioning, handover }: Props) {
+export function ProjectDetailContent({
+  project,
+  projectId,
+  user,
+  bisa,
+  router,
+  onProjectChanged,
+  onAssign,
+  onReassign,
+  onDelete,
+  folderProvisioning,
+  handover,
+}: Props) {
   const canDelete = isPrivileged(user);
-  return <>
-    <div className="flex items-start justify-between gap-4">
-      <div><h1 className="text-2xl font-bold text-neutral-900">{project.project_name}</h1><p className="text-sm text-neutral-500 mt-1">{project.customer_name}</p><p className="text-xs text-neutral-400 mt-0.5 font-mono">{project.id_project}</p><p className="text-xs text-neutral-400 mt-0.5">Terakhir Diubah: {new Date(project.updated_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}</p></div>
-      <div className="flex items-center gap-2">
-        {project.status === "Awaiting Assignment" && isPrivileged(user) && <button onClick={onAssign} className="px-3 py-1.5 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors min-h-[36px]">Assign SA</button>}
-        <BANTOverride projectId={project.id_project} status={project.status} qualificationState={project.qualification_state} actor={user} currentScores={project.bant_detail} />
-        {project.assigned_sa && ["Awaiting Assignment", "Assigned", "In Progress", "Submitted"].includes(project.status) && isPrivileged(user) && <button onClick={onReassign} className="px-3 py-1.5 text-sm font-medium text-amber-700 border border-amber-300 rounded-lg hover:bg-amber-50 transition-colors min-h-[36px]">Reassign SA</button>}
-        {bisa("ubah_proyek") && <button onClick={() => router.push(`/projects/${projectId}/edit`)} className="px-3 py-1.5 text-sm font-medium text-neutral-700 border border-neutral-300 rounded-lg hover:bg-neutral-50 transition-colors min-h-[36px]">Edit</button>}
-        {canDelete && <button onClick={onDelete} className="px-3 py-1.5 text-sm font-medium text-red-600 border border-red-300 rounded-lg hover:bg-red-50 transition-colors min-h-[36px]">Hapus</button>}
-        <StatusBadge status={project.status} qualificationState={project.qualification_state} className="px-3 py-1 rounded-full text-xs shrink-0" />
+
+  return (
+    <>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-neutral-900">{project.project_name}</h1>
+          <p className="mt-1 text-sm text-neutral-500">{project.customer_name}</p>
+          <p className="mt-0.5 font-mono text-xs text-neutral-400">{project.id_project}</p>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            Terakhir Diubah:{" "}
+            {new Date(project.updated_at).toLocaleDateString("id-ID", {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            })}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {project.status === "Awaiting Assignment" && isPrivileged(user) && (
+            <button
+              onClick={onAssign}
+              className="min-h-[36px] rounded-lg bg-primary-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-primary-700"
+            >
+              Assign SA
+            </button>
+          )}
+          <BANTOverride
+            projectId={project.id_project}
+            status={project.status}
+            qualificationState={project.qualification_state}
+            actor={user}
+            currentScores={project.bant_detail}
+          />
+          {project.assigned_sa &&
+            ["Awaiting Assignment", "Assigned", "In Progress", "Submitted"].includes(
+              project.status,
+            ) &&
+            isPrivileged(user) && (
+              <button
+                onClick={onReassign}
+                className="min-h-[36px] rounded-lg border border-amber-300 px-3 py-1.5 text-sm font-medium text-amber-700 transition-colors hover:bg-amber-50"
+              >
+                Reassign SA
+              </button>
+            )}
+          {bisa("ubah_proyek") && (
+            <button
+              onClick={() => router.push(`/projects/${projectId}/edit`)}
+              className="min-h-[36px] rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50"
+            >
+              Edit
+            </button>
+          )}
+          {canDelete && (
+            <button
+              onClick={onDelete}
+              className="min-h-[36px] rounded-lg border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+            >
+              Hapus
+            </button>
+          )}
+          <StatusBadge
+            status={project.status}
+            qualificationState={project.qualification_state}
+            className="shrink-0 rounded-full px-3 py-1 text-xs"
+          />
+        </div>
       </div>
-    </div>
-    <StatusActions project={project} onChanged={onProjectChanged} />
-    <HandoverAction project={project} onDone={onProjectChanged} />
-    <section className="bg-white border border-neutral-200 rounded-lg p-5"><h2 className="text-sm font-semibold text-neutral-700 mb-3">Informasi Proyek</h2><div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-      <InfoRow label="Dibuat oleh" value={project.created_by?.name || "—"} /><InfoRow label="Product Manager PIC" value={project.product_pic?.name || "—"} /><InfoRow label="Sales PIC" value={project.sales_pic?.name || "—"} /><InfoRow label="Lead SA" value={project.lead_sa?.name || "Belum ada"} /><InfoRow label="SA Ditugaskan" value={project.assigned_sa?.name || "Belum di-assign"} /><InfoRow label="DQ Number" value={project.dq_number || "Belum diinput"} mono={!!project.dq_number} /><InfoRow label="Target Submit" value={project.target_submit ? new Date(project.target_submit).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" }) : "—"} /><InfoRow label="Dibuat" value={new Date(project.created_at).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })} />
-    </div>{(project.use_case_tags?.length ?? 0) > 0 && <div className="mt-4 pt-4 border-t border-neutral-100"><span className="text-xs text-neutral-500">Use Case Tags:</span><div className="flex flex-wrap gap-1.5 mt-1.5">{project.use_case_tags?.map(tag => <span key={tag} className="px-2 py-0.5 bg-primary-50 text-primary-600 text-xs rounded-full">{tag}</span>)}</div></div>}</section>
-    <FolderProvisioningSection status={project.folder_provisioning_status} operation={project.folder_provisioning_operation} hasMasterFolder={!!project.gdrive_folder_id} canRetry={isPrivileged(user)} isRetrying={folderProvisioning.isRetrying} retryError={folderProvisioning.error} onRetry={folderProvisioning.onRetry} />
-    <PeopleSection project={project} onChanged={onProjectChanged} />
-    <div className="flex gap-4"><a href={`/projects/${projectId}/documents`} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-neutral-700 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors min-h-[44px]">Dokumen</a><a href={`/projects/${projectId}/activity-logs`} className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-neutral-700 border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors min-h-[44px]">Riwayat Log</a></div>
-    {project.bant_score !== null && project.bant_score !== undefined && <div className={`rounded-lg p-4 border ${project.bant_score >= 60 ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"}`}><p className={`text-sm font-medium ${project.bant_score >= 60 ? "text-green-700" : "text-amber-700"}`}>{project.bant_score >= 60 ? "BANT Passed, waiting for assignment" : "BANT not passed, please refine your input"}</p></div>}
-    <QualificationSection qualification={project.qualification} targetSubmit={project.target_submit} />
-    <SourceDocumentSection documents={project.source_documents ?? []} />
-    <ProjectActivitySection projectId={projectId} />
-    <TimSASection projectId={projectId} /><SubtaskSection projectId={projectId} />
-    <ProjectComments projectId={projectId} readOnly={project.status === "Closed" || project.status === "Lost"} />
-    <CollaboratorSection projectId={projectId} initialCollaborators={project.collaborators} />
-    {project.status === "Won" && handover.error && !handover.status && <LoadError message="Gagal memuat status handover." onRetry={handover.onRetry} />}
-    {handover.shouldShowConfigForm && <div className="bg-white border border-amber-200 rounded-lg p-5"><h2 className="text-base font-semibold text-neutral-800 mb-3">Konfigurasi Handover</h2><p className="text-sm text-neutral-600 mb-4">Email PMO Lead dan Delivery Lead belum dikonfigurasi.</p><HandoverConfigForm projectId={projectId} existingPmoEmail={handover.status?.pmo_email} existingDeliveryEmail={handover.status?.delivery_email} onSuccess={handover.onSuccess} /></div>}
-    {handover.shouldShowModal && <HandoverModal projectId={projectId} projectName={project.project_name} onAcknowledge={handover.onAcknowledge} />}
-  </>;
+      <StatusActions project={project} onChanged={onProjectChanged} />
+      <HandoverAction project={project} onDone={onProjectChanged} />
+      <section className="rounded-lg border border-neutral-200 bg-white p-5">
+        <h2 className="mb-3 text-sm font-semibold text-neutral-700">Informasi Proyek</h2>
+        <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+          <InfoRow label="Dibuat oleh" value={project.created_by?.name || "—"} />
+          <InfoRow label="Product Manager PIC" value={project.product_pic?.name || "—"} />
+          <InfoRow label="Sales PIC" value={project.sales_pic?.name || "—"} />
+          <InfoRow label="Lead SA" value={project.lead_sa?.name || "Belum ada"} />
+          <InfoRow label="SA Ditugaskan" value={project.assigned_sa?.name || "Belum di-assign"} />
+          <InfoRow label="DQ Number" value={project.dq_number || "Belum diinput"} mono={!!project.dq_number} />
+          <InfoRow
+            label="Target Submit"
+            value={
+              project.target_submit
+                ? new Date(project.target_submit).toLocaleDateString("id-ID", {
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  })
+                : "—"
+            }
+          />
+          <InfoRow
+            label="Dibuat"
+            value={new Date(project.created_at).toLocaleDateString("id-ID", {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            })}
+          />
+        </div>
+        {(project.use_case_tags?.length ?? 0) > 0 && (
+          <div className="mt-4 border-t border-neutral-100 pt-4">
+            <span className="text-xs text-neutral-500">Use Case Tags:</span>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {project.use_case_tags?.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full bg-primary-50 px-2 py-0.5 text-xs text-primary-600"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+      <FolderProvisioningSection
+        status={project.folder_provisioning_status}
+        operation={project.folder_provisioning_operation}
+        hasMasterFolder={!!project.gdrive_folder_id}
+        canRetry={isPrivileged(user)}
+        isRetrying={folderProvisioning.isRetrying}
+        retryError={folderProvisioning.error}
+        onRetry={folderProvisioning.onRetry}
+      />
+      <PeopleSection project={project} onChanged={onProjectChanged} />
+      <div className="flex gap-4">
+        <a
+          href={`/projects/${projectId}/documents`}
+          className="flex min-h-[44px] items-center gap-2 rounded-lg border border-neutral-200 px-4 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50"
+        >
+          Dokumen
+        </a>
+        <a
+          href={`/projects/${projectId}/activity-logs`}
+          className="flex min-h-[44px] items-center gap-2 rounded-lg border border-neutral-200 px-4 py-2.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50"
+        >
+          Riwayat Log
+        </a>
+      </div>
+      {project.bant_score !== null && project.bant_score !== undefined && (
+        <div
+          className={`rounded-lg border p-4 ${
+            project.bant_score >= 60
+              ? "border-green-200 bg-green-50"
+              : "border-amber-200 bg-amber-50"
+          }`}
+        >
+          <p
+            className={`text-sm font-medium ${
+              project.bant_score >= 60 ? "text-green-700" : "text-amber-700"
+            }`}
+          >
+            {project.bant_score >= 60
+              ? "BANT Passed, waiting for assignment"
+              : "BANT not passed, please refine your input"}
+          </p>
+        </div>
+      )}
+      <QualificationSection qualification={project.qualification} targetSubmit={project.target_submit} />
+      <SourceDocumentSection documents={project.source_documents ?? []} />
+      <ProjectActivitySection projectId={projectId} />
+      <TimSASection projectId={projectId} />
+      <SubtaskSection projectId={projectId} />
+      <ProjectComments projectId={projectId} readOnly={project.status === "Closed" || project.status === "Lost"} />
+      <CollaboratorSection projectId={projectId} initialCollaborators={project.collaborators} />
+      {project.status === "Won" && handover.error && !handover.status && (
+        <LoadError message="Gagal memuat status handover." onRetry={handover.onRetry} />
+      )}
+      {handover.shouldShowConfigForm && (
+        <div className="rounded-lg border border-amber-200 bg-white p-5">
+          <h2 className="mb-3 text-base font-semibold text-neutral-800">Konfigurasi Handover</h2>
+          <p className="mb-4 text-sm text-neutral-600">
+            Email PMO Lead dan Delivery Lead belum dikonfigurasi.
+          </p>
+          <HandoverConfigForm
+            projectId={projectId}
+            existingPmoEmail={handover.status?.pmo_email}
+            existingDeliveryEmail={handover.status?.delivery_email}
+            onSuccess={handover.onSuccess}
+          />
+        </div>
+      )}
+      {handover.shouldShowModal && (
+        <HandoverModal
+          projectId={projectId}
+          projectName={project.project_name}
+          onAcknowledge={handover.onAcknowledge}
+        />
+      )}
+    </>
+  );
 }
 
 function InfoRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) { const missing = value.startsWith("Belum"); return <div><span className="text-neutral-500">{label}:</span><span className={`ml-2 font-medium ${missing ? "text-red-600 font-bold" : mono ? "font-mono text-sm text-neutral-800" : "text-neutral-800"}`}>{value}</span></div>; }

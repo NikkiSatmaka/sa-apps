@@ -278,6 +278,8 @@ async def test_send_notification_tanpa_gmail_mencatat_email_failed_tanpa_menggan
     assert operation.status == "failed"
     assert len(operation.attempts) == 1
     assert operation.retryable is False
+    assert "luar@contoh.test" not in operation.actionable_error
+    assert "Provider error" not in operation.actionable_error
     assert operation.actionable_error
     assert fake_gmail.percobaan == []
 
@@ -307,6 +309,8 @@ async def test_email_langsung_gagal_satu_kali_dan_menyimpan_operation(fake_gmail
     assert operation.status == "failed"
     assert len(operation.attempts) == 1
     assert operation.retryable is False
+    assert operation.context == {"event_type": "handover", "reference_id": "PRJ-1"}
+    assert "luar@contoh.test" not in str(operation.context)
     assert operation.actionable_error
 
 

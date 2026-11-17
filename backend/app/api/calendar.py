@@ -427,13 +427,16 @@ async def map_event_to_project(
         )
         if not duplicate:
             logger.error(f"IntegrityError saat map event: {e}")
+        operation_details = await _operation_details(db, operation_id)
+        if operation_details is not None:
+            operation_details.pop("project_id", None)
         return JSONResponse(
             status_code=(
                 status.HTTP_409_CONFLICT if duplicate else status.HTTP_400_BAD_REQUEST
             ),
             content=error_response(
                 message=message,
-                data={"integration_operation": await _operation_details(db, operation_id)},
+                data={"integration_operation": operation_details},
             ),
         )
     except Exception:

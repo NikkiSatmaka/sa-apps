@@ -244,7 +244,6 @@ async def test_calendar_mapping_duplicate_failure_keeps_project_work_and_operati
 
     assert duplicate.status_code == 409
     operation = duplicate.json()["data"]["integration_operation"]
-    assert operation["project_id"] == project.id_project
     assert operation["action"] == "map_event_to_project"
     assert operation["status"] == "failed"
     assert operation["attempts"][-1]["status"] == "failed"
@@ -255,6 +254,7 @@ async def test_calendar_mapping_duplicate_failure_keeps_project_work_and_operati
         select(IntegrationOperation).where(IntegrationOperation.id == operation["id"])
     )
     assert persisted is not None
+    assert persisted.project_id == project.id_project
     assert persisted.status == "failed"
     assert (await ambil_proyek(db_session, project.id_project)).status == "In Progress"
 

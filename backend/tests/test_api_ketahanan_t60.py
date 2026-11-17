@@ -177,16 +177,17 @@ def test_activity_log_error_tak_terduga_500_tanpa_membocorkan_detail(
 def test_map_integrity_error_non_gcal_400_dan_rollback(monkeypatch):
     from app.api import calendar as modul
 
-    # Tiket #89: cek akses TULIS di-stub lolos; yang diuji adalah galat commit.
+    # Tiket #89: cek akses TULIS di-stub lolos; yang diuji adalah IntegrityError saat flush.
     monkeypatch.setattr(modul, "ensure_project_access", AsyncMock())
     db = MagicMock()
     db.execute = AsyncMock(return_value=_hasil(SimpleNamespace(id_project="PRJ-1", status="In Progress")))
     db.add = MagicMock()
-    db.commit = AsyncMock(
+    db.flush = AsyncMock(
         side_effect=IntegrityError(
             "INSERT", {}, Exception('violates foreign key constraint "fk_sa"')
         )
     )
+    db.commit = AsyncMock()
     db.rollback = AsyncMock()
     badan = {
         "gcal_event_id": "evt-1",
@@ -202,7 +203,8 @@ def test_map_integrity_error_non_gcal_400_dan_rollback(monkeypatch):
 
     assert resp.status_code == 400
     assert "Gagal memetakan event" in resp.json()["message"]
-    db.rollback.assert_awaited_once()
+    db.begin_nested.return_value.__aexit__.assert_awaited_once()
+    db.rollback.assert_not_awaited()
 
 
 def test_map_konflik_gcal_409_pesan_generik_tanpa_mencari_proyek_lain(monkeypatch):
@@ -214,9 +216,10 @@ def test_map_konflik_gcal_409_pesan_generik_tanpa_mencari_proyek_lain(monkeypatc
     db = MagicMock()
     db.execute = AsyncMock(side_effect=[_hasil(SimpleNamespace(id_project="PRJ-1", status="In Progress")), _hasil(None)])
     db.add = MagicMock()
-    db.commit = AsyncMock(
+    db.flush = AsyncMock(
         side_effect=IntegrityError("INSERT", {}, Exception("duplicate key idx_unique_gcal_mapping"))
     )
+    db.commit = AsyncMock()
     db.rollback = AsyncMock()
     badan = {
         "gcal_event_id": "evt-1",

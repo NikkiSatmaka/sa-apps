@@ -30,8 +30,46 @@ env:
   UV_FROZEN: "1" # seluruh `uv run`/`uv sync` memakai uv.lock apa adanya
 
 jobs:
+  # Markdown-only PRs skip app tests; job-level skips preserve required check contexts.
+  ci_scope:
+    name: Classify application-test scope
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run_app_ci: ${{ steps.classify.outputs.run_app_ci }}
+    steps:
+      - name: Classify changed files
+        id: classify
+        env:
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          EVENT_NAME: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            echo "run_app_ci=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          files="$(gh api --paginate --slurp \
+            "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100")"
+          run_app_ci="$(jq -r --argjson expected "$CHANGED_FILES" '
+            flatten
+            | map(.filename)
+            | if length != $expected then true
+              else any(.[]; (endswith(".md") | not))
+              end
+          ' <<< "$files")"
+          echo "run_app_ci=$run_app_ci" >> "$GITHUB_OUTPUT"
+
   backend-unit:
     name: Backend — test unit
+    needs: [ci_scope]
+    if: ${{ !cancelled() && (needs.ci_scope.result != 'success' || needs.ci_scope.outputs.run_app_ci == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -72,6 +110,8 @@ jobs:
 
   backend-integration:
     name: Backend — test integrasi (Postgres 18)
+    needs: [ci_scope]
+    if: ${{ !cancelled() && (needs.ci_scope.result != 'success' || needs.ci_scope.outputs.run_app_ci == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -127,10 +167,10 @@ jobs:
   cakupan-gabungan:
     name: Backend — ringkasan cakupan gabungan
     runs-on: ubuntu-latest
-    needs: [backend-unit, backend-integration]
+    needs: [ci_scope, backend-unit, backend-integration]
     # Tetap jalan walau salah satu job gagal agar cakupan terlihat. Gerbang di bawah
     # tetap gagal bila data tidak lengkap (lihat langkah "Gabungkan").
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (needs.ci_scope.result != 'success' || needs.ci_scope.outputs.run_app_ci == 'true') }}
     timeout-minutes: 10
     defaults:
       run:
@@ -234,8 +274,8 @@ jobs:
   # "Re-run" job ini. Logika ada di backend/scripts/gerbang_cakupan_diff.py (teruji).
   cakupan-diff:
     name: Gerbang cakupan diff (baris yang diubah)
-    if: ${{ github.event_name == 'pull_request' && !cancelled() }}
-    needs: [cakupan-gabungan, frontend]
+    if: ${{ github.event_name == 'pull_request' && !cancelled() && (needs.ci_scope.result != 'success' || needs.ci_scope.outputs.run_app_ci == 'true') }}
+    needs: [ci_scope, cakupan-gabungan, frontend]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -294,6 +334,8 @@ jobs:
 
   frontend:
     name: Frontend — tsc, test + cakupan, build
+    needs: [ci_scope]
+    if: ${{ !cancelled() && (needs.ci_scope.result != 'success' || needs.ci_scope.outputs.run_app_ci == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:

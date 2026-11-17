@@ -69,6 +69,7 @@ def _make_document(status: str = "Draft", folder_type: str = "Solutions"):
 def _make_project(
     dq_number=None,
     sales_pic=None,
+    product_pic=None,
     gdrive_folder_id="folder_123",
     gdrive_solutions_folder_id="solutions_123",
 ):
@@ -79,6 +80,7 @@ def _make_project(
     project.customer_name = "Customer A"
     project.dq_number = dq_number
     project.sales_pic = sales_pic or uuid.uuid4()
+    project.product_pic = product_pic
     project.gdrive_folder_id = gdrive_folder_id
     project.gdrive_solutions_folder_id = gdrive_solutions_folder_id
     return project
@@ -137,15 +139,19 @@ class TestReviewedDenganDQ:
         sales_id = uuid.uuid4()
         document = _make_document(status="Draft", folder_type="Solutions")
         project = _make_project(dq_number="DQ-12345", sales_pic=sales_id)
+        product_id = uuid.uuid4()
+        project.product_pic = product_id
         sales_user = _make_user(role="Sales", user_id=sales_id)
+        product_user = _make_user(role="Product", user_id=product_id)
         sa_user = _make_user(role="SA")
 
         mock_session = AsyncMock()
-        # execute() dipanggil: 1) lookup dokumen, 2) lookup project, 3) lookup sales user
+        # execute(): document lookup, project lookup, Sales lookup, Product lookup.
         mock_session.execute.side_effect = [
             _result_scalar(document),
             _result_scalar(project),
             _result_scalar(sales_user),
+            _result_scalar(product_user),
         ]
         mock_session.commit = AsyncMock()
         mock_session.refresh = AsyncMock()
@@ -181,11 +187,8 @@ class TestReviewedDenganDQ:
         mock_unlock.assert_called_once_with(
             solutions_folder_id="solutions_123",
             sales_email=sales_user.email,
+            product_email="product@company.com",
         )
-
-
-# =============================================================================
-# Test: DQ kosong tidak memicu doc_ready
 # =============================================================================
 
 
@@ -326,6 +329,7 @@ class TestSideEffectTidakMenggagalkanTransisi:
             _result_scalar(document),
             _result_scalar(project),
             _result_scalar(sales_user),
+            _result_scalar(_make_user(role="Product")),
         ]
         mock_session.commit = AsyncMock()
         mock_session.refresh = AsyncMock()

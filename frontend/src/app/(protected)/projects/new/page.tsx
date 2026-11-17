@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import { fetcher } from "@/lib/fetcher";
 import { bisaMembuatProyek } from "@/lib/roles";
 import { useAuthStore } from "@/store/auth";
@@ -10,8 +10,11 @@ import { FileUpload, FileItem } from "@/components/FileUpload";
 import { QualificationForm } from "@/components/QualificationForm";
 import {
   createProject,
+  createCustomer,
   extractFieldErrors,
   CreateProjectResponse,
+  renameCustomer,
+  CustomerOption,
 } from "@/lib/api/projects";
 import {
   QualificationAnswers,
@@ -64,10 +67,16 @@ export default function NewProjectPage() {
   const bolehMembuat = bisaMembuatProyek(currentUser);
   const perluPilihProduct = currentUser?.role !== "Product";
   const bolehPilihSales = currentUser?.role !== "Sales";
+  const bolehRenameCustomer = currentUser?.role === "Lead_SA" || currentUser?.is_admin === true;
   const { data: daftarProduct } = useSWR<OrangOption[]>(
     bolehMembuat && perluPilihProduct ? "/projects/users/search?role=Product&limit=50" : null,
     fetcher
   );
+  const { data: customers = [] } = useSWR<CustomerOption[]>(
+    bolehMembuat ? "/customers" : null,
+    fetcher,
+  );
+  const { mutate } = useSWRConfig();
   const { data: daftarSales } = useSWR<OrangOption[]>(
     bolehMembuat && bolehPilihSales ? "/projects/users/search?role=Sales&limit=50" : null,
     fetcher
@@ -95,6 +104,8 @@ export default function NewProjectPage() {
   // Submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [customerError, setCustomerError] = useState<string | null>(null);
+  const [customerRename, setCustomerRename] = useState("");
 
   // Post-submit state
   const [createdProject, setCreatedProject] = useState<CreateProjectResponse | null>(null);
@@ -135,6 +146,34 @@ export default function NewProjectPage() {
     },
     [errors]
   );
+
+  const saveCustomer = useCallback(async () => {
+    const name = form.customerName.trim();
+    if (!name) {
+      setCustomerError("Nama customer wajib diisi");
+      return;
+    }
+    try {
+      const customer = await createCustomer(name);
+      setForm((previous) => ({ ...previous, customerId: customer.id, customerName: customer.name }));
+      setCustomerError(null);
+      await mutate("/customers");
+    } catch (error) {
+      setCustomerError(error instanceof Error ? error.message : "Gagal menyimpan Customer");
+    }
+  }, [form.customerName, mutate]);
+
+  const saveCustomerRename = useCallback(async () => {
+    if (!form.customerId || !customerRename.trim()) return;
+    try {
+      const customer = await renameCustomer(form.customerId, customerRename.trim());
+      setForm((previous) => ({ ...previous, customerName: customer.name }));
+      setCustomerError(null);
+      await mutate("/customers");
+    } catch (error) {
+      setCustomerError(error instanceof Error ? error.message : "Gagal mengganti nama Customer");
+    }
+  }, [customerRename, form.customerId, mutate]);
 
   // Update jawaban kuesioner
   const updateAnswer = useCallback(
@@ -337,12 +376,51 @@ export default function NewProjectPage() {
             </p>
           </div>
 
-          {/* Nama Customer */}
+          {/* Select an existing identity or create one inline. */}
           <div>
-            <label
-              htmlFor="customerName"
-              className="block text-sm font-medium text-neutral-700 mb-1"
+            <label htmlFor="customerSelect" className="block text-sm font-medium text-neutral-700 mb-1">
+              Customer <span className="text-red-500">*</span>
+            </label>
+            <select
+              id="customerSelect"
+              aria-label="Customer"
+              value={form.customerId ?? "new"}
+              onChange={(event) => {
+                const selected = customers.find((customer) => customer.id === event.target.value);
+                setForm((previous) => selected
+                  ? { ...previous, customerId: selected.id, customerName: selected.name }
+                  : { ...previous, customerId: undefined, customerName: "" });
+                setCustomerRename(selected?.name ?? "");
+                setCustomerError(null);
+              }}
+              disabled={isSubmitting}
+              className="w-full px-3 py-2.5 border border-neutral-300 rounded-lg text-sm"
             >
+              <option value="new">Buat Customer baru</option>
+              {customers.map((customer) => (
+                <option key={customer.id} value={customer.id}>{customer.name}</option>
+              ))}
+            </select>
+            {bolehRenameCustomer && form.customerId && (
+              <div className="mt-2">
+                <label htmlFor="customerRename" className="block text-sm text-neutral-700 mb-1">
+                  Nama Customer baru
+                </label>
+                <input
+                  id="customerRename"
+                  value={customerRename}
+                  onChange={(event) => setCustomerRename(event.target.value)}
+                  maxLength={150}
+                  className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm"
+                />
+                <button type="button" onClick={() => void saveCustomerRename()} className="mt-2 text-sm text-primary-700 underline">
+                  Ganti nama Customer
+                </button>
+              </div>
+            )}
+          </div>
+          <div>
+            <label htmlFor="customerName" className="block text-sm font-medium text-neutral-700 mb-1">
               Nama Customer <span className="text-red-500">*</span>
             </label>
             <input
@@ -350,26 +428,23 @@ export default function NewProjectPage() {
               type="text"
               maxLength={150}
               value={form.customerName}
-              onChange={(e) => updateField("customerName", e.target.value)}
-              disabled={isSubmitting}
+              onChange={(event) => updateField("customerName", event.target.value)}
+              disabled={isSubmitting || !!form.customerId}
               placeholder="Contoh: PT Astra International"
-              className={`
-                w-full px-3 py-2.5 border rounded-lg text-sm
-                focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500
-                disabled:opacity-50 disabled:bg-neutral-100
-                ${errors.customerName ? "border-red-300 bg-red-50" : "border-neutral-300"}
-              `}
+              className={`w-full px-3 py-2.5 border rounded-lg text-sm ${errors.customerName ? "border-red-300 bg-red-50" : "border-neutral-300"}`}
               aria-invalid={!!errors.customerName}
               aria-describedby={errors.customerName ? "customerName-error" : undefined}
             />
-            {errors.customerName && (
-              <p id="customerName-error" className="text-xs text-red-600 mt-1" role="alert">
-                {errors.customerName}
-              </p>
+            {!form.customerId && (
+              <button type="button" onClick={() => void saveCustomer()} disabled={isSubmitting} className="mt-2 text-sm text-primary-700 underline">
+                Simpan Customer
+              </button>
             )}
-            <p className="text-xs text-neutral-400 mt-1">
-              {form.customerName.length}/150 karakter
-            </p>
+            {customerError && <p className="text-xs text-red-600 mt-1" role="alert">{customerError}</p>}
+            {errors.customerName && (
+              <p id="customerName-error" className="text-xs text-red-600 mt-1" role="alert">{errors.customerName}</p>
+            )}
+            <p className="text-xs text-neutral-400 mt-1">{form.customerName.length}/150 karakter</p>
           </div>
 
           {/* Target Submit Date */}

@@ -77,6 +77,7 @@ def _make_project(
     project.gdrive_folder_id = "gdrive_master_123" if gdrive_solutions_folder_id else None
     project.gdrive_solutions_folder_id = gdrive_solutions_folder_id
     project.dq_number = dq_number
+    project.product_pic = uuid.uuid4()
     return project
 
 
@@ -106,10 +107,11 @@ class _FakeFlow2Session:
     mengembalikan dirinya sendiri.
     """
 
-    def __init__(self, project, managers, sales_user):
+    def __init__(self, project, managers, sales_user, product_user=None):
         self._project = project
         self._managers = managers
         self._sales_user = sales_user
+        self._product_user = product_user
         self.sla_rows: dict[str, SLATracking] = {}
         self._pending: list = []
         self.added: list = []
@@ -139,6 +141,9 @@ class _FakeFlow2Session:
         if name == "User":
             if self._is_list_query(statement):
                 return _scalars_all_result(self._managers)
+            parameter_values = statement.compile().params.values()
+            if self._project.product_pic in parameter_values:
+                return _scalar_result(self._product_user)
             return _scalar_result(self._sales_user)
 
         return _scalar_result(None)
@@ -207,9 +212,13 @@ class TestCabangLebih5Hari:
     async def test_alur_penuh_reminder_eskalasi_lock_unlock(self):
         timer = SLATimer()
         sales = _make_user("Sales", email="sales@company.com")
+        product = _make_user("Product", email="product@company.com")
         manager = _make_user("Lead_SA", email="lead@company.com")
         project = _make_project(sales_pic=sales.id)
-        session = _FakeFlow2Session(project=project, managers=[manager], sales_user=sales)
+        project.product_pic = product.id
+        session = _FakeFlow2Session(
+            project=project, managers=[manager], sales_user=sales, product_user=product
+        )
 
         # --- T2: assign memulai SLA timer di H+0 ---
         assigned_at = datetime.now(timezone.utc)
@@ -254,6 +263,7 @@ class TestCabangLebih5Hari:
         mock_lock.assert_awaited_once_with(
             solutions_folder_id=project.gdrive_solutions_folder_id,
             sales_email=sales.email,
+            product_email=product.email,
         )
         row = session.sla_rows[PROJECT_ID]
         assert row.current_status == SLAStatus.RED.value
@@ -269,6 +279,7 @@ class TestCabangLebih5Hari:
         mock_unlock.assert_awaited_once_with(
             solutions_folder_id=project.gdrive_solutions_folder_id,
             sales_email=sales.email,
+            product_email=product.email,
         )
         assert stopped.stopped_at is not None
         assert stopped.is_locked is False
@@ -381,20 +392,22 @@ class TestCabangKurang5Hari:
 
     def test_reviewed_emit_doc_ready_lalu_sales_lihat_dokumen(self):
         sales = _make_user("Sales", email="sales@company.com")
+        product = _make_user("Product", email="product@company.com")
         sa = _make_user("SA")
         document = _make_document(status="Draft")
         project = _make_project(sales_pic=sales.id, dq_number="DQ-99887")
+        project.product_pic = product.id
 
         client = TestClient(app)
 
         # --- 1. SA menandai dokumen Reviewed → doc_ready + buka akses Solutions ---
         review_session = AsyncMock()
-        # execute: 1) lookup dokumen, 2) lookup project (handle_doc_ready),
-        # 3) lookup sales user (handle_doc_ready).
+        # execute: document, project, Sales, and Product lookups.
         review_session.execute.side_effect = [
             _scalar_result(document),
             _scalar_result(project),
             _scalar_result(sales),
+            _scalar_result(product),
         ]
         review_session.commit = AsyncMock()
         review_session.refresh = AsyncMock()
@@ -428,6 +441,7 @@ class TestCabangKurang5Hari:
         mock_unlock.assert_awaited_once_with(
             solutions_folder_id=project.gdrive_solutions_folder_id,
             sales_email=sales.email,
+            product_email=product.email,
         )
 
         # --- 2. Sales mengakses dokumen Solutions via API (DQ ada → terlihat) ---

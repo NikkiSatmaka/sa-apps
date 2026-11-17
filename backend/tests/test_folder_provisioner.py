@@ -7,7 +7,8 @@ panggilan jaringan nyata.
 
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -32,7 +33,11 @@ class FakeProject:
     customer_name: str = "PT Acme Indonesia"
     project_name: str = "Data Platform Migration"
     id_project: str = "PRJ-001"
-
+    customer: SimpleNamespace = field(
+        default_factory=lambda: SimpleNamespace(gdrive_folder_id="customer-folder")
+    )
+    gdrive_folder_number: int = 1
+    gdrive_folder_id: str | None = None
 
 @pytest.fixture
 def provisioner():
@@ -47,6 +52,10 @@ def mock_drive_service():
 
     # Mock files().create()
     create_mock = MagicMock()
+    # Mock files().list() for child-folder lookups.
+    list_mock = MagicMock()
+    list_mock.execute.return_value = {"files": [], "nextPageToken": None}
+    service.files.return_value.list.return_value = list_mock
     create_mock.execute.return_value = {"id": "folder_id_123"}
     service.files.return_value.create.return_value = create_mock
 
@@ -374,10 +383,10 @@ def _daftar_izin(mock_drive_service, *izin):
 
 
 class TestReassignSaAccess:
-    """Pindahkan akses Editor folder master dari SA lama ke SA baru."""
+    """SA reassignment never revokes team-wide Editor access."""
 
     @pytest.mark.asyncio
-    async def test_beri_editor_ke_sa_baru_dan_cabut_sa_lama(
+    async def test_beri_editor_ke_sa_baru_dan_jangan_cabut_sa_lama(
         self, provisioner_with_service, mock_drive_service
     ):
         _daftar_izin(mock_drive_service, ("perm_lama", "lama@company.com"))
@@ -396,10 +405,7 @@ class TestReassignSaAccess:
             "role": "writer",
             "emailAddress": "baru@company.com",
         }
-        hapus = mock_drive_service.permissions.return_value.delete
-        hapus.assert_called_once_with(
-            fileId="master_001", permissionId="perm_lama", supportsAllDrives=True
-        )
+        mock_drive_service.permissions.return_value.delete.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_sa_baru_yang_sudah_punya_akses_tidak_dibuat_ulang(
@@ -414,9 +420,7 @@ class TestReassignSaAccess:
         await provisioner_with_service.reassign_sa_access("master_001", "lama@company.com", "baru@company.com")
 
         mock_drive_service.permissions.return_value.create.assert_not_called()
-        mock_drive_service.permissions.return_value.delete.assert_called_once_with(
-            fileId="master_001", permissionId="perm_lama", supportsAllDrives=True
-        )
+        mock_drive_service.permissions.return_value.delete.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_sa_lama_tanpa_izin_tidak_ada_yang_dihapus(

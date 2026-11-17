@@ -5,6 +5,7 @@ Menangani penugasan SA, daftar proyek pending, dan ketersediaan SA.
 
 import logging
 import random
+import re
 import string
 import uuid
 from typing import Optional
@@ -29,6 +30,7 @@ from app.models.integration_operation import IntegrationOperation
 from app.models.document import Document
 from app.models.notification_log import NotificationLog
 from app.models.project import Project
+from app.models.customer import Customer
 from app.models.project_assignment import ProjectAssignment
 from app.models.subtask import Subtask
 from app.models.user import User
@@ -127,6 +129,63 @@ def _require_lead_sa(current_user: User) -> None:
         )
 
 
+async def _reserve_project_folder(db: AsyncSession, project: Project) -> None:
+    """Persist the Customer Drive identity and a unique number before project-folder creation."""
+    if project.customer_id is None:
+        raise FolderProvisioningError(
+            f"Project '{project.id_project}' has no Customer identity. Link it to a Customer "
+            "before provisioning its Drive folder."
+        )
+
+    customer_result = await db.execute(
+        select(Customer)
+        .where(Customer.id == project.customer_id)
+        .with_for_update()
+    )
+    customer = customer_result.scalar_one_or_none()
+    if customer is None:
+        raise FolderProvisioningError(
+            f"Customer identity for project '{project.id_project}' no longer exists."
+        )
+    # A concurrent attempt for the same project may have committed while this task waited.
+    await db.refresh(
+        project,
+        attribute_names=["customer_id", "gdrive_folder_id", "gdrive_folder_number"],
+    )
+    project.customer = customer
+
+    # Existing Drive associations are legacy paths: retain them without renaming or moving.
+    if project.gdrive_folder_id is not None:
+        return
+
+    customer_folder_id = await folder_provisioner.ensure_customer_folder(
+        customer.name, customer.gdrive_folder_id
+    )
+    customer.gdrive_folder_id = customer_folder_id
+
+    if project.gdrive_folder_number is None:
+        existing_children = await folder_provisioner.list_folder_children(customer_folder_id)
+        highest_drive_number = max(
+            (
+                int(match.group(1))
+                for child in existing_children
+                if (match := re.match(r"^(\d+)-", child.get("name", "")))
+            ),
+            default=0,
+        )
+        highest_reserved_number = await db.scalar(
+            select(func.max(Project.gdrive_folder_number)).where(
+                Project.customer_id == customer.id
+            )
+        )
+        project.gdrive_folder_number = max(
+            highest_drive_number, highest_reserved_number or 0
+        ) + 1
+
+    # Commit while holding the Customer row lock so overlapping assignments see this reservation.
+    await db.commit()
+
+
 async def _trigger_folder_provisioner(
     project_id: str,
     sa_email: str,
@@ -202,11 +261,36 @@ async def _trigger_folder_provisioner(
             await db.commit()
 
             try:
+                await _reserve_project_folder(db, project)
+
+                team_result = await db.execute(
+                    select(User.email).where(User.role.in_(("SA", "Lead_SA")))
+                )
+                sa_team_emails = tuple(team_result.scalars().all())
+                product_email = None
+                if project.product_pic is not None:
+                    product_result = await db.execute(
+                        select(User.email).where(User.id == project.product_pic)
+                    )
+                    product_email = product_result.scalar_one_or_none()
+
+                async def persist_master_folder_id(folder_id: str) -> None:
+                    if project.gdrive_folder_id not in (None, folder_id):
+                        raise FolderProvisioningError(
+                            "A different Drive project folder is already associated with this project."
+                        )
+                    project.gdrive_folder_id = folder_id
+                    await db.commit()
+
                 result = await folder_provisioner.provision_project_folder(
                     project,
                     sa_email,
                     lead_sa_email,
                     sales_email,
+                    sa_team_emails=sa_team_emails,
+                    product_email=product_email,
+                    dq_number=project.dq_number,
+                    persist_master_folder_id=persist_master_folder_id,
                 )
             except Exception as e:  # noqa: BLE001 - kegagalan Drive harus persisten dan non-blocking
                 finished_at = datetime.now(timezone.utc).isoformat()
@@ -216,7 +300,12 @@ async def _trigger_folder_provisioner(
                         "finished_at": finished_at,
                         "outcome": "Drive provisioning failed",
                         "actionable_error": (
-                            "Review the project’s Drive folders and permissions, then use "
+                            (
+                                f"{e} "
+                                if isinstance(e, FolderProvisioningError)
+                                else ""
+                            )
+                            + "Review the project’s Drive folders and permissions, then use "
                             "the authorized manual provision action."
                         ),
                     }
@@ -382,6 +471,8 @@ async def retry_integration_operation(
         document = document_result.scalar_one_or_none()
         sales_result = await db.execute(select(User).where(User.id == project.sales_pic))
         sales_user = sales_result.scalar_one_or_none()
+        product_result = await db.execute(select(User).where(User.id == project.product_pic))
+        product_user = product_result.scalar_one_or_none()
         if (
             document is None
             or document.status != "Reviewed"
@@ -399,11 +490,12 @@ async def retry_integration_operation(
             await folder_provisioner.unlock_solutions_folder(
                 project.gdrive_solutions_folder_id,
                 sales_user.email,
+                product_user.email if product_user else None,
             )
 
-        outcome = "Sales viewer access to the Solutions folder is restored."
+        outcome = "Sales and Product viewer access to the Solutions folder is restored."
         actionable_failure = (
-            "The document review is saved, but Sales access may remain locked. "
+            "The document review is saved, but Sales or Product access may remain locked. "
             "Restore Drive access and retry this idempotent unlock."
         )
     elif operation.operation_type == "sla" and operation.action in {
@@ -432,23 +524,26 @@ async def retry_integration_operation(
             )
         sales_result = await db.execute(select(User).where(User.id == project.sales_pic))
         sales_user = sales_result.scalar_one_or_none()
+        product_result = await db.execute(select(User).where(User.id == project.product_pic))
+        product_user = product_result.scalar_one_or_none()
         if sales_user is None:
             raise HTTPException(status_code=409, detail="The project's Sales PIC is unavailable.")
+        product_email = product_user.email if product_user else None
         if desired_locked:
             perform = lambda: folder_provisioner.lock_solutions_folder(
-                project.gdrive_solutions_folder_id, sales_user.email
+                project.gdrive_solutions_folder_id, sales_user.email, product_email
             )
-            outcome = "Sales access to the Solutions folder is locked."
+            outcome = "Sales and Product access to the Solutions folder is locked."
             actionable_failure = (
                 "The SLA lock is still unresolved. Restore Drive access and retry this idempotent lock."
             )
         else:
             perform = lambda: folder_provisioner.unlock_solutions_folder(
-                project.gdrive_solutions_folder_id, sales_user.email
+                project.gdrive_solutions_folder_id, sales_user.email, product_email
             )
-            outcome = "Sales viewer access to the Solutions folder is restored."
+            outcome = "Sales and Product viewer access to the Solutions folder is restored."
             actionable_failure = (
-                "The DQ number is saved but Solutions access may remain locked. "
+                "The DQ number is saved but Sales or Product access may remain locked. "
                 "Restore Drive access and retry this idempotent unlock."
             )
     else:
@@ -1061,9 +1156,9 @@ async def reassign_sa_to_project(
     "/projects/{project_id}/provision-folder",
     summary="Provision ulang folder proyek",
     description=(
-        "Men-trigger ulang provisioning folder Google Drive untuk proyek yang "
-        "folder-nya belum ter-provision (gdrive_folder_id masih kosong). "
-        "Idempoten: menolak (409) bila folder sudah ada. Hanya untuk Lead_SA atau Admin."
+        "Men-trigger ulang provisioning folder Google Drive untuk proyek yang belum berhasil "
+        "diprovision; kegagalan parsial dengan nomor tersimpan dilanjutkan pada folder yang sama. "
+        "Mengembalikan 409 setelah sukses. Hanya untuk Lead_SA atau Admin."
     ),
 )
 async def provision_folder(
@@ -1078,10 +1173,9 @@ async def provision_folder(
     Flow:
     1. Validasi role Lead_SA/Admin.
     2. Validasi proyek ada (404).
-    3. Idempotency: jika gdrive_folder_id sudah terisi -> 409 Conflict.
-    4. Jika kosong: set folder_provisioning_status='pending' (commit) lalu
-       jadwalkan _trigger_folder_provisioner dengan email SA assigned (lookup
-       assigned_sa), Lead_SA (current_user.email), dan Sales (lookup sales_pic).
+    3. Reject an associated folder unless a failed attempt has a persisted number to resume.
+    4. Set folder_provisioning_status='pending' (commit), then schedule the same provisioner
+       with the assigned SA, requesting Lead SA, and Sales PIC emails.
 
     Memakai jalur persist yang sama dengan assignment (background task mem-persist
     gdrive_folder_id + gdrive_solutions_folder_id + status).
@@ -1098,14 +1192,18 @@ async def provision_folder(
             detail=f"Proyek dengan ID '{project_id}' tidak ditemukan.",
         )
 
-    # === 2. Idempotency guard: folder sudah ada -> tolak ===
-    if project.gdrive_folder_id is not None:
+    # === 2. Idempotency guard: allow failed partial work only when its number is reserved ===
+    resumable_partial_folder = (
+        project.gdrive_folder_number is not None
+        and project.folder_provisioning_status == "failed"
+    )
+    if project.gdrive_folder_id is not None and not resumable_partial_folder:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
                 f"Folder proyek '{project_id}' sudah ter-provision "
                 f"(gdrive_folder_id='{project.gdrive_folder_id}'). "
-                f"Re-provision hanya untuk proyek yang folder-nya belum ada."
+                "Re-provision hanya untuk proyek yang belum berhasil diprovision."
             ),
         )
 

@@ -3,6 +3,7 @@ import type { FileItem } from "@/components/FileUpload";
 export interface ProjectFormData {
   projectName: string;
   customerName: string;
+  customerId?: string;
   targetSubmit: string;
   estimatedValue: string;
   dqNumber: string;
@@ -75,6 +76,7 @@ export function buildProjectFormData(
 ): FormData {
   const data = new window.FormData();
   data.append("project_name", form.projectName.trim());
+  if (form.customerId) data.append("customer_id", form.customerId);
   data.append("customer_name", form.customerName.trim());
   data.append("target_submit", form.targetSubmit);
   data.append("estimasi_nilai", parseIDR(form.estimatedValue).toString());

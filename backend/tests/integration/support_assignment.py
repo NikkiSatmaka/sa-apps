@@ -20,9 +20,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Disimpan saat impor: `rekam_background` mengganti nama ini di modul assignment per test.
-from app.api.assignment import _trigger_folder_provisioner as _TRIGGER_ASLI
+from app.api.assignment import (
+    _reserve_project_folder as _RESERVE_PROJECT_FOLDER,
+    _trigger_folder_provisioner as _TRIGGER_ASLI,
+)
 from app.models import (
     AuditLog,
+    Customer,
     NotificationLog,
     Project,
     SLATracking,
@@ -76,6 +80,18 @@ class Dunia:
     async def buat_proyek(self, **o: Any) -> Project:
         o.setdefault("status", "Awaiting Assignment")
         proyek = bangun_project(self.sales.id, **o)
+        normalized_name = proyek.customer_name.strip().casefold()
+        customer = await self.db.scalar(
+            select(Customer).where(Customer.normalized_name == normalized_name)
+        )
+        if customer is None:
+            customer = Customer(
+                name=proyek.customer_name.strip(),
+                normalized_name=normalized_name,
+            )
+            self.db.add(customer)
+            await self.db.flush()
+        proyek.customer_id = customer.id
         self.db.add(proyek)
         await self.db.commit()
         return proyek
@@ -213,10 +229,19 @@ async def proyek_aktif_sla(
         status="Assigned", assigned_sa=dunia.sa.id, assigned_at=mulai, **o
     )
     if fake_drive is not None:
+        await _RESERVE_PROJECT_FOLDER(dunia.db, proyek)
+
+        async def persist_master_folder_id(folder_id: str) -> None:
+            proyek.gdrive_folder_id = folder_id
+            await dunia.db.commit()
+
         hasil = await fake_drive.provision_project_folder(
-            proyek, dunia.sa.email, dunia.lead.email, dunia.sales.email
+            proyek,
+            dunia.sa.email,
+            dunia.lead.email,
+            dunia.sales.email,
+            persist_master_folder_id=persist_master_folder_id,
         )
-        proyek.gdrive_folder_id = hasil.master
         proyek.gdrive_solutions_folder_id = hasil.solutions
         proyek.folder_provisioning_status = "provisioned"
         fake_drive.izin[hasil.solutions][dunia.sales.email] = "reader"

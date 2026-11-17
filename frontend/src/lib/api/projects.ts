@@ -195,6 +195,24 @@ export function extractFieldErrors(err: unknown): FieldError[] {
   );
 }
 
+export interface CustomerOption {
+  id: string;
+  name: string;
+}
+
+
+export async function createCustomer(name: string): Promise<CustomerOption> {
+  const result = await apiRequest<CustomerOption>("/customers", { body: { name } });
+  return result;
+}
+
+export function renameCustomer(customerId: string, name: string): Promise<CustomerOption> {
+  return apiRequest<CustomerOption>(`/customers/${customerId}`, {
+    method: "PATCH",
+    body: { name },
+  });
+}
+
 /**
  * Submit proyek baru dengan file attachment
  * Menggunakan multipart/form-data karena ada file upload

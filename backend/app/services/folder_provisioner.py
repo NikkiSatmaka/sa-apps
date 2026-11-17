@@ -1,11 +1,9 @@
 """
-Folder Provisioner — Modul auto-provisioning folder Google Drive.
+Folder Provisioner — provisioning Customer dan folder proyek bernomor di Google Drive.
 
-Membuat struktur folder proyek secara otomatis di Google Drive,
-mengelola permission (Editor/Viewer) untuk SA, Lead_SA, dan Sales,
-serta mendukung lock/unlock folder Solutions berdasarkan SLA.
-
-Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7
+Membuat atau memakai ulang folder Customer, menyediakan proyek baru sebagai
+`NN-<Project>` di dalamnya, mengelola permission, serta mendukung lock/unlock
+folder Solutions berdasarkan SLA.
 """
 
 import asyncio
@@ -14,7 +12,7 @@ import logging
 import re
 from dataclasses import dataclass
 from functools import partial
-from typing import Optional
+from typing import Any, Awaitable, Callable, Optional, Sequence
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -38,6 +36,10 @@ class FolderProvisioningError(Exception):
     pass
 
 
+class FolderConflictError(FolderProvisioningError):
+    """A named Drive folder exists but cannot be safely associated with this operation."""
+
+
 @dataclass
 class ProvisionedFolders:
     """Kontrak id folder hasil provisioning (ADR 0005).
@@ -59,11 +61,12 @@ class FolderProvisioner:
     Mengelola auto-provisioning folder Google Drive untuk proyek.
 
     Struktur folder yang dibuat:
-        [Customer_Name] - [Project_Name]/
-        ├── Inventory/    (Viewer: Sales, Editor: SA + Lead_SA)
-        ├── Diagram/      (Editor: SA + Lead_SA, No Access: Sales)
-        └── Solutions/    (Editor: SA + Lead_SA, No Access: Sales → Viewer setelah DQ)
-            └── Final_Deliverables/  (dibuat saat handover)
+        Customer/
+        └── NN-Project/
+            ├── Inventory/    (Viewer: Sales)
+            ├── Diagram/      (Editor: SA + Lead_SA, No Access: Sales)
+            └── Solutions/    (Editor: SA + Lead_SA, No Access: Sales → Viewer setelah DQ)
+                └── Final_Deliverables/  (dibuat saat handover)
     """
 
     def __init__(self) -> None:
@@ -138,6 +141,8 @@ class FolderProvisioner:
                 # Jalankan operasi sync di executor agar tidak blocking event loop
                 result = await loop.run_in_executor(None, partial(func, *args, **kwargs))
                 return result
+            except FolderConflictError:
+                raise
             except HttpError as e:
                 last_error = e
                 logger.warning(f"[{operation_name}] Percobaan {attempt}/{MAX_RETRIES} gagal: {e}")
@@ -160,7 +165,12 @@ class FolderProvisioner:
         logger.error(error_msg)
         raise FolderProvisioningError(error_msg)
 
-    def _create_folder_sync(self, name: str, parent_id: Optional[str] = None) -> str:
+    def _create_folder_sync(
+        self,
+        name: str,
+        parent_id: Optional[str] = None,
+        app_properties: Optional[dict[str, str]] = None,
+    ) -> str:
         """
         Buat folder di Google Drive (synchronous).
 
@@ -178,6 +188,8 @@ class FolderProvisioner:
         }
         if parent_id:
             file_metadata["parents"] = [parent_id]
+        if app_properties:
+            file_metadata["appProperties"] = app_properties
 
         folder = (
             service.files()
@@ -190,6 +202,137 @@ class FolderProvisioner:
         )
 
         return folder.get("id")
+
+    def _list_folder_children_sync(self, parent_id: str) -> list[dict[str, Any]]:
+        """List all immediate child folders for a Shared Drive folder."""
+        service = self._get_drive_service()
+        children: list[dict[str, str]] = []
+        page_token = None
+        while True:
+            response = (
+                service.files()
+                .list(
+                    q=(
+                        f"'{parent_id}' in parents and trashed = false and "
+                        "mimeType = 'application/vnd.google-apps.folder'"
+                    ),
+                    fields="nextPageToken,files(id,name,appProperties)",
+                    pageSize=1000,
+                    pageToken=page_token,
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
+                    corpora="allDrives",
+                )
+                .execute()
+            )
+            children.extend(response.get("files", []))
+            page_token = response.get("nextPageToken")
+            if not page_token:
+                return children
+
+    async def list_folder_children(self, parent_folder_id: str) -> list[dict[str, Any]]:
+        """List immediate child folders from Google Drive."""
+        return await self._execute_with_retry(
+            "list_folder_children", self._list_folder_children_sync, parent_folder_id
+        )
+
+    def _ensure_customer_folder_sync(self, name: str, parent_id: str) -> str:
+        matches = [
+            folder
+            for folder in self._list_folder_children_sync(parent_id)
+            if folder.get("name", "").strip().casefold() == name.casefold()
+        ]
+        if len(matches) > 1:
+            raise FolderConflictError(
+                f"Multiple Customer folders named '{name}' exist under the configured "
+                "Shared Drive parent. Remove or rename duplicates before provisioning."
+            )
+        if matches:
+            return matches[0]["id"]
+        return self._create_folder_sync(name, parent_id)
+
+    def _create_project_folder_sync(
+        self, name: str, parent_id: str, project_id: str
+    ) -> str:
+        children = self._list_folder_children_sync(parent_id)
+        associated = [
+            folder
+            for folder in children
+            if folder.get("appProperties", {}).get("portalSaProjectId") == project_id
+        ]
+        matches = [
+            folder
+            for folder in children
+            if folder.get("name", "").strip().casefold() == name.casefold()
+        ]
+        if len(associated) > 1:
+            raise FolderConflictError(
+                f"Multiple project folders are associated with project '{project_id}' "
+                f"under Customer folder '{parent_id}'. Resolve the duplicates manually."
+            )
+        if associated:
+            if any(folder["id"] != associated[0]["id"] for folder in matches):
+                raise FolderConflictError(
+                    f"Project folder '{name}' collides with another folder under the Customer "
+                    f"directory for project '{project_id}'. Resolve the duplicates manually."
+                )
+            return associated[0]["id"]
+
+        if matches:
+            raise FolderConflictError(
+                f"Project folder '{name}' already exists under the Customer folder but is not "
+                f"associated with project '{project_id}'. Verify the folder and project number; "
+                "it was not reused."
+            )
+        return self._create_folder_sync(
+            name,
+            parent_id,
+            app_properties={"portalSaProjectId": project_id},
+        )
+
+    async def ensure_customer_folder(
+        self, customer_name: str, existing_folder_id: Optional[str] = None
+    ) -> str:
+        """Reuse a stored Customer folder ID, or resolve/create one under the configured parent."""
+        if existing_folder_id:
+            return existing_folder_id
+
+        parent_folder_id = settings.GDRIVE_PARENT_FOLDER_ID.strip()
+        if not parent_folder_id:
+            raise FolderProvisioningError(
+                "GDRIVE_PARENT_FOLDER_ID must identify a writable Shared Drive parent folder."
+            )
+
+        folder_name = self.sanitize_folder_name(customer_name.strip())
+        return await self._execute_with_retry(
+            "ensure_customer_folder",
+            self._ensure_customer_folder_sync,
+            folder_name,
+            parent_folder_id,
+        )
+
+
+    def _ensure_child_folder_sync(self, name: str, parent_id: str) -> str:
+        matches = [
+            folder
+            for folder in self._list_folder_children_sync(parent_id)
+            if folder.get("name", "").strip().casefold() == name.casefold()
+        ]
+        if len(matches) > 1:
+            raise FolderConflictError(
+                f"Multiple '{name}' folders exist under Drive folder '{parent_id}'. "
+                "Remove duplicates before retrying provisioning."
+            )
+        if matches:
+            return matches[0]["id"]
+        return self._create_folder_sync(name, parent_id)
+
+    async def _ensure_child_folder(
+        self, name: str, parent_id: str, operation_name: str
+    ) -> str:
+        return await self._execute_with_retry(
+            operation_name, self._ensure_child_folder_sync, name, parent_id
+        )
 
     def _set_permission_sync(self, file_id: str, email: str, role: str) -> str:
         """
@@ -271,112 +414,87 @@ class FolderProvisioner:
         sa_email: str,
         lead_sa_email: str,
         sales_email: str,
+        *,
+        sa_team_emails: Sequence[str] = (),
+        product_email: Optional[str] = None,
+        dq_number: Optional[str] = None,
+        persist_master_folder_id: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> ProvisionedFolders:
-        """
-        Buat folder master proyek + 3 subfolder dan set permission.
-
-        Struktur:
-            [Customer_Name] - [Project_Name]/
-            ├── Inventory/    (Viewer: Sales)
-            ├── Diagram/      (No access: Sales)
-            └── Solutions/    (No access: Sales)
-
-        Permission pada folder master: Editor untuk SA + Lead_SA (inherited ke subfolder).
-        Permission tambahan pada Inventory: Viewer untuk Sales.
-
-        Args:
-            project: Object Project dengan atribut customer_name dan project_name
-            sa_email: Email SA yang ditugaskan
-            lead_sa_email: Email Lead SA
-            sales_email: Email Sales PIC
-
-        Returns:
-            ProvisionedFolders: id folder master + subfolder
-            (inventory/diagram/solutions)
-
-        Raises:
-            FolderProvisioningError: Jika gagal setelah 3x retry
-        """
-        parent_folder_id = settings.GDRIVE_PARENT_FOLDER_ID.strip()
-        if not parent_folder_id:
+        """Create or resume a numbered Customer project folder and its subfolders."""
+        customer = getattr(project, "customer", None)
+        customer_folder_id = getattr(customer, "gdrive_folder_id", None)
+        master_id = project.gdrive_folder_id
+        if master_id is None and not customer_folder_id:
             raise FolderProvisioningError(
-                "GDRIVE_PARENT_FOLDER_ID must identify a writable Shared Drive parent folder."
+                "The project has no stored Customer Drive folder. Retry after its Customer "
+                "identity and Drive folder have been provisioned."
             )
 
-        # Sanitasi nama folder
-        customer = self.sanitize_folder_name(project.customer_name)
-        project_name = self.sanitize_folder_name(project.project_name)
-        master_folder_name = f"{customer} - {project_name}"
+        if master_id is None:
+            project_number = project.gdrive_folder_number
+            if project_number is None:
+                raise FolderProvisioningError(
+                    "No project folder number is reserved for this Customer. Retry provisioning."
+                )
 
-        logger.info(f"Memulai provisioning folder: {master_folder_name}")
-
-        # 1. Buat folder master di dalam parent Shared Drive yang dikonfigurasi.
-        master_id = await self._execute_with_retry(
-            "create_master_folder",
-            self._create_folder_sync,
-            master_folder_name,
-            parent_folder_id,
-        )
-        logger.info(f"Folder master dibuat: {master_id}")
-
-        # 2. Buat 3 subfolder
-        inventory_id = await self._execute_with_retry(
-            "create_inventory_subfolder",
-            self._create_folder_sync,
-            "Inventory",
-            master_id,
-        )
-
-        diagram_id = await self._execute_with_retry(
-            "create_diagram_subfolder",
-            self._create_folder_sync,
-            "Diagram",
-            master_id,
-        )
-
-        solutions_id = await self._execute_with_retry(
-            "create_solutions_subfolder",
-            self._create_folder_sync,
-            "Solutions",
-            master_id,
-        )
+            project_name = self.sanitize_folder_name(project.project_name)
+            master_folder_name = f"{project_number:02d}-{project_name}"
+            master_id = await self._execute_with_retry(
+                "create_master_folder",
+                self._create_project_folder_sync,
+                master_folder_name,
+                customer_folder_id,
+                project.id_project,
+            )
+            if persist_master_folder_id is not None:
+                await persist_master_folder_id(master_id)
 
         logger.info(
-            f"Subfolder dibuat - Inventory: {inventory_id}, "
-            f"Diagram: {diagram_id}, Solutions: {solutions_id}"
+            "Provisioning project folder %s under Customer folder %s",
+            project.id_project,
+            customer_folder_id,
         )
 
-        # 3. Set permission Editor pada folder master untuk SA + Lead_SA
-        # (inherited ke semua subfolder)
-        await self._execute_with_retry(
-            "set_permission_sa",
-            self._set_permission_sync,
-            master_id,
-            sa_email,
-            "writer",
+        inventory_id = await self._ensure_child_folder(
+            "Inventory", master_id, "create_inventory_subfolder"
+        )
+        diagram_id = await self._ensure_child_folder(
+            "Diagram", master_id, "create_diagram_subfolder"
+        )
+        solutions_id = await self._ensure_child_folder(
+            "Solutions", master_id, "create_solutions_subfolder"
         )
 
-        await self._execute_with_retry(
-            "set_permission_lead_sa",
-            self._set_permission_sync,
-            master_id,
-            lead_sa_email,
-            "writer",
-        )
+        sa_emails = dict.fromkeys((*sa_team_emails, sa_email, lead_sa_email))
+        for email in sa_emails:
+            await self._execute_with_retry(
+                "set_permission_sa_team",
+                self._set_permission_sync,
+                master_id,
+                email,
+                "writer",
+            )
 
-        # 4. Set permission Viewer untuk Sales HANYA pada Inventory
-        await self._execute_with_retry(
-            "set_permission_sales_inventory",
-            self._set_permission_sync,
-            inventory_id,
-            sales_email,
-            "reader",
-        )
+        for role_email in (sales_email, product_email):
+            if role_email:
+                await self._execute_with_retry(
+                    "set_permission_sales_product_inventory",
+                    self._set_permission_sync,
+                    inventory_id,
+                    role_email,
+                    "reader",
+                )
 
-        logger.info(
-            f"Permission berhasil diset untuk proyek: "
-            f"{project.customer_name} - {project.project_name}"
-        )
+        if dq_number:
+            for role_email in (sales_email, product_email):
+                if role_email:
+                    await self._execute_with_retry(
+                        "set_permission_sales_product_solutions",
+                        self._set_permission_sync,
+                        solutions_id,
+                        role_email,
+                        "reader",
+                    )
 
         return ProvisionedFolders(
             master=master_id,
@@ -391,18 +509,12 @@ class FolderProvisioner:
         old_sa_email: Optional[str],
         new_sa_email: str,
     ) -> None:
-        """
-        Pindahkan akses Editor folder master dari SA lama ke SA baru (reassign, issue #77).
-
-        SA baru diberi `writer` (dilewati bila sudah punya), lalu akses SA lama dicabut. Izin
-        Editor pada folder master diwarisi subfolder, jadi cukup menyentuh folder master.
-        Urutannya sengaja beri-dulu-baru-cabut agar proyek tidak pernah tanpa SA bila gagal di
-        tengah. Tidak melakukan apa pun bila SA lama dan baru adalah orang yang sama.
+        """Grant Editor access to the newly assigned SA without revoking team access.
 
         Args:
             master_folder_id: ID folder master proyek (`gdrive_folder_id`)
-            old_sa_email: Email SA lama, atau None bila tidak ada
-            new_sa_email: Email SA baru
+            old_sa_email: Email SA sebelumnya (dipertahankan sebagai anggota tim)
+            new_sa_email: Email SA baru yang ditugaskan
 
         Raises:
             FolderProvisioningError: Jika gagal setelah 3x retry
@@ -411,8 +523,9 @@ class FolderProvisioner:
             return
 
         logger.info(
-            f"Memindahkan akses SA pada folder {master_folder_id}: "
-            f"{old_sa_email or '-'} -> {new_sa_email}"
+            "Ensuring Editor access for assigned SA %s on folder %s",
+            new_sa_email,
+            master_folder_id,
         )
 
         sudah_punya = await self._execute_with_retry(
@@ -430,86 +543,44 @@ class FolderProvisioner:
                 "writer",
             )
 
-        if old_sa_email:
+    async def lock_solutions_folder(
+        self, solutions_folder_id: str, sales_email: str, product_email: Optional[str] = None
+    ) -> None:
+        """Remove assigned Sales and Product Viewer permissions from Solutions."""
+        for email in dict.fromkeys(filter(None, (sales_email, product_email))):
             permission_id = await self._execute_with_retry(
-                "find_old_sa_permission",
+                "find_requester_permission",
                 self._find_permission_sync,
-                master_folder_id,
-                old_sa_email,
+                solutions_folder_id,
+                email,
             )
             if permission_id:
                 await self._execute_with_retry(
-                    "remove_old_sa_permission",
+                    "remove_requester_permission",
                     self._remove_permission_sync,
-                    master_folder_id,
+                    solutions_folder_id,
                     permission_id,
                 )
 
-    async def lock_solutions_folder(self, solutions_folder_id: str, sales_email: str) -> None:
-        """
-        Hapus akses Sales dari folder Solutions (SLA auto-lock H+5).
-
-        Dipanggil oleh SLA_Timer saat DQ Number belum diinput
-        setelah 5 hari dari assignment.
-
-        Args:
-            solutions_folder_id: ID folder Solutions di Google Drive
-            sales_email: Email Sales yang aksesnya akan dihapus
-
-        Raises:
-            FolderProvisioningError: Jika gagal setelah 3x retry
-        """
-        logger.info(f"Locking folder Solutions ({solutions_folder_id}) untuk {sales_email}")
-
-        # Cari permission ID Sales di folder Solutions
-        permission_id = await self._execute_with_retry(
-            "find_sales_permission",
-            self._find_permission_sync,
-            solutions_folder_id,
-            sales_email,
-        )
-
-        if permission_id:
-            await self._execute_with_retry(
-                "remove_sales_permission",
-                self._remove_permission_sync,
+    async def unlock_solutions_folder(
+        self, solutions_folder_id: str, sales_email: str, product_email: Optional[str] = None
+    ) -> None:
+        """Restore assigned Sales and Product Viewer permissions on Solutions."""
+        for email in dict.fromkeys(filter(None, (sales_email, product_email))):
+            permission_id = await self._execute_with_retry(
+                "find_requester_permission",
+                self._find_permission_sync,
                 solutions_folder_id,
-                permission_id,
+                email,
             )
-            logger.info(f"Akses Sales dihapus dari folder Solutions")
-        else:
-            logger.info(f"Sales ({sales_email}) tidak punya akses ke folder Solutions, skip lock.")
-
-    async def unlock_solutions_folder(self, solutions_folder_id: str, sales_email: str) -> None:
-        """
-        Kembalikan akses Viewer untuk Sales ke folder Solutions.
-
-        Dipanggil saat DQ Number berhasil diinput setelah sebelumnya
-        folder di-lock oleh SLA_Timer.
-
-        Args:
-            solutions_folder_id: ID folder Solutions di Google Drive
-            sales_email: Email Sales yang aksesnya akan dikembalikan
-
-        Raises:
-            FolderProvisioningError: Jika gagal setelah 3x retry
-        """
-        permission_id = await self._execute_with_retry(
-            "find_sales_permission",
-            self._find_permission_sync,
-            solutions_folder_id,
-            sales_email,
-        )
-
-        if not permission_id:
-            await self._execute_with_retry(
-                "restore_sales_permission",
-                self._set_permission_sync,
-                solutions_folder_id,
-                sales_email,
-                "reader",
-            )
-        logger.info(f"Akses Viewer Sales tersedia di folder Solutions")
+            if not permission_id:
+                await self._execute_with_retry(
+                    "restore_requester_permission",
+                    self._set_permission_sync,
+                    solutions_folder_id,
+                    email,
+                    "reader",
+                )
 
     async def provision_handover(
         self,

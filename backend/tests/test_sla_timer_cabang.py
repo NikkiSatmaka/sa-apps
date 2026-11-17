@@ -34,7 +34,9 @@ def _proyek(solutions="sol-1"):
 async def test_lock_dilewati_bila_user_sales_tidak_ditemukan():
     sla = MagicMock(is_locked=False)
     with patch("app.services.sla_timer.folder_provisioner.lock_solutions_folder") as kunci:
-        hasil = await SLATimer()._lock_solutions_with_retry(_proyek(), sla, _sesi(None))
+        hasil = await SLATimer()._lock_solutions_with_retry(
+            _proyek(), sla, _sesi(None, None)
+        )
 
     assert hasil is False
     kunci.assert_not_called()
@@ -45,7 +47,9 @@ async def test_unlock_dilewati_bila_user_sales_tidak_ditemukan():
     proyek = _proyek()
     sla = MagicMock()
     with patch("app.services.sla_timer.folder_provisioner.unlock_solutions_folder") as buka:
-        hasil = await SLATimer()._unlock_solutions_with_retry("PRJ-1", sla, _sesi(proyek, None))
+        hasil = await SLATimer()._unlock_solutions_with_retry(
+            "PRJ-1", sla, _sesi(proyek, None, None)
+        )
 
     assert hasil is False
     buka.assert_not_called()

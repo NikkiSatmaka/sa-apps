@@ -11,6 +11,7 @@ from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     Date,
     DateTime,
@@ -20,6 +21,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     event,
     text,
 )
@@ -64,6 +66,13 @@ class Project(Base):
         nullable=False,
         comment="Nama customer/perusahaan",
     )
+    customer_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("customers.id", name="fk_projects_customer_id"),
+        nullable=True,
+    )
+    customer: Mapped["Customer"] = relationship(back_populates="projects")
+
     dq_number: Mapped[Optional[str]] = mapped_column(
         String(20),
         nullable=True,
@@ -174,6 +183,11 @@ class Project(Base):
         default=list,
         comment="Tags use case proyek (array JSON)",
     )
+    gdrive_folder_number: Mapped[Optional[int]] = mapped_column(
+        BigInteger,
+        nullable=True,
+        comment="Reserved per-Customer number for the provisioned Drive project folder",
+    )
     gdrive_folder_id: Mapped[Optional[str]] = mapped_column(
         String(255),
         nullable=True,
@@ -273,6 +287,15 @@ class Project(Base):
             "folder_provisioning_status IS NULL OR "
             "folder_provisioning_status IN ('pending','provisioned','failed')",
             name="chk_projects_folder_provisioning_status",
+        ),
+        CheckConstraint(
+            "gdrive_folder_number IS NULL OR gdrive_folder_number > 0",
+            name="chk_projects_gdrive_folder_number_positive",
+        ),
+        UniqueConstraint(
+            "customer_id",
+            "gdrive_folder_number",
+            name="uq_projects_customer_gdrive_folder_number",
         ),
         CheckConstraint(
             "requirement_generation_status IS NULL OR "

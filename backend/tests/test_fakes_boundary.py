@@ -4,6 +4,8 @@ Unit test perilaku fake boundary (tiket B3): fake harus sukses/gagal sesuai prog
 panggilan, dan terpasang/ter-reset otomatis. Tanpa DB/Docker/jaringan.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
 from app.core.config import settings
@@ -29,6 +31,10 @@ class _Proyek:
     customer_name = "PT Contoh/Satu"
     project_name = "Proyek Alfa"
 
+    def __init__(self, customer_folder_id):
+        self.customer = SimpleNamespace(gdrive_folder_id=customer_folder_id)
+        self.gdrive_folder_number = 1
+        self.gdrive_folder_id = None
 
 # ----------------------------------------------------------------------------- LLM
 
@@ -137,11 +143,17 @@ def test_llm_tidak_bocor_ke_test_berikutnya():
 
 
 async def test_drive_provision_merekam_id_dan_permission(fake_drive):
+    customer_folder_id = fake_drive.seed_folder("PT Contoh_Satu", fake_drive.parent_id)
     hasil = await folder_provisioner.provision_project_folder(
-        _Proyek(), "sa@x.id", "lead@x.id", "sales@x.id"
+        _Proyek(customer_folder_id), "sa@x.id", "lead@x.id", "sales@x.id"
     )
 
-    assert fake_drive.folder[hasil.master]["name"] == "PT Contoh_Satu - Proyek Alfa"
+    assert fake_drive.folder[hasil.master] == {
+        "name": "01-Proyek Alfa",
+        "parent": customer_folder_id,
+    }
+
+    assert fake_drive.folder[hasil.master]["name"] == "01-Proyek Alfa"
     assert {
         fake_drive.folder[i]["name"] for i in (hasil.inventory, hasil.diagram, hasil.solutions)
     } == {

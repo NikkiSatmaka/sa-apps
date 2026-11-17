@@ -351,3 +351,29 @@ async def test_requirement_kedua_per_proyek_ditolak_tetapi_proyek_lain_boleh(db_
     await _dokumen(db_session, "H2", "PRJ-C3", "HLD", "https://drive.example/b", uid)
     jumlah = (await db_session.execute(text("SELECT count(*) FROM documents"))).scalar_one()
     assert jumlah == 4  # R1, R3, H1, H2 (R2 ditolak)
+
+
+def test_028_backfills_projects_with_trimmed_casefold_customer_identity(database_kosong_url):
+    url = database_kosong_url
+    jalankan_alembic(url, "upgrade", "027")
+    _isi_user_dan_proyek(url)
+    _sql(
+        url,
+        "INSERT INTO projects (id_project, project_name, customer_name, created_by, product_pic, sales_pic, target_submit) "
+        "VALUES ('PRJ-MIG-2', 'Proyek Dua', '  pt MIG  ', :u, :u, :u, '2030-01-01')",
+        {"u": USER_ID},
+    )
+
+    jalankan_alembic(url, "upgrade", "head")
+
+    projects = _sql(
+        url,
+        "SELECT id_project, customer_id FROM projects WHERE id_project IN ('PRJ-MIG', 'PRJ-MIG-2') ORDER BY id_project",
+    )
+    assert projects[0][1] == projects[1][1]
+    customer = _sql(
+        url,
+        "SELECT name, normalized_name FROM customers WHERE id = :id",
+        {"id": projects[0][1]},
+    )
+    assert customer == [("PT Mig", "pt mig")]

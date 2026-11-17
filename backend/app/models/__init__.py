@@ -10,6 +10,7 @@ from app.models.auth_refresh_token import AuthRefreshToken
 from app.models.audit_log import AuditLog
 from app.models.document import Document
 from app.models.notification_log import NotificationLog
+from app.models.customer import Customer
 from app.models.project import Project
 from app.models.integration_operation import IntegrationOperation
 from app.models.project_assignment import ProjectAssignment
@@ -21,6 +22,7 @@ from app.models.subtask import Subtask
 from app.models.user import User
 
 __all__ = [
+    "Customer",
     "User",
     "AuthHandoff",
     "CalendarOAuthSession",

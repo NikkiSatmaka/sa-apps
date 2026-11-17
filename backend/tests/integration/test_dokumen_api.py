@@ -450,7 +450,8 @@ async def test_reviewed_dengan_dq_kirim_doc_ready_dan_buka_akses_solutions_sales
     api, db_session, fake_drive
 ):
     dunia = await siapkan_dunia(api, db_session)
-    proyek = await _proyek_dengan_solutions(db_session, dunia)
+    product, _ = await user_baru(db_session, "Product")
+    proyek = await _proyek_dengan_solutions(db_session, dunia, product_pic=product.id)
     dokumen = await buat_dokumen(db_session, proyek, dunia, doc_type="BOQ")
     sales = dunia.user["Sales"]
     assert fake_drive.peran("folder-solutions", sales.email) is None
@@ -466,10 +467,12 @@ async def test_reviewed_dengan_dq_kirim_doc_ready_dan_buka_akses_solutions_sales
     assert notif[0].notification_metadata["doc_id"] == dokumen.id_doc
     assert notif[0].notification_metadata["doc_type"] == "BOQ"
     assert fake_drive.peran("folder-solutions", sales.email) == "reader"
+    assert fake_drive.peran("folder-solutions", product.email) == "reader"
     [panggilan] = fake_drive.panggilan_operasi("unlock_solutions_folder")
     assert panggilan.argumen == {
         "solutions_folder_id": "folder-solutions",
         "sales_email": sales.email,
+        "product_email": product.email,
     }
 
 

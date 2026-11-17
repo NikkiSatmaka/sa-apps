@@ -165,9 +165,11 @@ async def _handle_doc_ready(document: Document, db: AsyncSession) -> None:
         )
         return
 
-    # Ambil user Sales (requester/sales_pic) untuk notifikasi + akses Drive
+    # Ambil user Sales dan Product untuk notifikasi serta izin Drive Solutions.
     sales_result = await db.execute(select(User).where(User.id == project.sales_pic))
     sales_user = sales_result.scalar_one_or_none()
+    product_result = await db.execute(select(User).where(User.id == project.product_pic))
+    product_user = product_result.scalar_one_or_none()
 
     if sales_user is None:
         logger.warning(
@@ -199,7 +201,7 @@ async def _handle_doc_ready(document: Document, db: AsyncSession) -> None:
     except Exception as e:  # noqa: BLE001 - side-effect tidak boleh menggagalkan transisi
         logger.error(f"Gagal emit doc_ready untuk dokumen {document.id_doc}: {e}")
 
-    # 2. Buka permission Drive Solutions untuk Sales (Viewer)
+    # 2. Buka permission Drive Solutions untuk Sales dan Product (Viewer)
     if not project.gdrive_solutions_folder_id:
         logger.info(
             f"Proyek '{project.id_project}' belum punya gdrive_solutions_folder_id; "
@@ -207,10 +209,11 @@ async def _handle_doc_ready(document: Document, db: AsyncSession) -> None:
         )
         return
 
-    async def unlock_sales_access() -> None:
+    async def unlock_requester_access() -> None:
         await folder_provisioner.unlock_solutions_folder(
             solutions_folder_id=project.gdrive_solutions_folder_id,
             sales_email=sales_user.email,
+            product_email=product_user.email if product_user else None,
         )
 
     await run_side_effect(
@@ -224,10 +227,10 @@ async def _handle_doc_ready(document: Document, db: AsyncSession) -> None:
             "document_id": document.id_doc,
         },
         retryable=True,
-        perform=unlock_sales_access,
-        outcome="Sales viewer access restored after document review.",
+        perform=unlock_requester_access,
+        outcome="Sales and Product viewer access restored after document review.",
         actionable_failure=(
-            "Document review was saved, but Drive access was not restored. "
+            "Document review was saved, but Sales or Product Drive access was not restored. "
             "Ask a Lead SA or Admin to retry after confirming the Solutions folder still exists."
         ),
     )

@@ -29,6 +29,7 @@ ENV_WAJIB = (
     "DRIVE_LIVE_LEAD_EMAIL",
     "DRIVE_LIVE_SA_EMAIL",
     "DRIVE_LIVE_SALES_EMAIL",
+    "DRIVE_LIVE_PRODUCT_EMAIL",
     "DRIVE_LIVE_PMO_EMAIL",
     "DRIVE_LIVE_DELIVERY_EMAIL",
 )
@@ -46,9 +47,15 @@ class KonfigurasiLive:
     email_lead: str
     email_sa: str
     email_sales: str
+    email_product: str
     email_pmo: str
     email_delivery: str
     timeout: float
+
+    @property
+    def email_sa_team(self) -> tuple[str, str]:
+        """Both configured SA identities exercise the team-wide Editor rule."""
+        return self.email_sa, self.email_lead
 
 
 def live_aktif(env: Mapping[str, str]) -> bool:
@@ -121,6 +128,7 @@ def muat_konfigurasi(env: Mapping[str, str]) -> KonfigurasiLive:
         email_lead=email["DRIVE_LIVE_LEAD_EMAIL"],
         email_sa=email["DRIVE_LIVE_SA_EMAIL"],
         email_sales=email["DRIVE_LIVE_SALES_EMAIL"],
+        email_product=email["DRIVE_LIVE_PRODUCT_EMAIL"],
         email_pmo=email["DRIVE_LIVE_PMO_EMAIL"],
         email_delivery=email["DRIVE_LIVE_DELIVERY_EMAIL"],
         timeout=_timeout(env),

@@ -68,9 +68,25 @@ function useOrang() {
   );
 }
 
+const CUSTOMER_ID = "00000000-0000-4000-8000-0000000000c1";
+function useCustomers() {
+  server.use(
+    http.get(api("/customers"), () => HttpResponse.json(successEnvelope([{ id: CUSTOMER_ID, name: "PT Existing" }]))),
+    http.post(api("/customers"), async ({ request }) => {
+      const body = await request.json() as { name: string };
+      return HttpResponse.json(successEnvelope({ id: CUSTOMER_ID, name: body.name }), { status: 201 });
+    }),
+    http.patch(api(`/customers/${CUSTOMER_ID}`), async ({ request }) => {
+      const body = await request.json() as { name: string };
+      return HttpResponse.json(successEnvelope({ id: CUSTOMER_ID, name: body.name }));
+    }),
+  );
+}
+
 function setup(opts: { fake?: boolean; role?: Role } = {}) {
   if (opts.fake) vi.useFakeTimers({ shouldAdvanceTime: true });
   useOrang();
+  useCustomers();
   const user = userEvent.setup(opts.fake ? { advanceTimers: (ms) => vi.advanceTimersByTime(ms) } : undefined);
   renderWithProviders(<NewProjectPage />, { role: opts.role ?? "Sales" });
   return user;
@@ -96,6 +112,7 @@ async function isiKuesioner(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText(/Kebutuhan teknis/), "Migrasi data warehouse");
 }
 
+
 describe("NewProjectPage — langkah 1", () => {
   it("menampilkan header langkah 1 dari 2 dengan form data dasar dan upload file", () => {
     setup();
@@ -104,6 +121,56 @@ describe("NewProjectPage — langkah 1", () => {
     expect(screen.getByRole("button", { name: /Area upload file/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Lanjut ke Kuesioner" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Kembali" })).not.toBeInTheDocument();
+  });
+  it.each(["Sales", "Product", "Lead_SA"] as Role[])("%s can choose or create a Customer", async (role) => {
+    const user = setup({ role });
+    const selector = await screen.findByRole("combobox", { name: "Customer" });
+    await user.selectOptions(selector, CUSTOMER_ID);
+    expect(selector).toHaveValue(CUSTOMER_ID);
+    await user.selectOptions(selector, "new");
+    await user.type(screen.getByLabelText(/^Nama Customer/), "PT Created");
+    await user.click(screen.getByRole("button", { name: "Simpan Customer" }));
+    expect(await screen.findByRole("combobox", { name: "Customer" })).toHaveValue(CUSTOMER_ID);
+  });
+  it("shows a visible error when saving a blank Customer", async () => {
+    const user = setup();
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Customer" }), "new");
+    await user.click(screen.getByRole("button", { name: "Simpan Customer" }));
+    expect(await screen.findByText("Nama customer wajib diisi")).toBeInTheDocument();
+  });
+
+  it("shows the API error when creating a Customer fails", async () => {
+    const user = setup();
+    server.use(http.post(api("/customers"), () => HttpResponse.json(errorEnvelope("Customer gagal disimpan"), { status: 500 })));
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Customer" }), "new");
+    await user.type(screen.getByLabelText(/^Nama Customer/), "PT Error");
+    await user.click(screen.getByRole("button", { name: "Simpan Customer" }));
+    expect(await screen.findByText("Customer gagal disimpan")).toBeInTheDocument();
+  });
+
+  it("shows the API error when renaming a Customer fails", async () => {
+    const user = setup({ role: "Lead_SA" });
+    server.use(http.patch(api(`/customers/${CUSTOMER_ID}`), () => HttpResponse.json(errorEnvelope("Customer tidak dapat diganti"), { status: 500 })));
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Customer" }), CUSTOMER_ID);
+    const name = screen.getByLabelText("Nama Customer baru");
+    await user.clear(name);
+    await user.type(name, "PT Error");
+    await user.click(screen.getByRole("button", { name: "Ganti nama Customer" }));
+    expect(await screen.findByText("Customer tidak dapat diganti")).toBeInTheDocument();
+  });
+  it.each(["Sales", "Product"] as Role[])("%s cannot rename a Customer", async (role) => {
+    const user = setup({ role });
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Customer" }), CUSTOMER_ID);
+    expect(screen.queryByRole("button", { name: "Ganti nama Customer" })).not.toBeInTheDocument();
+  });
+  it.each(["Lead_SA", "Admin"] as Role[])("%s can rename a selected Customer", async (role) => {
+    const user = setup({ role });
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Customer" }), CUSTOMER_ID);
+    const name = screen.getByLabelText("Nama Customer baru");
+    await user.clear(name);
+    await user.type(name, "PT Renamed");
+    await user.click(screen.getByRole("button", { name: "Ganti nama Customer" }));
+    await waitFor(() => expect(document.getElementById("customerName")).toHaveValue("PT Renamed"));
   });
 
   it("menampilkan error wajib diisi untuk semua field wajib dan tetap di langkah 1", async () => {
@@ -329,6 +396,7 @@ describe("NewProjectPage — pengiriman", () => {
     // scoring_triggered memasang timer redirect 2 detik; jam palsu menjaga test tetap deterministik.
     const user = setup({ fake: true });
     await isiLangkah1(user, { dq: " DQ-2025-001 " });
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Customer" }), CUSTOMER_ID);
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     await user.upload(input, [new File(["a"], "mom.pdf", { type: PDF }), new File(["b"], "rfp.pdf", { type: PDF })]);
     await user.selectOptions(screen.getByLabelText("Tipe dokumen mom.pdf"), "MoM");
@@ -340,7 +408,8 @@ describe("NewProjectPage — pengiriman", () => {
     await screen.findByText(/Proyek berhasil dibuat/);
     const form = captured.form!;
     expect(form.get("project_name")).toBe("Migrasi DWH");
-    expect(form.get("customer_name")).toBe("PT Contoh");
+    expect(form.get("customer_name")).toBe("PT Existing");
+    expect(form.get("customer_id")).toBe(CUSTOMER_ID);
     expect(form.get("target_submit")).toBe("2099-12-31");
     expect(form.get("estimasi_nilai")).toBe("1500000");
     expect(form.get("dq_number")).toBe("DQ-2025-001");

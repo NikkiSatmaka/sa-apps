@@ -17,6 +17,7 @@ from app.api.auth import router as auth_router
 from app.api.calendar import router as calendar_router
 from app.api.collaborators import router as collaborators_router
 from app.api.documents import router as documents_router
+from app.api.customers import router as customers_router
 from app.api.dq_number import router as dq_number_router
 from app.api.handover import router as handover_router
 from app.api.notifications import router as notifications_router
@@ -93,6 +94,7 @@ app.include_router(orang_router, prefix="/api/v1")
 app.include_router(workflow_router, prefix="/api/v1")
 app.include_router(documents_router, prefix="/api/v1")
 app.include_router(dq_number_router, prefix="/api/v1")
+app.include_router(customers_router, prefix="/api/v1")
 app.include_router(activity_logs_router, prefix="/api/v1")
 app.include_router(calendar_router, prefix="/api/v1")
 app.include_router(sla_router, prefix="/api/v1")

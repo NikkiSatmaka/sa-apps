@@ -15,6 +15,8 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.models.customer import Customer
+from app.models.project import Project
 
 # Jawaban kuesioner minimal valid (skor rubrik 22 → Intake + Need Clarification, tanpa notifikasi)
 QA = json.dumps(
@@ -70,19 +72,26 @@ def mock_auth_and_db():
         mock_session.commit = AsyncMock()
         mock_session.refresh = AsyncMock()
 
-        with patch("app.api.project_intake_api.get_db") as db_mock:
-            # Override dependency
-            async def override_get_db():
-                yield mock_session
+        async def flush():
+            for call in mock_session.add.call_args_list:
+                entity = call.args[0]
+                if isinstance(entity, Customer) and entity.id is None:
+                    entity.id = uuid.uuid4()
 
-            app.dependency_overrides[
-                __import__("app.core.database", fromlist=["get_db"]).get_db
-            ] = override_get_db
-            app.dependency_overrides[
-                __import__("app.core.dependencies", fromlist=["get_current_user"]).get_current_user
-            ] = lambda: mock_user
+        mock_session.flush = AsyncMock(side_effect=flush)
+        mock_session.scalar = AsyncMock(return_value=None)
 
-            yield mock_user, mock_session
+        # Override dependency
+        async def override_get_db():
+            yield mock_session
+
+        app.dependency_overrides[
+            __import__("app.core.database", fromlist=["get_db"]).get_db
+        ] = override_get_db
+        app.dependency_overrides[
+            __import__("app.core.dependencies", fromlist=["get_current_user"]).get_current_user
+        ] = lambda: mock_user
+        yield mock_user, mock_session
 
     # Cleanup overrides
     app.dependency_overrides.clear()
@@ -380,6 +389,24 @@ class TestProjectRecordCreation:
         assert body["data"]["status"] == "Intake"
         assert body["data"]["qualification_state"] == "Scoring"
 
+    def test_unknown_customer_identity_is_rejected(self, mock_auth_and_db):
+        _, mock_session = mock_auth_and_db
+        mock_session.get = AsyncMock(return_value=None)
+
+        response = TestClient(app).post(
+            "/api/v1/projects",
+            data={
+                "project_name": "Proyek Tanpa Customer",
+                "customer_id": str(uuid.uuid4()),
+                "target_submit": str(date.today() + timedelta(days=7)),
+                "estimasi_nilai": "100000",
+                "qualification_answers": QA,
+            },
+        )
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        mock_session.add.assert_not_called()
+
     def test_project_id_format_prj(self, mock_auth_and_db):
         """ID proyek mengikuti format PRJ-{date}-{random}."""
         client = TestClient(app)
@@ -519,9 +546,11 @@ class TestEstimasiNilaiPersist:
         )
         assert response.status_code == status.HTTP_201_CREATED
 
-        # Ambil object Project yang di-add ke session (akan di-commit ke DB)
-        assert mock_session.add.call_count == 1
-        added_project = mock_session.add.call_args.args[0]
+        added_objects = [call.args[0] for call in mock_session.add.call_args_list]
+        added_project = next(obj for obj in added_objects if isinstance(obj, Project))
+        added_customer = next(obj for obj in added_objects if isinstance(obj, Customer))
+        assert added_project.customer_id == added_customer.id
+        assert added_customer.name == "PT Estimasi"
         assert added_project.estimasi_nilai == Decimal("750000000.50")
 
         # Nilai juga tercermin di response

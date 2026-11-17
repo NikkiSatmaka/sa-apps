@@ -38,6 +38,10 @@ _Avoid_: Pengganti SA, substitute SA
 
 ## Proyek & status
 
+**Customer**:
+A persistent identity for the organization associated with one or more projects. Projects linked to the same Customer share its Drive folder, even when its name changes.
+_Avoid_: Treating each project’s `customer_name` text as a separate identity
+
 **Opportunity**:
 Peluang pre-sales. Begitu dicatat di Portal SA, peluang tersebut dilacak sebagai `Project` yang sama dari intake melalui kualifikasi dan pekerjaan SA hingga ditutup; tidak ada catatan Lead/Opportunity terpisah sebelum Project.
 _Avoid_: Deal, lead
@@ -108,7 +112,7 @@ _Avoid_: Quote, penawaran
 ## Folder & provisioning
 
 **Folder proyek** (Google Drive):
-Struktur folder Drive yang dibuat otomatis saat SA di-assign: satu folder master `[Customer] - [Project]` berisi subfolder `Inventory` (Viewer Sales dan Product Manager), `Diagram` (tanpa akses Sales/Product Manager), dan `Solutions` (tanpa akses Sales/Product Manager sampai DQ terisi). Akses mengikuti orang yang sedang ditugaskan. `Final_Deliverables` dibuat di dalam `Solutions` saat handover.
+Folder proyek yang dibuat otomatis saat SA di-assign, di dalam folder **Customer** dan diberi nomor berurutan per Customer (`01-<Project>`, `02-<Project>`, …). Berisi subfolder `Inventory`, `Diagram`, dan `Solutions`; folder lama tidak otomatis dipindah atau diganti nama.
 _Avoid_: Drive folder, workspace folder
 
 **Solutions folder**:

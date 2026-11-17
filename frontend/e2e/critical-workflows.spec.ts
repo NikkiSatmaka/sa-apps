@@ -276,6 +276,9 @@ async function installFixtures(page: Page) {
     if (path === "/utilization/projects" && method === "GET") {
       return json(route, []);
     }
+    if (path === "/customers" && method === "GET") {
+      return json(route, [{ id: "00000000-0000-4000-8000-0000000000c1", name: "Example Customer" }]);
+    }
     return json(route, {});
   });
   return requests;
@@ -370,7 +373,7 @@ async function submitRequesterIntake(page: Page, role: "Sales" | "Product") {
   await page.goto("/projects/new");
   await expect(page.getByRole("heading", { name: "Request SA" })).toBeVisible();
   await page.getByLabel(/Nama Proyek/).fill(`${role} intake fixture`);
-  await page.getByLabel(/Nama Customer/).fill("Example Customer");
+  await page.getByRole("combobox", { name: "Customer" }).selectOption("00000000-0000-4000-8000-0000000000c1");
   await page.getByLabel(/Target Submit/).fill("2099-12-31");
   await page.getByLabel(/Estimasi Nilai Proyek/).fill("1500000");
 

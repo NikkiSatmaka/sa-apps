@@ -9,7 +9,7 @@ Sleep retry di-patch; tidak ada jaringan maupun waktu nyata.
 
 import asyncio
 import itertools
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -22,6 +22,7 @@ from app.services.folder_provisioner import (
     INVALID_FOLDER_CHARS,
     MAX_RETRIES,
     RETRY_INTERVAL_SECONDS,
+    FolderConflictError,
     FolderProvisioner,
     FolderProvisioningError,
     settings,
@@ -54,17 +55,53 @@ class DriveApiPalsu:
         if self.antrian_gagal:
             raise self.antrian_gagal.pop(0)
 
-    # --- files()
     def files(self):
-        return SimpleNamespace(create=self._files_create)
+        return SimpleNamespace(create=self._files_create, list=self._files_list)
+
+    def _files_list(
+        self,
+        q,
+        fields,
+        pageSize,
+        pageToken,
+        supportsAllDrives,
+        includeItemsFromAllDrives,
+        corpora,
+    ):
+        assert supportsAllDrives is True
+        assert includeItemsFromAllDrives is True
+        assert corpora == "allDrives"
+        parent_id = q.split("'")[1]
+
+        def jalan():
+            self._coba()
+            return {
+                "files": [
+                    {
+                        "id": folder_id,
+                        "name": folder["name"],
+                        "appProperties": folder.get("appProperties", {}),
+                    }
+                    for folder_id, folder in self.folder.items()
+                    if parent_id in folder["parents"]
+                ],
+                "nextPageToken": None,
+            }
+
+        return _Permintaan(jalan)
 
     def _files_create(self, body, fields, supportsAllDrives):
         assert supportsAllDrives is True
         def jalan():
             self._coba()
             fid = f"folder-{next(self._id)}"
-            self.folder[fid] = {"name": body["name"], "parents": body.get("parents", [])}
+            self.folder[fid] = {
+                "name": body["name"],
+                "parents": body.get("parents", []),
+            }
             self.izin[fid] = {}
+            if body.get("appProperties"):
+                self.folder[fid]["appProperties"] = body["appProperties"]
             return {"id": fid}
 
         return _Permintaan(jalan)
@@ -127,12 +164,18 @@ class ProyekPalsu:
     customer_name: str = "PT Acme"
     project_name: str = "Migrasi"
     id_project: str = "PRJ-1"
-
+    customer: SimpleNamespace = field(
+        default_factory=lambda: SimpleNamespace(gdrive_folder_id="customer-folder")
+    )
+    gdrive_folder_number: int = 1
+    gdrive_folder_id: str | None = None
 
 @pytest.fixture
 def drive():
-    return DriveApiPalsu()
-
+    fake = DriveApiPalsu()
+    fake.folder["customer-folder"] = {"name": "PT Acme", "parents": ["drive-root"]}
+    fake.izin["customer-folder"] = {}
+    return fake
 
 @pytest.fixture
 def tidur(monkeypatch):
@@ -167,8 +210,9 @@ async def test_provisioning_membuat_struktur_dan_izin_sesuai_spec(provisioner, d
     hasil = await _provision(provisioner)
 
     assert drive.folder[hasil.master] == {
-        "name": "PT Acme - Migrasi",
-        "parents": ["drive-root"],
+        "name": "01-Migrasi",
+        "parents": ["customer-folder"],
+        "appProperties": {"portalSaProjectId": "PRJ-1"},
     }
     for nama, fid in [
         ("Inventory", hasil.inventory),
@@ -185,24 +229,183 @@ async def test_provisioning_membuat_struktur_dan_izin_sesuai_spec(provisioner, d
     assert len({hasil.master, hasil.inventory, hasil.diagram, hasil.solutions}) == 4
 
 
+async def test_all_sa_team_editors_and_product_inventory_viewer(provisioner, drive):
+    hasil = await provisioner.provision_project_folder(
+        ProyekPalsu(),
+        "sa@co.com",
+        "lead@co.com",
+        "sales@co.com",
+        sa_team_emails=("sa@co.com", "sa-lain@co.com"),
+        product_email="product@co.com",
+    )
+
+    assert drive.peran(hasil.master, "sa-lain@co.com") == "writer"
+    assert drive.peran(hasil.inventory, "product@co.com") == "reader"
+    assert drive.peran(hasil.master, "product@co.com") is None
+    assert drive.peran(hasil.diagram, "product@co.com") is None
+    assert drive.peran(hasil.solutions, "product@co.com") is None
+
+
+async def test_product_gets_solutions_viewer_only_after_dq(provisioner, drive):
+    hasil = await provisioner.provision_project_folder(
+        ProyekPalsu(),
+        "sa@co.com",
+        "lead@co.com",
+        "sales@co.com",
+        product_email="product@co.com",
+        dq_number="DQ-123",
+    )
+
+    assert drive.peran(hasil.inventory, "product@co.com") == "reader"
+    assert drive.peran(hasil.solutions, "product@co.com") == "reader"
+    assert drive.peran(hasil.master, "product@co.com") is None
+    await provisioner.lock_solutions_folder(
+        hasil.solutions, "sales@co.com", "product@co.com"
+    )
+    assert drive.peran(hasil.solutions, "sales@co.com") is None
+    assert drive.peran(hasil.solutions, "product@co.com") is None
+    await provisioner.unlock_solutions_folder(
+        hasil.solutions, "sales@co.com", "product@co.com"
+    )
+    assert drive.peran(hasil.solutions, "sales@co.com") == "reader"
+    assert drive.peran(hasil.solutions, "product@co.com") == "reader"
+
+
 async def test_parent_shared_drive_missing_gagal_sebelum_panggilan_api(
     provisioner, drive, monkeypatch
 ):
     monkeypatch.setattr(settings, "GDRIVE_PARENT_FOLDER_ID", "  ")
 
     with pytest.raises(FolderProvisioningError, match="GDRIVE_PARENT_FOLDER_ID"):
-        await _provision(provisioner)
+        await provisioner.ensure_customer_folder("PT Acme")
 
     assert drive.panggilan_api == 0
+
+
+async def test_customer_folder_is_created_when_no_name_matches(provisioner, drive):
+    folder_id = await provisioner.ensure_customer_folder("PT Example")
+
+    assert drive.folder[folder_id] == {
+        "name": "PT Example",
+        "parents": ["drive-root"],
+    }
+
+
+async def test_duplicate_child_folder_fails_closed(provisioner, drive):
+    result = await _provision(provisioner)
+    drive.folder["duplicate-inventory"] = {
+        "name": "Inventory",
+        "parents": [result.master],
+    }
+    drive.izin["duplicate-inventory"] = {}
+
+    with pytest.raises(FolderConflictError, match="Multiple 'Inventory' folders"):
+        await _provision(provisioner)
+
+
+async def test_customer_folder_reuses_existing_name(provisioner):
+    assert await provisioner.ensure_customer_folder(" PT Acme ") == "customer-folder"
+
+
+async def test_provision_persists_created_master_folder_id(provisioner):
+    persisted_ids = []
+
+    async def persist(folder_id):
+        persisted_ids.append(folder_id)
+
+    result = await provisioner.provision_project_folder(
+        ProyekPalsu(),
+        "sa@co.com",
+        "lead@co.com",
+        "sales@co.com",
+        persist_master_folder_id=persist,
+    )
+
+    assert persisted_ids == [result.master]
+
+
+async def test_duplicate_customer_folder_fails_closed(provisioner, drive):
+    drive.folder["duplicate-customer"] = {
+        "name": "PT Acme",
+        "parents": ["drive-root"],
+    }
+    drive.izin["duplicate-customer"] = {}
+
+    with pytest.raises(FolderConflictError, match="Multiple Customer folders"):
+        await provisioner.ensure_customer_folder("PT Acme")
+
+
+async def test_project_folder_retry_reuses_project_association(provisioner, drive):
+    first = await _provision(provisioner)
+    second = await _provision(provisioner)
+
+    assert second == first
+    assert len([f for f in drive.folder.values() if f["name"] == "01-Migrasi"]) == 1
+
+
+async def test_unassociated_project_folder_name_collision_fails_closed(provisioner, drive):
+    drive.folder["unassociated"] = {
+        "name": "01-Migrasi",
+        "parents": ["customer-folder"],
+    }
+    drive.izin["unassociated"] = {}
+
+    with pytest.raises(FolderConflictError, match="not associated"):
+        await _provision(provisioner)
+
+
+async def test_multiple_project_folder_associations_fail_closed(provisioner, drive):
+    await _provision(provisioner)
+    drive.folder["duplicate-project"] = {
+        "name": "01-Other",
+        "parents": ["customer-folder"],
+        "appProperties": {"portalSaProjectId": "PRJ-1"},
+    }
+    drive.izin["duplicate-project"] = {}
+
+    with pytest.raises(FolderConflictError, match="Multiple project folders"):
+        await _provision(provisioner)
+
+
+async def test_associated_project_folder_name_collision_fails_closed(provisioner, drive):
+    await _provision(provisioner)
+    drive.folder["name-collision"] = {
+        "name": "01-Migrasi",
+        "parents": ["customer-folder"],
+    }
+    drive.izin["name-collision"] = {}
+
+    with pytest.raises(FolderConflictError, match="collides with another folder"):
+        await _provision(provisioner)
+
+
+async def test_project_without_customer_folder_id_fails_before_creating(provisioner, drive):
+    project = ProyekPalsu()
+    project.customer.gdrive_folder_id = None
+
+    with pytest.raises(FolderProvisioningError, match="stored Customer Drive folder"):
+        await provisioner.provision_project_folder(
+            project, "sa@co.com", "lead@co.com", "sales@co.com"
+        )
+
+    assert len(drive.folder) == 1
+
+
+async def test_project_without_number_fails_before_creating_master_folder(provisioner, drive):
+    project = ProyekPalsu()
+    project.gdrive_folder_number = None
+
+    with pytest.raises(FolderProvisioningError, match="folder number"):
+        await provisioner.provision_project_folder(project, "sa@co.com", "lead@co.com", "sales@co.com")
+
+    assert len(drive.folder) == 1
 
 
 async def test_nama_folder_disanitasi_di_drive(provisioner, drive):
     proyek = ProyekPalsu(customer_name='PT "A/B"', project_name="Q1*2?\\Rev")
 
     hasil = await provisioner.provision_project_folder(proyek, "a@co.com", "b@co.com", "c@co.com")
-
-    assert drive.folder[hasil.master]["name"] == "PT _A_B_ - Q1_2__Rev"
-
+    assert drive.folder[hasil.master]["name"] == "01-Q1_2__Rev"
 
 # ----------------------------------------------------------------------------- retry & kegagalan
 
@@ -216,8 +419,7 @@ async def test_gagal_sementara_dicoba_ulang_dengan_jeda_dan_akhirnya_berhasil(
 
     assert hasil.master in drive.folder
     assert tidur == [RETRY_INTERVAL_SECONDS, RETRY_INTERVAL_SECONDS]
-    assert len(drive.folder) == 4  # percobaan gagal tidak meninggalkan folder ganda
-
+    assert len(drive.folder) == 5  # Customer folder + master + 3 subfolders
 
 async def test_semua_percobaan_gagal_raise_dan_tidak_ada_folder_dibuat(provisioner, drive, tidur):
     drive.gagal_berikutnya(*[_http_error(503) for _ in range(MAX_RETRIES)])
@@ -225,8 +427,7 @@ async def test_semua_percobaan_gagal_raise_dan_tidak_ada_folder_dibuat(provision
     with pytest.raises(FolderProvisioningError, match=f"Gagal setelah {MAX_RETRIES}"):
         await _provision(provisioner)
 
-    assert drive.folder == {}
-    assert len(tidur) == MAX_RETRIES - 1  # tidak tidur setelah percobaan terakhir
+    assert set(drive.folder) == {"customer-folder"}
 
 
 async def test_kegagalan_di_tengah_meninggalkan_folder_yatim_sesuai_adr_0006(provisioner, drive):
@@ -241,7 +442,7 @@ async def test_kegagalan_di_tengah_meninggalkan_folder_yatim_sesuai_adr_0006(pro
             "buat sub", provisioner._create_folder_sync, "Inventory", master
         )
 
-    assert list(drive.folder) == [master]
+    assert list(drive.folder) == ["customer-folder", master]
 
 
 # ----------------------------------------------------------------------------- lock / unlock

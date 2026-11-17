@@ -570,6 +570,8 @@ class SLATimer:
 
         sales_result = await db.execute(select(User).where(User.id == project.sales_pic))
         sales_user = sales_result.scalar_one_or_none()
+        product_result = await db.execute(select(User).where(User.id == project.product_pic))
+        product_user = product_result.scalar_one_or_none()
         if sales_user is None:
             logger.error(f"User Sales ({project.sales_pic}) tidak ditemukan, skip lock.")
             return False
@@ -581,10 +583,11 @@ class SLATimer:
             perform=lambda: folder_provisioner.lock_solutions_folder(
                 solutions_folder_id=project.gdrive_solutions_folder_id,
                 sales_email=sales_user.email,
+                product_email=product_user.email if product_user else None,
             ),
-            outcome="Sales access to the Solutions folder is locked.",
+            outcome="Sales and Product access to the Solutions folder is locked.",
             actionable_failure=(
-                "The SLA lock failed; Sales may still have Solutions access. "
+                "The SLA lock failed; Sales or Product may still have Solutions access. "
                 "Retry this idempotent lock after restoring Drive access."
             ),
             context={"solutions_folder_id": project.gdrive_solutions_folder_id},
@@ -629,6 +632,8 @@ class SLATimer:
 
         sales_result = await db.execute(select(User).where(User.id == project.sales_pic))
         sales_user = sales_result.scalar_one_or_none()
+        product_result = await db.execute(select(User).where(User.id == project.product_pic))
+        product_user = product_result.scalar_one_or_none()
         if sales_user is None:
             logger.error(f"User Sales ({project.sales_pic}) tidak ditemukan, skip unlock.")
             return False
@@ -640,10 +645,11 @@ class SLATimer:
             perform=lambda: folder_provisioner.unlock_solutions_folder(
                 solutions_folder_id=project.gdrive_solutions_folder_id,
                 sales_email=sales_user.email,
+                product_email=product_user.email if product_user else None,
             ),
-            outcome="Sales viewer access to the Solutions folder is restored.",
+            outcome="Sales and Product viewer access to the Solutions folder is restored.",
             actionable_failure=(
-                "The DQ number is saved, but Sales may still lack Solutions access. "
+                "The DQ number is saved, but Sales or Product may still lack Solutions access. "
                 "Retry this idempotent unlock after restoring Drive access."
             ),
             context={"solutions_folder_id": project.gdrive_solutions_folder_id},

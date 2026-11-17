@@ -229,10 +229,11 @@ async function installFixtures(page: Page) {
   return requests;
 }
 
-async function loginAsRole(page: Page, role: "SA" | "Sales" | "Lead_SA") {
+async function loginAsRole(page: Page, role: "SA" | "Sales" | "Product" | "Lead_SA") {
   const buttonName = {
     SA: "Login sebagai SA",
     Sales: "Login sebagai Sales",
+    Product: "Login sebagai Product Manager",
     Lead_SA: "Login sebagai Lead SA",
   }[role];
   await page.goto("/demo");
@@ -243,6 +244,242 @@ async function loginAsRole(page: Page, role: "SA" | "Sales" | "Lead_SA") {
 async function loginAsSA(page: Page) {
   await loginAsRole(page, "SA");
 }
+async function installRequesterWorkflowFixtures(page: Page, role: "Sales" | "Product") {
+  const requests = await installFixtures(page);
+  const projectId = `PRJ-${role.toUpperCase()}-INTAKE`;
+  const productPic = { id: "00000000-0000-4000-8000-0000000000a1", name: "Product PIC", email: "product@example.test", role: "Product" };
+  const salesPic = { id: "00000000-0000-4000-8000-0000000000b1", name: "Sales PIC", email: "sales@example.test", role: "Sales" };
+  const workflowSchema = {
+    schema_version: 1,
+    groups: [{ key: "budget", title: "Budget" }],
+    questions: [{
+      name: "budget_status",
+      group: "budget",
+      type: "choice",
+      label: "Status anggaran",
+      short_label: "Status anggaran",
+      required: true,
+      choices: ["Sudah disetujui", "Dalam proses"],
+      hint: null,
+      placeholder: null,
+      max_length: null,
+      min_value: null,
+      max_value: null,
+      pattern: null,
+      row: null,
+      row_hint: null,
+      display: null,
+      show_char_count: false,
+      header: false,
+    }],
+  };
+
+  await page.route("**/api/v1/**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname.replace(/^\/api\/v1/, "");
+    const method = request.method();
+    if (path === "/qualification/schema" && method === "GET") {
+      requests.push({ path, method, search: url.search });
+      return json(route, { data: workflowSchema, message: "Fixture qualification schema." });
+    }
+    if (path === "/projects/users/search" && method === "GET") {
+      requests.push({ path, method, search: url.search });
+      const people = url.searchParams.get("role") === "Product" ? [productPic] : [salesPic];
+      return json(route, { data: people, message: "Fixture PICs." });
+    }
+    if (path === "/projects" && method === "POST") {
+      const postData = request.postData() ?? "";
+      requests.push({ path, method, body: postData, search: url.search });
+      return json(route, {
+        data: {
+          id_project: projectId,
+          project_name: `${role} intake fixture`,
+          customer_name: "Example Customer",
+          status: "Awaiting Assignment",
+          bant_score: 65,
+          sub_scores: null,
+          feedback: null,
+          scoring_triggered: false,
+          files: [],
+        },
+        message: "Project fixture created.",
+      }, 201);
+    }
+    return route.fallback();
+  });
+  return { requests, projectId, productPic, salesPic };
+}
+
+async function submitRequesterIntake(page: Page, role: "Sales" | "Product") {
+  const fixtures = await installRequesterWorkflowFixtures(page, role);
+  await loginAsRole(page, role);
+  await page.goto("/projects/new");
+  await expect(page.getByRole("heading", { name: "Request SA" })).toBeVisible();
+  await page.getByLabel(/Nama Proyek/).fill(`${role} intake fixture`);
+  await page.getByLabel(/Nama Customer/).fill("Example Customer");
+  await page.getByLabel(/Target Submit/).fill("2099-12-31");
+  await page.getByLabel(/Estimasi Nilai Proyek/).fill("1500000");
+
+  const productPIC = page.getByLabel(/Product Manager PIC/);
+  if (role === "Sales") {
+    await expect(productPIC.locator("option")).toHaveText(["Pilih Product Manager…", "Product PIC (product@example.test)"]);
+    await productPIC.selectOption(fixtures.productPic.id);
+    await expect(page.getByLabel(/Sales PIC/)).toHaveCount(0);
+  } else {
+    await expect(productPIC).toHaveCount(0);
+    const salesPIC = page.getByLabel(/Sales PIC/);
+    await expect(salesPIC.locator("option")).toHaveText(["Tanpa Sales", "Sales PIC (sales@example.test)"]);
+    await salesPIC.selectOption(fixtures.salesPic.id);
+  }
+  await page.getByRole("button", { name: "Lanjut ke Kuesioner" }).click();
+  await page.getByLabel(/Status anggaran/).selectOption("Sudah disetujui");
+  await page.getByRole("button", { name: "Submit Request" }).click();
+  await expect(page.getByRole("heading", { name: "Request SA terkirim" })).toBeVisible();
+  return fixtures;
+}
+
+test("Sales requester project intake filters PICs and keeps Sales PIC implicit", async ({ page }) => {
+  const { requests, productPic, projectId } = await submitRequesterIntake(page, "Sales");
+  expect(requests.filter((request) => request.path === "/projects/users/search").map((request) =>
+    new URLSearchParams(request.search).get("role"),
+  )).toEqual(["Product"]);
+  const create = requests.find((request) => request.path === "/projects" && request.method === "POST");
+  expect(create?.body).toContain(`name="product_pic"\r\n\r\n${productPic.id}`);
+  expect(create?.body).not.toContain('name="sales_pic"');
+  expect(create?.body).toContain(`name="project_name"\r\n\r\nSales intake fixture`);
+  expect(projectId).toBe("PRJ-SALES-INTAKE");
+});
+
+test("Product Manager requester project intake filters PICs and selects Sales PIC", async ({ page }) => {
+  const { requests, salesPic, projectId } = await submitRequesterIntake(page, "Product");
+  expect(requests.filter((request) => request.path === "/projects/users/search").map((request) =>
+    new URLSearchParams(request.search).get("role"),
+  )).toEqual(["Sales"]);
+  const create = requests.find((request) => request.path === "/projects" && request.method === "POST");
+  expect(create?.body).not.toContain('name="product_pic"');
+  expect(create?.body).toContain(`name="sales_pic"\r\n\r\n${salesPic.id}`);
+  expect(create?.body).toContain(`name="project_name"\r\n\r\nProduct intake fixture`);
+  expect(projectId).toBe("PRJ-PRODUCT-INTAKE");
+});
+async function installAssignmentProgressionFixtures(page: Page) {
+  const requests = await installFixtures(page);
+  const projectId = "PRJ-LEAD-SA-WORKFLOW";
+  const saId = "00000000-0000-4000-8000-000000000001";
+  const leadId = "00000000-0000-4000-8000-000000000001";
+  let status = "Awaiting Assignment";
+  let assignedSA: string | null = null;
+  const pendingProject = {
+    id_project: projectId,
+    project_name: "Lead SA assignment fixture",
+    customer_name: "Example Customer",
+    status: "Awaiting Assignment",
+    bant_score: 80,
+    use_case_tags: [],
+    assigned_sa: null,
+    assigned_at: null,
+    target_submit: "2099-12-31",
+    gdrive_folder_id: null,
+    folder_provisioning_status: null,
+  };
+  const availablePeople = [
+    { id: saId, name: "Fixture SA", email: "sa@example.test", role: "SA", active_project_count: 0 },
+    { id: leadId, name: "Fixture Lead SA", email: "lead@example.test", role: "Lead_SA", active_project_count: 0 },
+  ];
+
+  await page.route("**/api/v1/**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname.replace(/^\/api\/v1/, "");
+    const method = request.method();
+    if (path === "/projects/pending-assignment" && method === "GET") {
+      requests.push({ path, method, search: url.search });
+      return json(route, { data: status === "Awaiting Assignment" ? [pendingProject] : [] });
+    }
+    if (path === "/sa/available" && method === "GET") {
+      requests.push({ path, method, search: url.search });
+      return json(route, { data: availablePeople });
+    }
+    if (path === `/projects/${projectId}/assign` && method === "POST") {
+      const body = asRecord(request.postDataJSON());
+      requests.push({ path, method, body, search: url.search });
+      assignedSA = typeof body.sa_id === "string" ? body.sa_id : null;
+      status = "Assigned";
+      return json(route, {
+        data: {
+          project: { ...pendingProject, status, assigned_sa: assignedSA },
+          assigned_sa_name: "Fixture SA",
+          notification_sent: true,
+          folder_provisioning_triggered: false,
+        },
+        message: "Assignment fixture saved.",
+      });
+    }
+    if (path === `/projects/${projectId}` && method === "GET") {
+      requests.push({ path, method, search: url.search });
+      return json(route, {
+        data: {
+          ...pendingProject,
+          status,
+          assigned_sa: assignedSA ? { id: assignedSA, name: "Fixture SA", email: "sa@example.test" } : null,
+          product_pic: null,
+          sales_pic: null,
+          lead_sa: { id: leadId, name: "Fixture Lead SA", email: "lead@example.test" },
+          created_by: null,
+          qualification_state: "Qualified",
+          collaborators: [],
+          source_documents: [],
+          integration_operations: [],
+          updated_at: "2026-11-16T09:00:00Z",
+          created_at: "2026-11-16T09:00:00Z",
+        },
+      });
+    }
+    if (path === `/projects/${projectId}/tim-sa` && method === "GET") {
+      return json(route, { data: { sa_utama: assignedSA ? { id: assignedSA } : null, sa_tambahan: [] } });
+    }
+    if (path === `/projects/${projectId}/status` && method === "PATCH") {
+      const body = asRecord(request.postDataJSON());
+      requests.push({ path, method, body, search: url.search });
+      status = typeof body.new_status === "string" ? body.new_status : status;
+      return json(route, { data: { status }, message: `Status changed to ${status}.` });
+    }
+    return route.fallback();
+  });
+  return { requests, projectId, saId, leadId };
+}
+
+test("Lead SA assignment hands the project to its SA and SA progresses assigned work to Submitted", async ({ page }) => {
+  const { requests, projectId, saId, leadId } = await installAssignmentProgressionFixtures(page);
+  await loginAsRole(page, "Lead_SA");
+  await page.goto("/dashboard/lead-sa");
+  await expect(page.getByRole("heading", { name: "Dashboard Lead SA" })).toBeVisible();
+  await page.getByRole("button", { name: "Assign SA", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Assign SA ke Proyek" })).toBeVisible();
+  await page.getByRole("button", { name: /Fixture SA/ }).click();
+  await page.getByRole("button", { name: "Konfirmasi", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Assign SA ke Proyek" })).toHaveCount(0);
+  expect(requests).toContainEqual(expect.objectContaining({
+    path: `/projects/${projectId}/assign`,
+    method: "POST",
+    body: { sa_id: saId, lead_sa_id: leadId },
+  }));
+
+  await loginAsRole(page, "SA");
+  await page.goto(`/projects/${projectId}`);
+  await expect(page.getByRole("heading", { name: "Lead SA assignment fixture" })).toBeVisible();
+  await page.getByRole("button", { name: "Tandai Submitted", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Tandai Submitted" })).toContainText("Assigned");
+  await page.getByRole("button", { name: "Konfirmasi", exact: true }).click();
+  await expect(page.getByText("Submitted", { exact: true })).toBeVisible();
+  expect(requests).toContainEqual(expect.objectContaining({
+    path: `/projects/${projectId}/status`,
+    method: "PATCH",
+    body: { new_status: "Submitted" },
+  }));
+});
+
+
 
 test("project pages retain filters and both activity pickers reach the final API page", async ({ page }) => {
   const requests = await installFixtures(page);

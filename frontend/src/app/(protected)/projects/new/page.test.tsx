@@ -691,6 +691,7 @@ describe("NewProjectPage — Product dan Sales PIC (ADR 0014)", () => {
   });
 
   it.each<Role>(["Lead_SA", "Admin"])("%s: Product wajib, Sales opsional", async (role) => {
+
     const user = setup({ role });
     expect(await screen.findByLabelText(/Product Manager PIC/)).toBeRequired();
     expect(screen.getByLabelText(/Sales PIC/)).not.toBeRequired();
@@ -698,6 +699,16 @@ describe("NewProjectPage — Product dan Sales PIC (ADR 0014)", () => {
     expect(form.get("product_pic")).toBe(PRODUCT_ID);
     expect(form.get("sales_pic")).toBeNull();
   });
+  it("Lead_SA: dapat mengirim Product wajib bersama Sales opsional yang dipilih", async () => {
+    const user = setup({ role: "Lead_SA" });
+    const sales = await screen.findByLabelText(/Sales PIC/);
+    const form = await kirimHingga(user, async () => {
+      await user.selectOptions(sales, await screen.findByRole("option", { name: /Sales Satu/ }));
+    });
+    expect(form.get("product_pic")).toBe(PRODUCT_ID);
+    expect(form.get("sales_pic")).toBe(SALES_ID);
+  });
+
 
   it("memetakan error 422 product_pic dari backend ke field di langkah 1", async () => {
     capturePost(() =>

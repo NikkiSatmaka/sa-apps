@@ -213,6 +213,52 @@ export function renameCustomer(customerId: string, name: string): Promise<Custom
   });
 }
 
+export function repairProjectCustomerLink(
+  projectId: string,
+  customerId: string,
+  reason: string,
+): Promise<{ id_project: string; customer_id: string; customer_name: string }> {
+  return apiRequest(`/projects/${projectId}/customer-repair`, {
+    method: "POST",
+    body: { customer_id: customerId, reason },
+  });
+}
+
+export interface ProjectDriveFolderPreview {
+  folder_id: string;
+  name: string;
+  parent_id: string | null;
+  parents: string[];
+  detected_project_number: number | null;
+  inventory_folder_id: string;
+  diagram_folder_id: string;
+  solutions_folder_id: string;
+  parent_mismatch: boolean;
+  expected_customer_folder_id: string | null;
+  reason: string;
+}
+
+export function previewProjectDriveFolder(
+  projectId: string,
+  folderId: string,
+  reason: string,
+): Promise<ProjectDriveFolderPreview> {
+  return apiRequest(`/projects/${projectId}/register-folder/preview`, {
+    body: { folder_id: folderId, reason },
+  });
+}
+
+export function registerProjectDriveFolder(
+  projectId: string,
+  folderId: string,
+  reason: string,
+  preview: ProjectDriveFolderPreview,
+): Promise<unknown> {
+  return apiRequest(`/projects/${projectId}/register-folder`, {
+    body: { folder_id: folderId, reason, confirm: true, preview },
+  });
+}
+
 /**
  * Submit proyek baru dengan file attachment
  * Menggunakan multipart/form-data karena ada file upload

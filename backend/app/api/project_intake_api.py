@@ -20,7 +20,7 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from app.core import status as status_konst
 from app.core.database import get_db
@@ -467,8 +467,17 @@ async def create_project(
         customer = await db.scalar(select(Customer).where(Customer.normalized_name == normalized_customer))
         if customer is None:
             customer = Customer(name=customer_name, normalized_name=normalized_customer)
-            db.add(customer)
-            await db.flush()
+            nested = await db.begin_nested()
+            try:
+                db.add(customer)
+                await db.flush()
+            except IntegrityError as exc:
+                await nested.rollback()
+                customer = await db.scalar(
+                    select(Customer).where(Customer.normalized_name == normalized_customer)
+                )
+                if customer is None:
+                    raise exc
     customer_name = customer.name
 
 

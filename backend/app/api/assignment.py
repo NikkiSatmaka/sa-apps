@@ -130,7 +130,7 @@ def _require_lead_sa(current_user: User) -> None:
 
 
 async def _reserve_project_folder(db: AsyncSession, project: Project) -> None:
-    """Persist the Customer Drive identity and a unique number before project-folder creation."""
+    """Guarda la identidad Customer y un número único antes de crear la carpeta del proyecto."""
     if project.customer_id is None:
         raise FolderProvisioningError(
             f"Project '{project.id_project}' has no Customer identity. Link it to a Customer "
@@ -345,8 +345,10 @@ async def _trigger_folder_provisioner(
                     "actionable_error": None,
                 }
             )
-            # Sukses — persist kedua id folder + status provisioned
+            # Sukses — persist master + child IDs and status provisioned
             project.gdrive_folder_id = result.master
+            project.gdrive_inventory_folder_id = result.inventory
+            project.gdrive_diagram_folder_id = result.diagram
             project.gdrive_solutions_folder_id = result.solutions
             project.folder_provisioning_status = "provisioned"
             project.folder_provisioning_operation = operation

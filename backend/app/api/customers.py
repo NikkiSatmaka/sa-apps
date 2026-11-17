@@ -5,6 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -31,18 +32,26 @@ async def list_customers(db: AsyncSession = Depends(get_db), user: User = Depend
 
 @router.post("", status_code=201)
 async def create_customer(body: CustomerInput, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
-    if user.role not in {"Sales", "Product", "Lead_SA"} and user.is_admin is not True:
-        raise HTTPException(status_code=403, detail="Tidak memiliki akses membuat Customer.")
+    if user.role != "Lead_SA" and user.is_admin is not True:
+        raise HTTPException(status_code=403, detail="Hanya Lead SA atau Admin yang dapat membuat Customer.")
     name = body.name.strip()
     normalized = normalize_customer_name(name)
     if not normalized:
         raise HTTPException(status_code=422, detail="Nama Customer wajib diisi.")
     existing = await db.scalar(select(Customer).where(Customer.normalized_name == normalized))
     if existing:
-        return {"id": str(existing.id), "name": existing.name}
+        raise HTTPException(status_code=409, detail="Customer dengan nama tersebut sudah ada.")
     customer = Customer(name=name, normalized_name=normalized)
     db.add(customer)
-    await db.flush()
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        existing = await db.scalar(select(Customer).where(Customer.normalized_name == normalized))
+        if existing is not None:
+            raise HTTPException(status_code=409, detail="Customer dengan nama tersebut sudah ada.") from exc
+        raise
+    await db.refresh(customer)
     return {"id": str(customer.id), "name": customer.name}
 
 
@@ -63,4 +72,5 @@ async def rename_customer(customer_id: uuid.UUID, body: CustomerInput, db: Async
     customer.name = name
     customer.normalized_name = normalized
     await db.execute(update(Project).where(Project.customer_id == customer.id).values(customer_name=name))
+    await db.commit()
     return {"id": str(customer.id), "name": customer.name}

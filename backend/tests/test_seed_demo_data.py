@@ -8,6 +8,131 @@ import pytest
 from app.schemas.qualification_definition import QUESTIONNAIRE_SCHEMA_VERSION, answer_questions
 from scripts import seed_demo_data
 from scripts.seed_demo_data import DEMO_USERS, get_or_create_project
+from app.models.customer import Customer, normalize_customer_name
+
+
+def _project_result(project):
+    return Mock(scalar_one_or_none=Mock(return_value=project))
+
+
+@pytest.mark.asyncio
+async def test_demo_seed_reuses_customer_with_normalized_equivalent_name():
+    customer_id = uuid4()
+    customer = SimpleNamespace(
+        id=customer_id,
+        name="ACME Corp",
+        normalized_name=normalize_customer_name("ACME Corp"),
+    )
+    existing = SimpleNamespace(
+        id_project="PRJ-DEMO-001",
+        project_name="Fixture",
+        customer_name=" Acme Corp ",
+        customer_id=None,
+        qualification_answers=None,
+        qualification_schema_version=None,
+        bant_detail=None,
+    )
+    db = Mock()
+    db.execute = AsyncMock(side_effect=[_project_result(existing), _project_result(customer)])
+    db.flush = AsyncMock()
+    db.add = Mock()
+
+    await get_or_create_project(
+        db,
+        {"id_project": "PRJ-DEMO-001", "project_name": "Fixture", "customer_name": " acME corp "},
+        sales_id=uuid4(),
+    )
+
+    assert existing.customer_id == customer_id
+    assert existing.customer_name == "ACME Corp"
+    assert db.add.call_args_list == []
+
+
+@pytest.mark.asyncio
+async def test_demo_seed_creates_and_links_customer_for_new_project():
+    customer_id = uuid4()
+    db = Mock()
+    db.execute = AsyncMock(side_effect=[_project_result(None), _project_result(None)])
+    db.flush = AsyncMock()
+
+    project = await get_or_create_project(
+        db,
+        {
+            "id_project": "PRJ-DEMO-NEW",
+            "project_name": "Demo",
+            "customer_name": "  Acme Corp  ",
+            "status": "Submitted",
+            "target_submit": date(2026, 12, 1),
+        },
+        sales_id=uuid4(),
+    )
+    added_customer = next(
+        item for item in db.add.call_args_list[0].args if isinstance(item, Customer)
+    ) if db.add.call_args_list else None
+
+    assert added_customer is not None
+    assert added_customer.name == "Acme Corp"
+    assert added_customer.normalized_name == "acme corp"
+    assert project.customer_id == added_customer.id
+    assert project.customer_name == "Acme Corp"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("linked_customer_id", [None, "wrong-customer"])
+async def test_demo_seed_repairs_missing_or_wrong_customer_link(linked_customer_id):
+    customer_id = uuid4()
+    customer = SimpleNamespace(
+        id=customer_id, name="Acme Corp", normalized_name="acme corp"
+    )
+    existing = SimpleNamespace(
+        id_project="PRJ-DEMO-001",
+        project_name="Fixture",
+        customer_name="ACME CORP",
+        customer_id=linked_customer_id,
+        qualification_answers=None,
+        qualification_schema_version=None,
+        bant_detail=None,
+    )
+    db = Mock()
+    db.execute = AsyncMock(side_effect=[_project_result(existing), _project_result(customer)])
+    db.flush = AsyncMock()
+    db.add = Mock()
+
+    await get_or_create_project(
+        db,
+        {"id_project": "PRJ-DEMO-001", "project_name": "Fixture", "customer_name": " Acme Corp "},
+        sales_id=uuid4(),
+    )
+
+    assert existing.customer_id == customer_id
+    assert existing.customer_name == "Acme Corp"
+    db.add.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_seed_does_not_change_customer_identity_for_non_demo_project():
+    existing = SimpleNamespace(
+        id_project="PRJ-EXISTING",
+        project_name="Existing",
+        customer_name="Original Name",
+        customer_id=None,
+        qualification_answers=None,
+        qualification_schema_version=None,
+        bant_detail=None,
+    )
+    db = Mock()
+    db.execute = AsyncMock(return_value=_project_result(existing))
+    db.flush = AsyncMock()
+
+    await get_or_create_project(
+        db,
+        {"id_project": "PRJ-EXISTING", "project_name": "Existing", "customer_name": "Changed"},
+        sales_id=uuid4(),
+    )
+
+    assert existing.customer_id is None
+    assert existing.customer_name == "Original Name"
+    db.execute.assert_awaited_once()
 
 
 def test_seed_menyediakan_dua_user_per_persona_dan_admin_hanya_pada_lead_sa():
@@ -98,8 +223,11 @@ async def test_seed_all_memakai_akun_sales_dan_sa_berbeda_pada_project(monkeypat
 @pytest.mark.asyncio
 async def test_rerun_sinkronkan_pic_tanpa_mengubah_pembuat_atau_data_project():
     pembuat = uuid4()
+    customer_id = uuid4()
     existing = Mock(
         id_project="PRJ-DEMO-001",
+        customer_id=customer_id,
+        customer_name="Fixture Customer",
         sales_pic=uuid4(),
         assigned_sa=uuid4(),
         product_pic=uuid4(),
@@ -110,15 +238,31 @@ async def test_rerun_sinkronkan_pic_tanpa_mengubah_pembuat_atau_data_project():
         qualification_schema_version=3,
         bant_detail={"legacy": "tetap"},
     )
+    customer = SimpleNamespace(
+        id=customer_id,
+        name="Fixture Customer",
+        normalized_name="fixture customer",
+    )
     sales, sa, product = uuid4(), uuid4(), uuid4()
     db = Mock()
-    db.execute = AsyncMock(return_value=Mock(scalar_one_or_none=Mock(return_value=existing)))
+    db.execute = AsyncMock(
+        side_effect=[
+            _project_result(existing),
+            _project_result(customer),
+            _project_result(existing),
+            _project_result(customer),
+        ]
+    )
     db.flush = AsyncMock()
 
     for _ in range(2):
         await get_or_create_project(
             db,
-            {"id_project": "PRJ-DEMO-001", "project_name": "Fixture"},
+            {
+                "id_project": "PRJ-DEMO-001",
+                "project_name": "Fixture",
+                "customer_name": "Fixture Customer",
+            },
             sales_id=sales,
             sa_id=sa,
             product_id=product,

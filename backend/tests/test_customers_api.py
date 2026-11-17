@@ -18,6 +18,9 @@ class FakeSession:
         self.execute = AsyncMock()
         scalar_result = existing if existing is not None else duplicate
         self.scalar = AsyncMock(return_value=scalar_result)
+        self.commit = AsyncMock()
+        self.rollback = AsyncMock()
+        self.refresh = AsyncMock()
         self.get = AsyncMock(return_value=customer)
         self.flush = AsyncMock(side_effect=self._flush)
 
@@ -74,7 +77,7 @@ def test_list_customers_rejects_unprivileged_role():
 
 def test_create_customer_trims_and_persists_new_identity():
     session = FakeSession()
-    with api_as(user("Sales"), session) as client:
+    with api_as(user("Lead_SA"), session) as client:
         response = client.post("/api/v1/customers", json={"name": "  PT Acme  "})
 
     assert response.status_code == 201
@@ -83,33 +86,59 @@ def test_create_customer_trims_and_persists_new_identity():
     assert session.added[0].name == "PT Acme"
     assert session.added[0].normalized_name == "pt acme"
     assert response.json()["id"] == str(session.added[0].id)
+    session.commit.assert_awaited_once()
 
-
-def test_create_customer_reuses_existing_normalized_identity():
+def test_create_customer_rejects_existing_normalized_identity():
     customer = Customer(id=uuid.uuid4(), name="PT Acme", normalized_name="pt acme")
     session = FakeSession(existing=customer)
-    with api_as(user("Product"), session) as client:
+    with api_as(user("Lead_SA"), session) as client:
         response = client.post("/api/v1/customers", json={"name": "PT ACME"})
-
-    assert response.status_code == 201
-    assert response.json() == {"id": str(customer.id), "name": "PT Acme"}
+    assert response.status_code == 409
     assert session.added == []
 
 
-@pytest.mark.parametrize("role", ["SA", "Admin"])
-def test_create_customer_rejects_unprivileged_role(role):
-    with api_as(user(role), FakeSession()) as client:
+def test_create_customer_returns_conflict_after_concurrent_duplicate_insert():
+    from sqlalchemy.exc import IntegrityError
+
+    customer = Customer(id=uuid.uuid4(), name="PT Acme", normalized_name="pt acme")
+    session = FakeSession()
+    session.commit.side_effect = IntegrityError("insert", {}, Exception("unique"))
+    session.scalar.side_effect = [None, customer]
+    with api_as(user("Lead_SA"), session) as client:
+        response = client.post("/api/v1/customers", json={"name": "PT ACME"})
+    assert response.status_code == 409
+    session.rollback.assert_awaited_once()
+
+
+def test_create_customer_reraises_integrity_error_when_conflict_cannot_be_found():
+    from sqlalchemy.exc import IntegrityError
+
+    error = IntegrityError("insert", {}, Exception("unique"))
+    session = FakeSession()
+    session.commit.side_effect = error
+    session.scalar.side_effect = [None, None]
+
+    with api_as(user("Lead_SA"), session) as client:
+        with pytest.raises(IntegrityError) as raised:
+            client.post("/api/v1/customers", json={"name": "PT Acme"})
+
+    assert raised.value is error
+    session.rollback.assert_awaited_once()
+
+
+@pytest.mark.parametrize("role,is_admin", [("Sales", False), ("Product", False), ("SA", False), ("Admin", False)])
+def test_create_customer_rejects_unprivileged_role(role, is_admin):
+    with api_as(user(role, is_admin=is_admin), FakeSession()) as client:
         response = client.post("/api/v1/customers", json={"name": "Acme"})
 
     assert response.status_code == 403
 
 
 def test_create_customer_rejects_name_that_normalizes_empty():
-    with api_as(user("Sales"), FakeSession()) as client:
+    with api_as(user("Lead_SA"), FakeSession()) as client:
         response = client.post("/api/v1/customers", json={"name": "   "})
 
     assert response.status_code == 422
-
 
 def test_rename_customer_updates_customer_identity_and_returns_new_name():
     customer = Customer(id=uuid.uuid4(), name="Old Name", normalized_name="old name")
@@ -122,7 +151,7 @@ def test_rename_customer_updates_customer_identity_and_returns_new_name():
     assert response.status_code == 200
     assert response.json() == {"id": str(customer.id), "name": "New Name"}
     assert (customer.name, customer.normalized_name) == ("New Name", "new name")
-    session.execute.assert_awaited_once()
+    session.commit.assert_awaited_once()
 
 
 def test_rename_customer_rejects_missing_identity():
@@ -185,3 +214,292 @@ def test_admin_can_rename_customer():
 
     assert response.status_code == 200
     assert (customer.name, customer.normalized_name) == ("Beta", "beta")
+
+def test_project_customer_repair_updates_identity_and_audits_without_changing_drive():
+    from app.models.audit_log import AuditLog
+    from app.models.project import Project
+
+    old_id, new_id = uuid.uuid4(), uuid.uuid4()
+    project = Project(
+        id_project="P-1",
+        project_name="Migration",
+        customer_name="Old Corp",
+        customer_id=old_id,
+        gdrive_folder_id="master-1",
+        gdrive_solutions_folder_id="solutions-1",
+        gdrive_folder_number=17,
+        folder_provisioning_status="provisioned",
+    )
+    customer = Customer(id=new_id, name="New Corp", normalized_name="new corp")
+    session = FakeSession(customer=customer)
+    lookup = MagicMock()
+    lookup.scalar_one_or_none.return_value = project
+    session.execute.return_value = lookup
+    actor = user("Lead_SA")
+    actor.id = uuid.uuid4()
+
+    with api_as(actor, session) as client:
+        response = client.post(
+            "/api/v1/projects/P-1/customer-repair",
+            json={"customer_id": str(new_id), "reason": "Legacy project was linked incorrectly"},
+        )
+
+    assert response.status_code == 200
+    assert (project.customer_id, project.customer_name) == (new_id, "New Corp")
+    assert (
+        project.gdrive_folder_id,
+        project.gdrive_solutions_folder_id,
+        project.gdrive_folder_number,
+        project.folder_provisioning_status,
+    ) == ("master-1", "solutions-1", 17, "provisioned")
+    assert session.commit.await_count == 1
+    audit = next(entry for entry in session.added if isinstance(entry, AuditLog))
+    assert audit.entity_type == "project"
+    assert audit.entity_id == "P-1"
+    assert audit.action == "customer_link_repaired"
+    assert audit.performed_by == actor.id
+    assert audit.old_value["customer"] == {"id": str(old_id), "name": "Old Corp"}
+    assert audit.new_value["customer"] == {"id": str(new_id), "name": "New Corp"}
+    assert audit.new_value["reason"] == "Legacy project was linked incorrectly"
+    assert audit.created_at is not None
+    assert audit.new_value["drive_state_unchanged"] == {
+        "gdrive_folder_id": "master-1",
+        "gdrive_solutions_folder_id": "solutions-1",
+        "gdrive_folder_number": 17,
+        "folder_provisioning_status": "provisioned",
+    }
+
+
+@pytest.mark.parametrize(
+    "role,is_admin,status",
+    [("Sales", False, 403), ("SA", False, 403), ("Admin", False, 403), ("SA", True, 200)],
+)
+def test_project_customer_repair_authorizes_only_lead_sa_or_admin(role, is_admin, status):
+    customer = Customer(id=uuid.uuid4(), name="Verified", normalized_name="verified")
+    session = FakeSession(customer=customer)
+    if is_admin:
+        project = MagicMock(customer_id=None, customer_name="Legacy", id_project="P-1")
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = project
+        session.execute.return_value = result
+    actor = user(role, is_admin=is_admin)
+    with api_as(actor, session) as client:
+        response = client.post(
+            "/api/v1/projects/P-1/customer-repair",
+            json={"customer_id": str(customer.id), "reason": "Verified source record"},
+        )
+    assert response.status_code == status
+    if status == 403:
+        session.execute.assert_not_awaited()
+        session.commit.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"customer_id": str(uuid.uuid4()), "reason": "   "},
+        {"customer_id": str(uuid.uuid4()), "reason": ""},
+        {"customer_id": str(uuid.uuid4())},
+    ],
+)
+def test_project_customer_repair_rejects_empty_reason_without_mutation(body):
+    project = MagicMock(customer_id=None, customer_name="Legacy", id_project="P-1")
+    session = FakeSession()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = project
+    session.execute.return_value = result
+    with api_as(user("Lead_SA"), session) as client:
+        response = client.post("/api/v1/projects/P-1/customer-repair", json=body)
+    assert response.status_code == 422
+    assert project.customer_name == "Legacy"
+    assert session.added == []
+    session.commit.assert_not_awaited()
+
+
+def test_project_customer_repair_rejects_missing_customer_without_mutation():
+    project = MagicMock(customer_id=None, customer_name="Legacy", id_project="P-1")
+    session = FakeSession()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = project
+    session.execute.return_value = result
+    with api_as(user("Lead_SA"), session) as client:
+        response = client.post(
+            "/api/v1/projects/P-1/customer-repair",
+            json={"customer_id": str(uuid.uuid4()), "reason": "Checked the source document"},
+        )
+    assert response.status_code == 404
+    assert project.customer_name == "Legacy"
+    assert session.added == []
+    session.commit.assert_not_awaited()
+
+
+def test_project_customer_repair_attaches_customer_to_unlinked_project():
+    from app.models.audit_log import AuditLog
+
+    project = MagicMock(customer_id=None, customer_name="Legacy Organization", id_project="P-2")
+    customer = Customer(id=uuid.uuid4(), name="Verified Organization", normalized_name="verified organization")
+    session = FakeSession(customer=customer)
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = project
+    session.execute.return_value = result
+
+    with api_as(user("Lead_SA"), session) as client:
+        response = client.post(
+            "/api/v1/projects/P-2/customer-repair",
+            json={"customer_id": str(customer.id), "reason": "Reviewed company registration"},
+        )
+
+    assert response.status_code == 200
+    assert (project.customer_id, project.customer_name) == (customer.id, customer.name)
+    audit = next(entry for entry in session.added if isinstance(entry, AuditLog))
+    assert audit.old_value["customer"] == {"id": None, "name": "Legacy Organization"}
+
+
+def _folder_registration_session(project):
+    session = FakeSession()
+    project_result = MagicMock()
+    project_result.scalar_one_or_none.return_value = project
+    linked_result = MagicMock()
+    linked_result.scalar_one_or_none.return_value = None
+    session.execute.side_effect = [project_result, linked_result]
+    return session
+
+
+def test_project_customer_repair_rejects_missing_project():
+    session = FakeSession()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    session.execute.return_value = result
+    with api_as(user("Lead_SA"), session) as client:
+        response = client.post(
+            "/api/v1/projects/P-missing/customer-repair",
+            json={"customer_id": str(uuid.uuid4()), "reason": "Verified source record"},
+        )
+    assert response.status_code == 404
+    session.get.assert_not_awaited()
+    session.commit.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "project_kind,status",
+    [("missing", 404), ("unlinked", 409), ("already_registered", 409)],
+)
+def test_folder_preview_rejects_project_without_registration_eligibility(project_kind, status):
+    if project_kind == "missing":
+        project = None
+    elif project_kind == "unlinked":
+        project = MagicMock(customer_id=None, gdrive_folder_id=None)
+    else:
+        project = MagicMock(customer_id=uuid.uuid4(), gdrive_folder_id="existing-folder")
+    session = FakeSession()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = project
+    session.execute.return_value = result
+    with api_as(user("Lead_SA"), session) as client:
+        response = client.post(
+            "/api/v1/projects/P-1/register-folder/preview",
+            json={"folder_id": "drive-folder", "reason": "Reviewed Drive"},
+        )
+    assert response.status_code == status
+
+
+def test_folder_preview_rejects_blank_folder_id_and_reason():
+    session = FakeSession()
+    with api_as(user("Lead_SA"), session) as client:
+        blank_folder = client.post(
+            "/api/v1/projects/P-1/register-folder/preview",
+            json={"folder_id": " ", "reason": "Reviewed Drive"},
+        )
+        blank_reason = client.post(
+            "/api/v1/projects/P-1/register-folder/preview",
+            json={"folder_id": "drive-folder", "reason": " "},
+        )
+    assert blank_folder.status_code == 422
+    assert blank_reason.status_code == 422
+    session.execute.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"id": "another-folder", "mimeType": "application/vnd.google-apps.folder"},
+        {"id": "drive-folder", "mimeType": "text/plain"},
+        {
+            "id": "drive-folder",
+            "mimeType": "application/vnd.google-apps.folder",
+            "trashed": True,
+        },
+    ],
+)
+def test_folder_preview_rejects_mismatched_or_inactive_drive_metadata(metadata, monkeypatch):
+    from app.api import project_lifecycle_api
+
+    project = MagicMock(customer_id=uuid.uuid4(), gdrive_folder_id=None)
+    session = _folder_registration_session(project)
+    monkeypatch.setattr(
+        project_lifecycle_api.folder_provisioner,
+        "get_folder_metadata",
+        AsyncMock(return_value=metadata),
+    )
+    with api_as(user("Lead_SA"), session) as client:
+        response = client.post(
+            "/api/v1/projects/P-1/register-folder/preview",
+            json={"folder_id": "drive-folder", "reason": "Reviewed Drive"},
+        )
+    assert response.status_code == 422
+
+
+def test_folder_preview_translates_drive_read_errors(monkeypatch):
+    from app.api import project_lifecycle_api
+    from app.services.folder_provisioner import FolderProvisioningError
+
+    project = MagicMock(customer_id=uuid.uuid4(), gdrive_folder_id=None)
+    session = _folder_registration_session(project)
+    monkeypatch.setattr(
+        project_lifecycle_api.folder_provisioner,
+        "get_folder_metadata",
+        AsyncMock(side_effect=ValueError("inaccessible")),
+    )
+    with api_as(user("Lead_SA"), session) as client:
+        metadata_error = client.post(
+            "/api/v1/projects/P-1/register-folder/preview",
+            json={"folder_id": "drive-folder", "reason": "Reviewed Drive"},
+        )
+    assert metadata_error.status_code == 422
+
+    session = _folder_registration_session(project)
+    monkeypatch.setattr(
+        project_lifecycle_api.folder_provisioner,
+        "get_folder_metadata",
+        AsyncMock(
+            return_value={
+                "id": "drive-folder",
+                "mimeType": "application/vnd.google-apps.folder",
+                "name": "12- Project",
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        project_lifecycle_api.folder_provisioner,
+        "list_folder_children",
+        AsyncMock(side_effect=FolderProvisioningError("unreadable")),
+    )
+    with api_as(user("Lead_SA"), session) as client:
+        children_error = client.post(
+            "/api/v1/projects/P-1/register-folder/preview",
+            json={"folder_id": "drive-folder", "reason": "Reviewed Drive"},
+        )
+    assert children_error.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"folder_id": "drive-folder", "reason": "Reviewed Drive"},
+        {"folder_id": "drive-folder", "reason": " ", "confirm": True},
+    ],
+)
+def test_folder_registration_requires_confirmation_and_reason(body):
+    with api_as(user("Lead_SA"), FakeSession()) as client:
+        response = client.post("/api/v1/projects/P-1/register-folder", json=body)
+    assert response.status_code == 422

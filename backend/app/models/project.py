@@ -193,6 +193,12 @@ class Project(Base):
         nullable=True,
         comment="ID folder Google Drive proyek",
     )
+    gdrive_inventory_folder_id: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True, comment="ID subfolder Inventory di Google Drive"
+    )
+    gdrive_diagram_folder_id: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True, comment="ID subfolder Diagram di Google Drive"
+    )
     gdrive_solutions_folder_id: Mapped[Optional[str]] = mapped_column(
         String(255),
         nullable=True,

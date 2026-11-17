@@ -6,7 +6,16 @@ import useSWR from "swr";
 import { apiRequest, fetcher } from "@/lib/fetcher";
 import { isPrivileged } from "@/lib/roles";
 import type { QualificationView } from "@/lib/qualification";
-import type { IntegrationOperationResponse } from "@/lib/api/projects";
+import type {
+  CustomerOption,
+  IntegrationOperationResponse,
+  ProjectDriveFolderPreview,
+} from "@/lib/api/projects";
+import {
+  previewProjectDriveFolder,
+  registerProjectDriveFolder,
+  repairProjectCustomerLink,
+} from "@/lib/api/projects";
 import type { HandoverReadiness } from "@/lib/api/handover";
 import { BANTOverride } from "@/components/BANTOverride";
 import { CollaboratorSection } from "@/components/CollaboratorSection";
@@ -44,6 +53,7 @@ type Person = { id: string | null; name: string | null; email: string | null };
 
 export interface ProjectDetail {
   id_project: string;
+  customer_id?: string | null;
   project_name: string;
   customer_name: string;
   status: string;
@@ -64,6 +74,10 @@ export interface ProjectDetail {
   collaborators: { id: string; user_id: string; user_name: string; user_email: string; user_role: string; role: "viewer" | "contributor"; added_by_name: string; created_at: string }[];
   source_documents?: SourceDocumentItem[];
   gdrive_folder_id: string | null;
+  gdrive_inventory_folder_id?: string | null;
+  gdrive_diagram_folder_id?: string | null;
+  gdrive_solutions_folder_id?: string | null;
+  gdrive_folder_number?: number | null;
   folder_provisioning_status: "pending" | "provisioned" | "failed" | null;
   folder_provisioning_operation?: FolderProvisioningOperation | null;
   integration_operations: IntegrationOperationResponse[];
@@ -99,6 +113,34 @@ export function ProjectDetailContent({
   handover,
 }: Props) {
   const canDelete = isPrivileged(user);
+  const canRepairCustomer = user?.role === "Lead_SA" || user?.is_admin === true;
+  const [showCustomerRepair, setShowCustomerRepair] = useState(false);
+  const [repairCustomerId, setRepairCustomerId] = useState("");
+  const [repairReason, setRepairReason] = useState("");
+  const [driveReviewed, setDriveReviewed] = useState(false);
+  const [repairingCustomer, setRepairingCustomer] = useState(false);
+  const [repairError, setRepairError] = useState<string | null>(null);
+  const { data: customers = [], isLoading: customersLoading } = useSWR<CustomerOption[]>(
+    showCustomerRepair && canRepairCustomer ? "/customers" : null,
+    fetcher,
+  );
+
+  const handleRepairCustomer = async () => {
+    setRepairingCustomer(true);
+    setRepairError(null);
+    try {
+      await repairProjectCustomerLink(projectId, repairCustomerId, repairReason.trim());
+      setShowCustomerRepair(false);
+      setRepairCustomerId("");
+      setRepairReason("");
+      setDriveReviewed(false);
+      onProjectChanged();
+    } catch (cause) {
+      setRepairError(cause instanceof Error ? cause.message : "Gagal memperbaiki tautan Customer.");
+    } finally {
+      setRepairingCustomer(false);
+    }
+  };
 
   return (
     <>
@@ -106,8 +148,8 @@ export function ProjectDetailContent({
         <div>
           <h1 className="text-2xl font-bold text-neutral-900">{project.project_name}</h1>
           <p className="mt-1 text-sm text-neutral-500">{project.customer_name}</p>
-          <p className="mt-0.5 font-mono text-xs text-neutral-400">{project.id_project}</p>
-          <p className="mt-0.5 text-xs text-neutral-400">
+          <p className="mt-0.5 font-mono text-xs text-neutral-500">{project.id_project}</p>
+          <p className="mt-0.5 text-xs text-neutral-500">
             Terakhir Diubah:{" "}
             {new Date(project.updated_at).toLocaleDateString("id-ID", {
               day: "numeric",
@@ -166,7 +208,93 @@ export function ProjectDetailContent({
             className="shrink-0 rounded-full px-3 py-1 text-xs"
           />
         </div>
+      {canRepairCustomer && (
+        <button
+          type="button"
+          onClick={() => setShowCustomerRepair(true)}
+          className="min-h-[36px] rounded-lg border border-amber-300 px-3 py-1.5 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-50"
+        >
+          Perbaiki tautan Customer
+        </button>
+      )}
       </div>
+      {showCustomerRepair && canRepairCustomer && (
+        <div role="dialog" aria-modal="true" aria-labelledby="customer-repair-title" className="rounded-lg border border-amber-300 bg-amber-50 p-5">
+          <h2 id="customer-repair-title" className="text-lg font-semibold text-neutral-900">Perbaiki tautan Customer proyek</h2>
+          <p className="mt-2 text-sm text-neutral-700">
+            Customer saat ini: <strong>{project.customer_name}</strong> ({project.customer_id || "belum ditautkan"})
+          </p>
+          <p className="mt-2 text-sm text-amber-900">
+            Google Drive tidak akan dipindahkan atau diperbaiki oleh tindakan ini. Periksa folder dan permission yang ada di Google Drive sebelum menyimpan. Permission tidak diverifikasi otomatis.
+          </p>
+          <div className="mt-3 space-y-1 text-sm text-neutral-700">
+            <p>Folder proyek: {project.gdrive_folder_id || "belum terdaftar"}</p>
+            <p>Folder Solutions: {project.gdrive_solutions_folder_id || "belum terdaftar"}</p>
+            <p>Nomor folder: {project.gdrive_folder_number ?? "belum ditetapkan"} · Status: {project.folder_provisioning_status || "belum ada"}</p>
+            {project.gdrive_folder_id && (
+              <a
+                className="inline-block text-primary-700 underline"
+                href={`https://drive.google.com/drive/folders/${project.gdrive_folder_id}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Tinjau folder proyek di Google Drive
+              </a>
+            )}
+            {project.gdrive_solutions_folder_id && (
+              <a
+                className="ml-3 inline-block text-primary-700 underline"
+                href={`https://drive.google.com/drive/folders/${project.gdrive_solutions_folder_id}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Tinjau folder Solutions di Google Drive
+              </a>
+            )}
+          </div>
+          <div className="mt-4 space-y-3">
+            <label className="block text-sm font-medium text-neutral-800" htmlFor="customer-repair-select">Customer tujuan</label>
+            <select
+              id="customer-repair-select"
+              value={repairCustomerId}
+              onChange={(event) => setRepairCustomerId(event.target.value)}
+              disabled={customersLoading}
+              className="w-full rounded border border-neutral-300 bg-white px-3 py-2 text-sm"
+            >
+              <option value="">Pilih Customer yang sudah ada</option>
+              {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+            </select>
+            {customers.length === 0 && !customersLoading && <p className="text-sm text-neutral-600">Belum ada Customer tersedia.</p>}
+            <label className="block text-sm font-medium text-neutral-800" htmlFor="customer-repair-reason">Alasan perbaikan</label>
+            <textarea
+              id="customer-repair-reason"
+              value={repairReason}
+              onChange={(event) => setRepairReason(event.target.value)}
+              required
+              rows={3}
+              className="w-full rounded border border-neutral-300 bg-white px-3 py-2 text-sm"
+            />
+            <label className="flex items-start gap-2 text-sm text-neutral-800">
+              <input type="checkbox" checked={driveReviewed} onChange={(event) => setDriveReviewed(event.target.checked)} />
+              <span>Saya sudah meninjau folder Drive dan permission yang ada.</span>
+            </label>
+            {repairError && <p role="alert" className="text-sm text-red-700">{repairError}</p>}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleRepairCustomer}
+                disabled={!repairCustomerId || !repairReason.trim() || !driveReviewed || repairingCustomer || customersLoading}
+                className="rounded bg-primary-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {repairingCustomer ? "Menyimpan…" : "Simpan tautan Customer"}
+              </button>
+              <button type="button" onClick={() => setShowCustomerRepair(false)} className="rounded border border-neutral-300 px-3 py-2 text-sm">
+                Batal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <StatusActions project={project} onChanged={onProjectChanged} />
       <HandoverAction project={project} onDone={onProjectChanged} />
       <section className="rounded-lg border border-neutral-200 bg-white p-5">
@@ -216,9 +344,12 @@ export function ProjectDetailContent({
         )}
       </section>
       <FolderProvisioningSection
+        projectId={projectId}
         status={project.folder_provisioning_status}
         operation={project.folder_provisioning_operation}
-        hasMasterFolder={!!project.gdrive_folder_id}
+        masterFolderId={project.gdrive_folder_id}
+        canRegister={canRepairCustomer && Boolean(project.customer_id)}
+        onRegistered={onProjectChanged}
         canRetry={isPrivileged(user)}
         isRetrying={folderProvisioning.isRetrying}
         retryError={folderProvisioning.error}
@@ -473,9 +604,12 @@ function ProjectActivitySection({ projectId }: { projectId: string }) {
 }
 
 interface FolderProvisioningSectionProps {
+  projectId: string;
   status: ProjectDetail["folder_provisioning_status"];
   operation?: FolderProvisioningOperation | null;
-  hasMasterFolder: boolean;
+  masterFolderId: string | null;
+  canRegister: boolean;
+  onRegistered: () => void;
   canRetry: boolean;
   isRetrying: boolean;
   retryError: string | null;
@@ -483,21 +617,126 @@ interface FolderProvisioningSectionProps {
 }
 
 function FolderProvisioningSection({
+  projectId,
   status,
   operation,
-  hasMasterFolder,
+  masterFolderId,
+  canRegister,
+  onRegistered,
   canRetry,
   isRetrying,
   retryError,
   onRetry,
 }: FolderProvisioningSectionProps) {
+  const [showRegistration, setShowRegistration] = useState(false);
+  const [folderId, setFolderId] = useState("");
+  const [reason, setReason] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [preview, setPreview] = useState<ProjectDriveFolderPreview | null>(null);
+  const [registrationError, setRegistrationError] = useState<string | null>(null);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const failed = status === "failed" || operation?.status === "failed";
   const pending =
     !failed && (status === "pending" || operation?.status === "pending");
   const provisioned =
     !failed && !pending && (status === "provisioned" || operation?.status === "succeeded");
+  const loadPreview = async () => {
+    setRegistrationError(null);
+    setPreview(null);
+    setConfirmed(false);
+    setIsLoadingPreview(true);
+    const requestedFolderId = folderId.trim();
+    const requestedReason = reason.trim();
+    try {
+      const result = await previewProjectDriveFolder(projectId, requestedFolderId, requestedReason);
+      if (folderId.trim() === requestedFolderId && reason.trim() === requestedReason) {
+        setPreview(result);
+      }
+    } catch (cause) {
+      setRegistrationError(cause instanceof Error ? cause.message : "Gagal memeriksa folder Drive.");
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+  const registerFolder = async () => {
+    if (!preview || !confirmed) return;
+    setIsRegistering(true);
+    setRegistrationError(null);
+    try {
+      await registerProjectDriveFolder(projectId, folderId.trim(), reason.trim(), preview);
+      setPreview(null);
+      onRegistered();
+    } catch (cause) {
+      setRegistrationError(cause instanceof Error ? cause.message : "Gagal mendaftarkan folder Drive.");
+    } finally {
+      setIsRegistering(false);
+    }
+  };
+  const registrationControl = canRegister && !masterFolderId ? (
+    <div className="mt-4 border-t border-neutral-200 pt-4">
+      {!showRegistration ? (
+        <button type="button" className="text-sm font-medium text-primary-700 underline" onClick={() => setShowRegistration(true)}>
+          Daftarkan folder yang sudah ada
+        </button>
+      ) : (
+        <div className="space-y-3">
+          <label className="block text-sm">
+            ID folder Google Drive
+            <input disabled={isLoadingPreview} className="mt-1 block w-full rounded border border-neutral-300 px-3 py-2" value={folderId} onChange={(event) => { setFolderId(event.target.value); setPreview(null); setConfirmed(false); }} />
+          </label>
+          <label className="block text-sm">
+            Alasan pendaftaran
+            <textarea disabled={isLoadingPreview} className="mt-1 block w-full rounded border border-neutral-300 px-3 py-2" value={reason} onChange={(event) => { setReason(event.target.value); setPreview(null); setConfirmed(false); }} />
+          </label>
+          <button type="button" disabled={!folderId.trim() || !reason.trim() || isLoadingPreview} onClick={loadPreview} className="rounded border px-3 py-2 text-sm disabled:opacity-50">
+            {isLoadingPreview ? "Memeriksa folder..." : "Periksa dan tinjau"}
+          </button>
+          {preview && (
+            <div className="rounded bg-neutral-50 p-3 text-sm" aria-label="Pratinjau folder Drive">
+              <p>Nama folder: {preview.name}</p>
+              <p>Parent Drive: {preview.parent_id ?? "Tidak ada"}</p>
+              <p>Nomor proyek terdeteksi: {preview.detected_project_number ?? "Tidak terdeteksi"}</p>
+              <p>Inventory: {preview.inventory_folder_id}</p>
+              <p>Diagram: {preview.diagram_folder_id}</p>
+              <p>Solutions: {preview.solutions_folder_id}</p>
+              {preview.parent_mismatch && <p role="alert">Parent folder berbeda dari folder Customer. Folder tidak akan dipindahkan.</p>}
+              <label className="mt-2 flex items-center gap-2">
+                <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
+                Saya telah meninjau dan mengonfirmasi pendaftaran folder ini.
+              </label>
+              <button type="button" disabled={!confirmed || isRegistering} onClick={registerFolder} className="mt-3 rounded bg-primary-600 px-3 py-2 text-sm text-white disabled:opacity-50">
+                {isRegistering ? "Mendaftarkan..." : "Konfirmasi pendaftaran"}
+              </button>
+            </div>
+          )}
+          {registrationError && <p role="alert" className="text-sm text-red-700">{registrationError}</p>}
+          <button type="button" className="text-sm underline" onClick={() => setShowRegistration(false)}>Batal</button>
+        </div>
+      )}
+    </div>
+  ) : null;
 
-  if (!failed && !pending && !provisioned) return null;
+  if (!failed && !pending && !provisioned) {
+    return (
+      <section className="rounded-lg border border-neutral-200 bg-white p-5">
+        <h2 className="text-sm font-semibold text-neutral-700">Folder Google Drive</h2>
+        {masterFolderId ? (
+          <a
+            className="mt-2 inline-block text-sm font-medium text-primary-700 underline"
+            href={`https://drive.google.com/drive/folders/${encodeURIComponent(masterFolderId)}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Buka folder Google Drive
+          </a>
+        ) : (
+          <p className="mt-2 text-sm text-neutral-600">Folder Google Drive belum terdaftar</p>
+        )}
+        {registrationControl}
+      </section>
+    );
+  }
 
   const latestAttempt = operation?.attempts.at(-1);
   const outcome = operation?.outcome ?? latestAttempt?.outcome;
@@ -516,6 +755,22 @@ function FolderProvisioningSection({
             : "border-green-200 bg-green-50"
       }`}
     >
+      <div className="mb-3">
+        <h2 className="text-sm font-semibold text-neutral-700">Folder Google Drive</h2>
+        {masterFolderId ? (
+          <a
+            className="mt-2 inline-block text-sm font-medium text-primary-700 underline"
+            href={`https://drive.google.com/drive/folders/${encodeURIComponent(masterFolderId)}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Buka folder Google Drive
+          </a>
+        ) : (
+          <p className="mt-2 text-sm text-neutral-600">Folder Google Drive belum terdaftar</p>
+        )}
+      </div>
+
       <h2
         id="folder-provisioning-heading"
         className="text-sm font-semibold text-neutral-800"
@@ -557,7 +812,7 @@ function FolderProvisioningSection({
           ))}
         </ol>
       )}
-      {failed && canRetry && !hasMasterFolder && (
+      {failed && canRetry && !masterFolderId && (
         <div className="mt-4">
           <p className="mb-3 text-sm text-neutral-700">
             Pastikan izin service account benar dan hapus folder yatim di Drive
@@ -573,7 +828,7 @@ function FolderProvisioningSection({
           </button>
         </div>
       )}
-      {failed && hasMasterFolder && (
+      {failed && masterFolderId && (
         <p className="mt-3 text-sm text-neutral-700">
           Folder Drive sudah tersimpan; retry otomatis tidak tersedia. Periksa
           folder yang ada dan perbaiki izinnya secara manual.
@@ -584,7 +839,9 @@ function FolderProvisioningSection({
           {retryError}
         </p>
       )}
+      {registrationControl}
     </section>
   );
+
 }
 

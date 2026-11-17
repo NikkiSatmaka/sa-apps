@@ -406,7 +406,34 @@ class TestProjectRecordCreation:
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         mock_session.add.assert_not_called()
+        mock_session.commit.assert_not_awaited()
 
+    def test_project_reuses_customer_inserted_concurrently(self, mock_auth_and_db):
+        from sqlalchemy.exc import IntegrityError
+
+        _, mock_session = mock_auth_and_db
+        winner = Customer(id=uuid.uuid4(), name="PT Baru", normalized_name="pt baru")
+        mock_session.scalar.side_effect = [None, winner]
+        mock_session.flush.side_effect = IntegrityError("insert", {}, Exception("unique"))
+
+        response = TestClient(app).post(
+            "/api/v1/projects",
+            data={
+                "project_name": "Proyek Race",
+                "customer_name": " PT BARU ",
+                "target_submit": str(date.today() + timedelta(days=7)),
+                "estimasi_nilai": "100000",
+                "qualification_answers": QA,
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["data"]["customer_name"] == "PT Baru"
+        assert any(
+            isinstance(call.args[0], Project) and call.args[0].customer_id == winner.id
+            for call in mock_session.add.call_args_list
+        )
+        mock_session.commit.assert_awaited_once()
     def test_project_id_format_prj(self, mock_auth_and_db):
         """ID proyek mengikuti format PRJ-{date}-{random}."""
         client = TestClient(app)
@@ -421,15 +448,12 @@ class TestProjectRecordCreation:
             },
         )
         assert response.status_code == status.HTTP_201_CREATED
-        body = response.json()
-        project_id = body["data"]["id_project"]
-        assert project_id.startswith("PRJ-")
-        # Format: PRJ-YYYYMMDD-XXXXXX (total panjang = 4+8+6+2 separators = 20)
+        project_id = response.json()["data"]["id_project"]
         parts = project_id.split("-")
         assert len(parts) == 3
         assert parts[0] == "PRJ"
-        assert len(parts[1]) == 8  # YYYYMMDD
-        assert len(parts[2]) == 6  # Random
+        assert len(parts[1]) == 8
+        assert len(parts[2]) == 6
 
     def test_project_memiliki_timestamp(self, mock_auth_and_db):
         """Proyek baru memiliki created_at yang tidak null."""
@@ -552,6 +576,7 @@ class TestEstimasiNilaiPersist:
         assert added_project.customer_id == added_customer.id
         assert added_customer.name == "PT Estimasi"
         assert added_project.estimasi_nilai == Decimal("750000000.50")
+        mock_session.commit.assert_awaited_once()
 
         # Nilai juga tercermin di response
         body = response.json()

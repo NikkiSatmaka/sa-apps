@@ -123,9 +123,10 @@ nilai kembalian kode produksi. Status: suite ini ditulis tanpa akses kredensial 
 dijalankan** terhadap Drive sungguhan; hasil run pertama dicatat di issue #27.
 
 Keamanan: tanpa `GDRIVE_LIVE_TEST=1` seluruh test live **dideselect** (bukan skip, bukan error),
-termasuk di CI (`-m integration`). Folder uji diberi awalan `[LIVE-TEST <uuid>] `, dihapus di akhir
-tiap test (juga saat gagal), dan sisa sesi terputus disapu di awal sesi (folder `[LIVE-TEST...` milik
-service account itu). Gunakan service account **khusus uji** dan jangan jalankan dua sesi paralel.
+termasuk di CI (`-m integration`). Gunakan Workspace Shared Drive khusus non-produksi, dan buat
+folder root kosong di dalamnya. Jalankan test hanya dengan `GDRIVE_LIVE_PARENT_FOLDER_ID` yang
+menunjuk ke root tersebut; hasil cleanup dibatasi ke folder langsung di root itu dengan awalan
+`[LIVE-TEST <uuid>] `. Jangan gunakan My Drive pribadi atau jalankan dua sesi paralel.
 
 ```bash
 # 1. Siapkan service account + akun uji (menulis backend/.env.drive-live, di-ignore git, mode 0600)
@@ -145,10 +146,11 @@ docker rm -f sa-test-pg
 ```
 
 Env yang dibaca (semua wajib bila `GDRIVE_LIVE_TEST=1`; kurang → error konfigurasi yang menyebut
-namanya): `GDRIVE_SERVICE_ACCOUNT_KEY`, `DRIVE_LIVE_LEAD_EMAIL`, `DRIVE_LIVE_SA_EMAIL`,
-`DRIVE_LIVE_SALES_EMAIL`, `DRIVE_LIVE_PMO_EMAIL`, `DRIVE_LIVE_DELIVERY_EMAIL` (lima email wajib akun
-Google nyata yang **berbeda satu sama lain** dan bukan service account). Opsional:
-`DRIVE_LIVE_TEST_TIMEOUT` (detik, default 120). Skenario API juga butuh `TEST_DATABASE_URL`.
+namanya): `GDRIVE_SERVICE_ACCOUNT_KEY`, `GDRIVE_LIVE_PARENT_FOLDER_ID`,
+`DRIVE_LIVE_LEAD_EMAIL`, `DRIVE_LIVE_SA_EMAIL`, `DRIVE_LIVE_SALES_EMAIL`,
+`DRIVE_LIVE_PMO_EMAIL`, `DRIVE_LIVE_DELIVERY_EMAIL` (lima email wajib akun Google nyata yang
+**berbeda satu sama lain** dan bukan service account). Opsional: `DRIVE_LIVE_TEST_TIMEOUT` (detik,
+default 120). Skenario API juga butuh `TEST_DATABASE_URL`.
 Lihat daftar skenario dengan `GDRIVE_LIVE_TEST=1 uv run pytest --collect-only -m drive_live` (env di atas).
 
 Definisi "akses efektif" yang dipakai assertion: peran tertinggi dari permission user pada folder

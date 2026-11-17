@@ -40,6 +40,7 @@ def env_lengkap(**ubah: str) -> dict[str, str]:
     env = {
         "GDRIVE_LIVE_TEST": "1",
         "GDRIVE_SERVICE_ACCOUNT_KEY": KUNCI,
+        "GDRIVE_LIVE_PARENT_FOLDER_ID": "live-root",
         "DRIVE_LIVE_LEAD_EMAIL": "lead@uji.test",
         "DRIVE_LIVE_SA_EMAIL": "sa@uji.test",
         "DRIVE_LIVE_SALES_EMAIL": "sales@uji.test",
@@ -89,6 +90,7 @@ def test_tanpa_item_live_tidak_ada_yang_dideselect():
 def test_konfigurasi_lengkap_dimuat():
     cfg = muat_konfigurasi(env_lengkap())
 
+    assert cfg.parent_folder_id == "live-root"
     assert cfg.email_lead == "lead@uji.test"
     assert cfg.email_sa == "sa@uji.test"
     assert cfg.email_sales == "sales@uji.test"
@@ -244,10 +246,13 @@ class ServiceDrivePalsu:
     def permissions(self):
         return _Izin(self)
 
-    def get(self, fileId, fields):  # noqa: N803 - nama argumen API Google
+    def get(self, fileId, fields, supportsAllDrives):  # noqa: N803 - nama argumen API Google
+        assert supportsAllDrives is True
         return _Req(lambda: self.berkas[fileId])
 
-    def delete(self, fileId):  # noqa: N803
+    def delete(self, fileId, supportsAllDrives):  # noqa: N803
+        assert supportsAllDrives is True
+
         def _hapus():
             if fileId not in self.berkas:
                 from googleapiclient.errors import HttpError
@@ -258,34 +263,52 @@ class ServiceDrivePalsu:
 
         return _Req(_hapus)
 
-    def list(self, q, fields, pageToken=None, pageSize=None):  # noqa: N803
-        halaman = {None: 0, "t2": 1}[pageToken]
-        if "in parents" in q:
-            induk = q.split("'")[1]
-            anak = [b for b in self.berkas.values() if induk in b.get("parents", [])]
-            return _Req(lambda: {"files": anak})
-        semua = [b for b in self.berkas.values() if b.get("owned")]
-        potongan = [semua[:1], semua[1:]][halaman]
-        return _Req(
-            lambda: {"files": potongan, **({"nextPageToken": "t2"} if halaman == 0 else {})}
-        )
+    def list(
+        self,
+        q,
+        fields,
+        pageToken=None,
+        pageSize=None,
+        supportsAllDrives=False,
+        includeItemsFromAllDrives=False,
+    ):  # noqa: N803
+        assert supportsAllDrives is True
+        assert includeItemsFromAllDrives is True
+        induk = q.split("'")[1]
+        anak = [b for b in self.berkas.values() if induk in b.get("parents", [])]
+        if induk == "root":
+            halaman = {None: 0, "t2": 1}[pageToken]
+            potongan = [anak[:1], anak[1:]][halaman]
+            next_page = "t2" if halaman == 0 and len(anak) > 1 else None
+        else:
+            potongan = anak
+            next_page = None
+        return _Req(lambda: {"files": potongan, **({"nextPageToken": next_page} if next_page else {})})
 
 
 class _Izin:
     def __init__(self, induk):
         self._induk = induk
 
-    def list(self, fileId, fields, pageToken=None):  # noqa: N803
+    def list(self, fileId, fields, pageToken=None, supportsAllDrives=False):  # noqa: N803
+        assert supportsAllDrives is True
         return _Req(lambda: {"permissions": self._induk.izin.get(fileId, [])})
 
 
 def _pohon() -> ServiceDrivePalsu:
     folder = "application/vnd.google-apps.folder"
     berkas = {
-        "m": {"id": "m", "name": "[LIVE-TEST a] PT - P", "mimeType": folder, "owned": True},
+        "root": {"id": "root", "name": "Test root", "mimeType": folder},
+        "m": {
+            "id": "m",
+            "name": "[LIVE-TEST a] PT - P",
+            "mimeType": folder,
+            "parents": ["root"],
+        },
         "i": {"id": "i", "name": "Inventory", "mimeType": folder, "parents": ["m"]},
         "d": {"id": "d", "name": "Diagram", "mimeType": folder, "parents": ["m"]},
-        "x": {"id": "x", "name": "Punya Orang", "mimeType": folder, "owned": True},
+        "r": {"id": "r", "name": "Unrelated root child", "mimeType": folder, "parents": ["root"]},
+        "x": {"id": "x", "name": "Punya Orang", "mimeType": folder, "parents": ["elsewhere"]},
     }
     izin = {
         "m": [{"type": "user", "role": "writer", "emailAddress": "sa@uji.test"}],
@@ -295,14 +318,14 @@ def _pohon() -> ServiceDrivePalsu:
 
 
 def test_rantai_ke_atas_dari_anak_sampai_akar():
-    v = Verifikator(_pohon())
+    v = Verifikator(_pohon(), "root")
 
-    assert v.rantai_ke_atas("i") == ["i", "m"]
-    assert v.rantai_ke_atas("m") == ["m"]
+    assert v.rantai_ke_atas("i") == ["i", "m", "root"]
+    assert v.rantai_ke_atas("m") == ["m", "root"]
 
 
 def test_peran_efektif_memperhitungkan_leluhur_dan_tidak_bocor_ke_saudara():
-    v = Verifikator(_pohon())
+    v = Verifikator(_pohon(), "root")
 
     assert v.peran_efektif("i", "sales@uji.test") == "reader"
     assert v.peran_efektif("d", "sales@uji.test") is None
@@ -314,23 +337,26 @@ def test_link_publik_pada_leluhur_dihitung_sebagai_akses_efektif():
     service = _pohon()
     service.izin["m"].append({"type": "anyone", "role": "reader"})
 
-    assert Verifikator(service).peran_efektif("d", "sales@uji.test") == "reader"
+    assert Verifikator(service, "root").peran_efektif("d", "sales@uji.test") == "reader"
 
 
 def test_anak_mengembalikan_nama_subfolder():
-    assert sorted(f["name"] for f in Verifikator(_pohon()).anak("m")) == ["Diagram", "Inventory"]
+    assert sorted(f["name"] for f in Verifikator(_pohon(), "root").anak("m")) == [
+        "Diagram",
+        "Inventory",
+    ]
 
 
-def test_folder_milik_service_account_menelusuri_semua_halaman():
-    nama = sorted(f["name"] for f in Verifikator(_pohon()).folder_milik_service_account())
+def test_folder_dalam_shared_drive_parent_dipaginasi():
+    folders = Verifikator(_pohon(), "root").folder_dalam_parent()
 
-    assert nama == ["Punya Orang", "[LIVE-TEST a] PT - P"]
+    assert {folder["id"] for folder in folders} == {"m", "r"}
 
 
-def test_hapus_berprefiks_hanya_menghapus_folder_dengan_awalan_dan_melaporkannya():
+def test_hapus_berprefiks_hanya_menghapus_folder_di_parent_test():
     service = _pohon()
 
-    terhapus = Verifikator(service).hapus_berprefiks("[LIVE-TEST")
+    terhapus = Verifikator(service, "root").hapus_berprefiks("[LIVE-TEST")
 
     assert terhapus == ["m"]
     assert service.dihapus == ["m"]
@@ -339,6 +365,8 @@ def test_hapus_berprefiks_hanya_menghapus_folder_dengan_awalan_dan_melaporkannya
 def test_hapus_folder_yang_sudah_tidak_ada_bukan_error():
     service = _pohon()
 
-    Verifikator(service).hapus("tidak-ada")
+    Verifikator(service, "root").hapus("tidak-ada")
 
     assert service.dihapus == []
+
+

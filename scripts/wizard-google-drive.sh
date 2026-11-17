@@ -204,7 +204,7 @@ finish() {
 
 run_wizard() {
 
-TOTAL_STAGES=7
+TOTAL_STAGES=8
 
 # File env khusus uji Drive. Jangan ke .env utama; berkas ini harus di-ignore git.
 ENV_FILE="${ENV_FILE:-backend/.env.drive-live}"
@@ -347,10 +347,25 @@ write_env DRIVE_LIVE_SALES_EMAIL "$SALES_EMAIL"
 write_env DRIVE_LIVE_PMO_EMAIL "$PMO_EMAIL"
 write_env DRIVE_LIVE_DELIVERY_EMAIL "$DELIVERY_EMAIL"
 
-# ── 7. Kebijakan berbagi (khusus Workspace) ───────────────────────────────
+stage "Workspace: siapkan Shared Drive khusus uji"
+say "Service account tidak punya storage My Drive; Shared Drive butuh Google Workspace."
+say "Jangan pakai akun Drive pribadi atau Shared Drive produksi."
+open_url "https://drive.google.com/drive/shared-drives"
+step "Buat Shared Drive khusus non-produksi untuk verifikasi Portal SA."
+step "Tambahkan $SERVICE_ACCOUNT_EMAIL sebagai anggota dengan akses minimum yang"
+step "mengizinkan pembuatan folder dan pengubahan permission sesuai kebijakan Workspace."
+step "Buat folder root kosong di Shared Drive dan salin ID-nya dari URL folder."
+ask LIVE_PARENT_FOLDER_ID "Tempel ID folder root uji:"
+if [[ -z "$LIVE_PARENT_FOLDER_ID" ]]; then
+  warn "ID folder root uji wajib diisi."
+  exit 1
+fi
+write_env GDRIVE_LIVE_PARENT_FOLDER_ID "$LIVE_PARENT_FOLDER_ID"
+pause "Shared Drive siap dan service account sudah diberi akses? Tekan Enter"
+
 stage "Workspace: kebijakan berbagi ke luar organisasi (opsional)"
 say "Hanya relevan bila email uji memakai domain yang berbeda dari domain Workspace"
-say "pemilik proyek Google Cloud. Bila semuanya Gmail biasa tanpa Workspace, lewati."
+say "pemilik Shared Drive. Bila semuanya Gmail biasa tanpa Workspace, lewati."
 step "Admin console → Apps → Google Workspace → Drive and Docs → Sharing settings."
 step "Pastikan berbagi ke pengguna di luar organisasi diizinkan (atau domain-nya masuk allowlist)."
 if confirm "Buka Admin console sekarang?"; then

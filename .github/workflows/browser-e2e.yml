@@ -2,9 +2,13 @@ name: Browser E2E
 
 on:
   pull_request:
+    paths-ignore:
+      - '**/*.md'
   push:
     branches-ignore:
       - main
+    paths-ignore:
+      - '**/*.md'
   workflow_dispatch:
 
 permissions:

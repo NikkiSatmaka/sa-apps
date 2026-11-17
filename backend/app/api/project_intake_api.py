@@ -262,7 +262,7 @@ async def create_project(
         max_length=150,
         description="Nama customer (wajib, max 150 karakter)",
     ),
-    customer_id: Optional[str] = Form(default=None),
+    customer_id: Optional[uuid.UUID] = Form(default=None),
     target_submit: date = Form(
         ...,
         description="Target tanggal submit (format: YYYY-MM-DD, tidak boleh masa lalu)",
@@ -471,7 +471,6 @@ async def create_project(
             await db.flush()
     customer_name = customer.name
 
-        feedback = bant_rubric.generate_feedback(rubric_scores)
 
     new_project = Project(
         id_project=project_id,

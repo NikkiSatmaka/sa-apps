@@ -1,13 +1,16 @@
 """Customer identity selection, creation, and authorized rename."""
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.customer import Customer
+from app.models.project import Project
 from app.models.user import User
 
 router = APIRouter(prefix="/customers", tags=["Customers"])
@@ -47,7 +50,7 @@ async def create_customer(body: CustomerInput, db: AsyncSession = Depends(get_db
 
 
 @router.patch("/{customer_id}")
-async def rename_customer(customer_id: str, body: CustomerInput, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
+async def rename_customer(customer_id: uuid.UUID, body: CustomerInput, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)):
     if user.role != "Lead_SA" and user.is_admin is not True:
         raise HTTPException(status_code=403, detail="Hanya Lead SA atau Admin yang dapat mengganti nama Customer.")
     customer = await db.get(Customer, customer_id)
@@ -62,4 +65,5 @@ async def rename_customer(customer_id: str, body: CustomerInput, db: AsyncSessio
         raise HTTPException(status_code=409, detail="Customer dengan nama tersebut sudah ada.")
     customer.name = name
     customer.normalized_name = normalized
+    await db.execute(update(Project).where(Project.customer_id == customer.id).values(customer_name=name))
     return {"id": str(customer.id), "name": customer.name}

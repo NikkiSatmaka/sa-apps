@@ -40,18 +40,53 @@ jobs:
     outputs:
       run_app_ci: ${{ steps.classify.outputs.run_app_ci }}
     steps:
+      - name: Check out full history for branch-push classification
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - name: Classify changed files
         id: classify
         env:
+          AFTER: ${{ github.sha }}
+          BEFORE: ${{ github.event.before }}
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             echo "run_app_ci=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            base_ref="$BEFORE"
+            if [[ "$base_ref" =~ ^0+$ ]]; then
+              base_ref="origin/$DEFAULT_BRANCH"
+            fi
+
+            if ! git cat-file -e "${base_ref}^{commit}" 2>/dev/null \
+              || ! git cat-file -e "${AFTER}^{commit}" 2>/dev/null; then
+              run_app_ci=true
+            else
+              files="$(git diff --name-only "$base_ref" "$AFTER")"
+              if [[ -z "$files" ]]; then
+                run_app_ci=true
+              else
+                run_app_ci=false
+                while IFS= read -r path; do
+                  if [[ -n "$path" && "$path" != *.md ]]; then
+                    run_app_ci=true
+                    break
+                  fi
+                done <<< "$files"
+              fi
+            fi
+            echo "run_app_ci=$run_app_ci" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 

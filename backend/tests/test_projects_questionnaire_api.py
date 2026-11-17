@@ -52,6 +52,7 @@ class FakeSession:
         self.commit = AsyncMock()
         self.refresh = AsyncMock()
         self.flush = AsyncMock(side_effect=self._flush)
+        self.begin_nested = AsyncMock(return_value=AsyncMock())
         self.scalar = AsyncMock(return_value=None)
         self.execute = AsyncMock(return_value=execute_result or _result())
 

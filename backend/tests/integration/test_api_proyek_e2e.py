@@ -89,15 +89,28 @@ async def test_tanpa_login_ditolak_dan_tidak_ada_proyek_tersimpan(api, db_sessio
 
 async def test_customer_identity_dapat_dibuat_dipilih_dan_dinamai_ulang(api, db_session):
     sales = await api.login_demo("Sales")
-    dibuat = await api.client.post("/api/v1/customers", json={"name": "  PT Identitas  "}, headers=sales)
+    sales_create = await api.client.post(
+        "/api/v1/customers", json={"name": "PT Identitas"}, headers=sales
+    )
+    assert sales_create.status_code == 403
+    product = await api.login_demo("Product")
+    product_create = await api.client.post(
+        "/api/v1/customers", json={"name": "PT Identitas"}, headers=product
+    )
+    assert product_create.status_code == 403
+    lead = await api.login_demo("Lead_SA")
+    dibuat = await api.client.post(
+        "/api/v1/customers", json={"name": "  PT Identitas  "}, headers=lead
+    )
     assert dibuat.status_code == 201, dibuat.text
     customer = dibuat.json()
     customer_id = customer["id"]
     assert customer["name"] == "PT Identitas"
 
     # Nama setara setelah trim + case-fold menunjuk ke identitas yang sama.
-    product = await api.login_demo("Product")
-    duplicate = await api.client.post("/api/v1/customers", json={"name": "pt IDENTITAS"}, headers=product)
+    duplicate = await api.client.post(
+        "/api/v1/customers", json={"name": "pt IDENTITAS"}, headers=lead
+    )
     assert duplicate.status_code == 201
     assert duplicate.json()["id"] == customer_id
 
@@ -110,7 +123,6 @@ async def test_customer_identity_dapat_dibuat_dipilih_dan_dinamai_ulang(api, db_
     )
     assert product_rename.status_code == 403
 
-    lead = await api.login_demo("Lead_SA")
     lead_customer = await api.client.post(
         "/api/v1/customers", json={"name": "PT Lead Created"}, headers=lead
     )
@@ -129,20 +141,21 @@ async def test_customer_identity_dapat_dibuat_dipilih_dan_dinamai_ulang(api, db_
 
 
 async def test_proyek_baru_terhubung_ke_customer_identity(api, db_session):
-    customer_resp = await api.login_demo("Sales")
+    lead = await api.login_demo("Lead_SA")
     created_customer = await api.client.post(
-        "/api/v1/customers", json={"name": "PT Pilihan"}, headers=customer_resp
+        "/api/v1/customers", json={"name": "PT Pilihan"}, headers=lead
     )
+    assert created_customer.status_code == 201, created_customer.text
     customer_id = created_customer.json()["id"]
+    sales = await api.login_demo("Sales")
     product_id = await id_product_demo(api)
     form = _form(jawaban_kuat(), product_id)
     form["customer_name"] = "PT Pilihan"
     form["customer_id"] = customer_id
-    response = await api.client.post(URL, data=form, headers=customer_resp)
+    response = await api.client.post(URL, data=form, headers=sales)
     assert response.status_code == 201, response.text
     project = await db_session.get(Project, response.json()["data"]["id_project"])
     assert str(project.customer_id) == customer_id
-    lead = await api.login_demo("Lead_SA")
     renamed = await api.client.patch(
         f"/api/v1/customers/{customer_id}", json={"name": "PT Renamed"}, headers=lead
     )

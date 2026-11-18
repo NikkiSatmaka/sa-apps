@@ -42,6 +42,40 @@ function formatTimestamp(value: string | null): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString("id-ID");
 }
 
+function isGoogleDrivePermissionError(error: string): boolean {
+  return error.includes("insufficientFilePermissions");
+}
+
+function actionableErrorSummary(error: string): string {
+  return isGoogleDrivePermissionError(error)
+    ? "Akun layanan Google Drive tidak memiliki izin yang cukup untuk mengubah izin folder."
+    : error;
+}
+
+function actionableErrorGuidance(error: string): string | null {
+  if (!isGoogleDrivePermissionError(error)) return null;
+  return "Minta admin Shared Drive memeriksa keanggotaan akun layanan dan izinnya pada folder. Setelah izin diperbaiki, Lead SA/Admin dapat memilih “Provision ulang folder”. Folder proyek yang sudah tersimpan akan digunakan kembali.";
+}
+
+function ActionableError({ error }: { error: string }) {
+  const guidance = actionableErrorGuidance(error);
+  return (
+    <div className="mt-2 text-sm text-amber-800">
+      <p>Tindakan: {actionableErrorSummary(error)}</p>
+      {guidance && (
+        <>
+          <p className="mt-1">{guidance}</p>
+          <details className="mt-2 text-xs text-neutral-700">
+            <summary className="cursor-pointer">Detail teknis</summary>
+            <pre className="mt-1 whitespace-pre-wrap break-words">{error}</pre>
+          </details>
+        </>
+      )}
+    </div>
+  );
+}
+
+
 export function ProjectIntegrationOperations({ projectId, operations, user, onRepaired }: Props) {
   const [operationId, setOperationId] = useState<string | null>(null);
   const [recipientChecked, setRecipientChecked] = useState(false);
@@ -98,14 +132,14 @@ export function ProjectIntegrationOperations({ projectId, operations, user, onRe
                   <div><dt className="inline font-medium">Selesai: </dt><dd className="inline">{formatTimestamp(item.finished_at)}</dd></div>
                 </dl>
                 {item.outcome && <p className="mt-2 text-sm text-neutral-700">Hasil: {item.outcome}</p>}
-                {item.actionable_error && <p className="mt-2 text-sm text-amber-800">Tindakan: {item.actionable_error}</p>}
+                {item.actionable_error && <ActionableError error={item.actionable_error} />}
                 {item.attempts.length > 0 && (
                   <ol className="mt-3 space-y-2 text-xs text-neutral-600" aria-label={`Riwayat percobaan ${item.action}`}>
                     {item.attempts.map((attempt) => (
                       <li key={`${item.id}-${attempt.attempt}-${attempt.started_at}`}>
                         <p>Percobaan {attempt.attempt}: {attempt.status} · mulai {formatTimestamp(attempt.started_at)}{attempt.finished_at && ` · selesai ${formatTimestamp(attempt.finished_at)}`}</p>
                         {attempt.outcome && <p className="mt-1">Hasil: {attempt.outcome}</p>}
-                        {attempt.actionable_error && <p className="mt-1 text-amber-800">Tindakan: {attempt.actionable_error}</p>}
+                        {attempt.actionable_error && <p className="mt-1 text-amber-800">Tindakan: {actionableErrorSummary(attempt.actionable_error)}</p>}
                       </li>
                     ))}
                   </ol>

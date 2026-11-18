@@ -98,4 +98,31 @@ describe("ProjectIntegrationOperations", () => {
     expect(screen.getByText("Pemulihan manual dikonfirmasi operator")).toBeTruthy();
     expect(screen.getByText(/provider delivery was not confirmed/i)).toBeTruthy();
   });
+  it("explains Drive permission failures and keeps provider details available on demand", async () => {
+    const providerError =
+      '[set_permission_sa_team] Gagal setelah 3 percobaan. Error terakhir: <HttpError 403 when requesting permissions returned "The user does not have sufficient permissions for this file.". Details: "[{\'reason\': \'insufficientFilePermissions\'}]">';
+    const operation: IntegrationOperationResponse = {
+      ...failedEmailOperation(),
+      operation_type: "drive_provisioning",
+      action: "Provisioning folder",
+      outcome: "Drive provisioning failed",
+      actionable_error: providerError,
+      attempts: [{
+        ...failedEmailOperation().attempts[0],
+        outcome: "Drive provisioning failed",
+        actionable_error: providerError,
+      }],
+    };
+    const { user } = renderWithProviders(
+      <ProjectIntegrationOperations projectId={PROJECT_ID} operations={[operation]} user={{ role: "Lead_SA" }} onRepaired={vi.fn()} />,
+    );
+
+    expect(screen.getAllByText(/Akun layanan Google Drive tidak memiliki izin yang cukup/)).toHaveLength(2);
+    expect(screen.getByText(/Minta admin Shared Drive memeriksa/)).toBeTruthy();
+    const technicalDetails = screen.getByText(/HttpError 403/).closest("details");
+    expect(technicalDetails?.open).toBe(false);
+
+    await user.click(screen.getByText("Detail teknis"));
+    expect(technicalDetails?.open).toBe(true);
+  });
 });

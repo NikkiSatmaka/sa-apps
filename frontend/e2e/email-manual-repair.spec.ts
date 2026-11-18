@@ -66,7 +66,7 @@ async function jsonWithRefreshCookie(route: Route, body: unknown) {
 }
 
 
-async function installFixtures(page: Page) {
+async function installFixtures(page: Page, operationFixture = operation) {
   let currentRole = "SA";
   let repaired = false;
   const repairRequests: { path: string; method: string; body: unknown }[] = [];
@@ -109,13 +109,13 @@ async function installFixtures(page: Page) {
     }
     if (path === `/projects/${projectId}` && method === "GET") {
       const detail = repaired
-        ? { ...operation, context: { ...operation.context, manual_repair: {
+        ? { ...operationFixture, context: { ...operationFixture.context, manual_repair: {
           actor_user_id: "00000000-0000-4000-8000-000000000001",
           repaired_at: "2026-11-17T10:05:00Z",
           recipient_checked_not_received: true,
           manually_delivered_outside_app: true,
         } } }
-        : operation;
+        : operationFixture;
       return json(route, { data: { ...project, integration_operations: [detail] } });
     }
     if (path === `/projects/${projectId}/story`) {
@@ -126,8 +126,8 @@ async function installFixtures(page: Page) {
       repaired = true;
       return json(route, {
         data: {
-          ...operation,
-          context: { ...operation.context, manual_repair: {
+          ...operationFixture,
+          context: { ...operationFixture.context, manual_repair: {
             actor_user_id: "00000000-0000-4000-8000-000000000001",
             repaired_at: "2026-11-17T10:05:00Z",
             recipient_checked_not_received: true,
@@ -180,4 +180,34 @@ test("Lead SA records only an operator-confirmed manual email recovery", async (
     method: "POST",
     body: { recipient_checked_not_received: true, manually_delivered_outside_app: true },
   }]);
+});
+test("explains a Drive permission failure and hides provider details until requested", async ({ page }) => {
+  const providerError =
+    '[set_permission_sa_team] Gagal setelah 3 percobaan. Error terakhir: <HttpError 403 when requesting permissions returned "The user does not have sufficient permissions for this file.". Details: "[{\'reason\': \'insufficientFilePermissions\'}]">';
+  const driveOperation = {
+    ...operation,
+    operation_type: "drive_provisioning",
+    action: "Provisioning folder Google Drive",
+    outcome: "Drive provisioning failed",
+    actionable_error: providerError,
+    attempts: operation.attempts.map((attempt) => ({
+      ...attempt,
+      outcome: "Drive provisioning failed",
+      actionable_error: providerError,
+    })),
+  };
+  await installFixtures(page, driveOperation);
+  await page.goto("/demo");
+  await page.getByRole("button", { name: "Login sebagai Lead SA", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await page.goto(`/projects/${projectId}`);
+
+  const operationCard = page.locator("li").filter({ hasText: driveOperation.action });
+  await expect(operationCard).toContainText(
+    "Akun layanan Google Drive tidak memiliki izin yang cukup untuk mengubah izin folder.",
+  );
+  await expect(operationCard).toContainText(/Minta admin Shared Drive memeriksa/);
+  await expect(operationCard.getByText(/HttpError 403/)).toBeHidden();
+  await operationCard.getByText("Detail teknis").click();
+  await expect(operationCard.getByText(/HttpError 403/)).toBeVisible();
 });

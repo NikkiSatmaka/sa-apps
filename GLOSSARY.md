@@ -39,8 +39,12 @@ _Avoid_: Pengganti SA, substitute SA
 ## Proyek & status
 
 **Customer**:
-A persistent identity for the organization associated with one or more projects. Projects linked to the same Customer share its Drive folder, even when its name changes.
+A persistent identity for an organization associated with one or more projects. Names that differ only by letter case or leading/trailing whitespace identify the same Customer; projects linked to it share its Drive folder even when its name changes.
 _Avoid_: Treating each project’s `customer_name` text as a separate identity
+
+**Customer link correction**:
+Changing the Customer associated with an existing Project when its current association is wrong; it is distinct from assigning a Customer during initial project intake.
+_Avoid_: Treating it as a Drive folder or permission repair
 
 **Opportunity**:
 Peluang pre-sales. Begitu dicatat di Portal SA, peluang tersebut dilacak sebagai `Project` yang sama dari intake melalui kualifikasi dan pekerjaan SA hingga ditutup; tidak ada catatan Lead/Opportunity terpisah sebelum Project.
